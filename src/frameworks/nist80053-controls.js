@@ -1,0 +1,123 @@
+// NIST 800-53 Rev 5 Controls
+// Reference: https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf
+
+export const NIST_800_53_CONTROLS = [
+  // AC - Access Control Family
+  { id: "AC-1", name: "Access Control Policy and Procedures", category: "Access Control", priority: "Critical" },
+  { id: "AC-2", name: "Account Management", category: "Access Control", priority: "Critical" },
+  { id: "AC-3", name: "Access Enforcement", category: "Access Control", priority: "Critical" },
+  { id: "AC-4", name: "Information Flow Enforcement", category: "Access Control", priority: "High" },
+  { id: "AC-5", name: "Separation of Duties", category: "Access Control", priority: "High" },
+  { id: "AC-6", name: "Least Privilege", category: "Access Control", priority: "Critical" },
+  { id: "AC-7", name: "Unsuccessful Logon Attempts", category: "Access Control", priority: "High" },
+  { id: "AC-8", name: "System Use Notification", category: "Access Control", priority: "Medium" },
+  { id: "AC-10", name: "Concurrent Session Control", category: "Access Control", priority: "Medium" },
+  { id: "AC-11", name: "Session Lock", category: "Access Control", priority: "High" },
+  { id: "AC-12", name: "Session Termination", category: "Access Control", priority: "High" },
+  { id: "AC-14", name: "Permitted Actions Without Identification", category: "Access Control", priority: "Low" },
+  { id: "AC-17", name: "Remote Access", category: "Access Control", priority: "Critical" },
+  { id: "AC-18", name: "Wireless Access", category: "Access Control", priority: "High" },
+  { id: "AC-19", name: "Access Control for Mobile Devices", category: "Access Control", priority: "High" },
+  { id: "AC-20", name: "Use of External Information Systems", category: "Access Control", priority: "High" },
+  { id: "AC-21", name: "Information Sharing", category: "Access Control", priority: "Medium" },
+  { id: "AC-22", name: "Publicly Accessible Content", category: "Access Control", priority: "Medium" },
+  
+  // IA - Identification and Authentication
+  { id: "IA-1", name: "Identification and Authentication Policy", category: "Identity Management", priority: "Critical" },
+  { id: "IA-2", name: "Identification and Authentication (Organizational Users)", category: "Identity Management", priority: "Critical" },
+  { id: "IA-3", name: "Device Identification and Authentication", category: "Identity Management", priority: "High" },
+  { id: "IA-4", name: "Identifier Management", category: "Identity Management", priority: "Critical" },
+  { id: "IA-5", name: "Authenticator Management", category: "Identity Management", priority: "Critical" },
+  { id: "IA-6", name: "Authenticator Feedback", category: "Identity Management", priority: "Medium" },
+  { id: "IA-7", name: "Cryptographic Module Authentication", category: "Identity Management", priority: "High" },
+  { id: "IA-8", name: "Identification and Authentication (Non-Organizational Users)", category: "Identity Management", priority: "High" },
+  { id: "IA-11", name: "Re-authentication", category: "Identity Management", priority: "High" },
+  { id: "IA-12", name: "Identity Proofing", category: "Identity Management", priority: "Medium" },
+  
+  // SI - System and Information Integrity
+  { id: "SI-1", name: "System and Information Integrity Policy", category: "System Integrity", priority: "Critical" },
+  { id: "SI-2", name: "Flaw Remediation", category: "System Integrity", priority: "Critical" },
+  { id: "SI-3", name: "Malicious Code Protection", category: "System Integrity", priority: "Critical" },
+  { id: "SI-4", name: "System Monitoring", category: "System Integrity", priority: "Critical" },
+  { id: "SI-5", name: "Security Alerts and Advisories", category: "System Integrity", priority: "High" },
+  { id: "SI-6", name: "Security Function Verification", category: "System Integrity", priority: "Medium" },
+  { id: "SI-7", name: "Software and Information Integrity", category: "System Integrity", priority: "High" },
+  { id: "SI-8", name: "Spam Protection", category: "System Integrity", priority: "Medium" },
+  { id: "SI-10", name: "Information Input Validation", category: "System Integrity", priority: "High" },
+  { id: "SI-11", name: "Error Handling", category: "System Integrity", priority: "Medium" },
+  { id: "SI-12", name: "Information Handling and Retention", category: "System Integrity", priority: "High" },
+  { id: "SI-16", name: "Memory Protection", category: "System Integrity", priority: "High" },
+  
+  // IR - Incident Response
+  { id: "IR-1", name: "Incident Response Policy and Procedures", category: "Incident Response", priority: "Critical" },
+  { id: "IR-2", name: "Incident Response Training", category: "Incident Response", priority: "High" },
+  { id: "IR-3", name: "Incident Response Testing", category: "Incident Response", priority: "High" },
+  { id: "IR-4", name: "Incident Handling", category: "Incident Response", priority: "Critical" },
+  { id: "IR-5", name: "Incident Monitoring", category: "Incident Response", priority: "Critical" },
+  { id: "IR-6", name: "Incident Reporting", category: "Incident Response", priority: "Critical" },
+  { id: "IR-7", name: "Incident Response Assistance", category: "Incident Response", priority: "High" },
+  { id: "IR-8", name: "Incident Response Plan", category: "Incident Response", priority: "Critical" },
+  { id: "IR-9", name: "Information Spillage Response", category: "Incident Response", priority: "High" },
+  { id: "IR-10", name: "Integrated Information Security Analysis Team", category: "Incident Response", priority: "Medium" },
+  
+  // SC - System and Communications Protection
+  { id: "SC-1", name: "System and Communications Protection Policy", category: "System Protection", priority: "Critical" },
+  { id: "SC-2", name: "Application Partitioning", category: "System Protection", priority: "Medium" },
+  { id: "SC-3", name: "Security Function Isolation", category: "System Protection", priority: "High" },
+  { id: "SC-5", name: "Denial of Service Protection", category: "System Protection", priority: "High" },
+  { id: "SC-7", name: "Boundary Protection", category: "System Protection", priority: "Critical" },
+  { id: "SC-8", name: "Transmission Confidentiality and Integrity", category: "System Protection", priority: "Critical" },
+  { id: "SC-12", name: "Cryptographic Key Establishment and Management", category: "System Protection", priority: "Critical" },
+  { id: "SC-13", name: "Cryptographic Protection", category: "System Protection", priority: "Critical" },
+  { id: "SC-15", name: "Collaborative Computing Devices", category: "System Protection", priority: "Medium" },
+  { id: "SC-20", name: "Secure Name/Address Resolution Service", category: "System Protection", priority: "High" },
+  { id: "SC-21", name: "Secure Name/Address Resolution Service (Recursive or Caching Resolver)", category: "System Protection", priority: "High" },
+  { id: "SC-22", name: "Architecture and Provisioning for Name/Address Resolution Service", category: "System Protection", priority: "Medium" },
+  { id: "SC-23", name: "Session Authenticity", category: "System Protection", priority: "High" },
+  { id: "SC-28", name: "Protection of Information at Rest", category: "System Protection", priority: "Critical" },
+  { id: "SC-39", name: "Process Isolation", category: "System Protection", priority: "High" },
+  
+  // AU - Audit and Accountability
+  { id: "AU-1", name: "Audit and Accountability Policy and Procedures", category: "Audit", priority: "Critical" },
+  { id: "AU-2", name: "Audit Events", category: "Audit", priority: "Critical" },
+  { id: "AU-3", name: "Content of Audit Records", category: "Audit", priority: "Critical" },
+  { id: "AU-4", name: "Audit Storage Capacity", category: "Audit", priority: "High" },
+  { id: "AU-5", name: "Response to Audit Processing Failures", category: "Audit", priority: "High" },
+  { id: "AU-6", name: "Audit Record Review, Analysis, and Reporting", category: "Audit", priority: "Critical" },
+  { id: "AU-7", name: "Audit Record Reduction and Report Generation", category: "Audit", priority: "Medium" },
+  { id: "AU-8", name: "Time Stamps", category: "Audit", priority: "High" },
+  { id: "AU-9", name: "Protection of Audit Information", category: "Audit", priority: "Critical" },
+  { id: "AU-11", name: "Audit Record Retention", category: "Audit", priority: "High" },
+  { id: "AU-12", name: "Audit Generation", category: "Audit", priority: "Critical" },
+  
+  // CM - Configuration Management
+  { id: "CM-1", name: "Configuration Management Policy and Procedures", category: "Configuration Management", priority: "Critical" },
+  { id: "CM-2", name: "Baseline Configuration", category: "Configuration Management", priority: "Critical" },
+  { id: "CM-3", name: "Configuration Change Control", category: "Configuration Management", priority: "Critical" },
+  { id: "CM-4", name: "Security Impact Analysis", category: "Configuration Management", priority: "High" },
+  { id: "CM-5", name: "Access Restrictions for Change", category: "Configuration Management", priority: "High" },
+  { id: "CM-6", name: "Configuration Settings", category: "Configuration Management", priority: "Critical" },
+  { id: "CM-7", name: "Least Functionality", category: "Configuration Management", priority: "High" },
+  { id: "CM-8", name: "System Component Inventory", category: "Configuration Management", priority: "Critical" },
+  { id: "CM-9", name: "Configuration Management Plan", category: "Configuration Management", priority: "High" },
+  { id: "CM-10", name: "Software Usage Restrictions", category: "Configuration Management", priority: "Medium" },
+  { id: "CM-11", name: "User-Installed Software", category: "Configuration Management", priority: "High" },
+  
+  // RA - Risk Assessment
+  { id: "RA-1", name: "Risk Assessment Policy and Procedures", category: "Risk Assessment", priority: "Critical" },
+  { id: "RA-2", name: "Security Categorization", category: "Risk Assessment", priority: "Critical" },
+  { id: "RA-3", name: "Risk Assessment", category: "Risk Assessment", priority: "Critical" },
+  { id: "RA-5", name: "Vulnerability Scanning", category: "Risk Assessment", priority: "Critical" },
+  { id: "RA-6", name: "Technical Surveillance Countermeasures Survey", category: "Risk Assessment", priority: "Low" },
+  
+  // CA - Security Assessment and Authorization
+  { id: "CA-1", name: "Security Assessment and Authorization Policy", category: "Security Assessment", priority: "Critical" },
+  { id: "CA-2", name: "Security Assessments", category: "Security Assessment", priority: "Critical" },
+  { id: "CA-3", name: "System Interconnections", category: "Security Assessment", priority: "High" },
+  { id: "CA-5", name: "Plan of Action and Milestones", category: "Security Assessment", priority: "High" },
+  { id: "CA-6", name: "Security Authorization", category: "Security Assessment", priority: "Critical" },
+  { id: "CA-7", name: "Continuous Monitoring", category: "Security Assessment", priority: "Critical" },
+  { id: "CA-8", name: "Penetration Testing", category: "Security Assessment", priority: "High" },
+  { id: "CA-9", name: "Internal System Connections", category: "Security Assessment", priority: "High" },
+];
+

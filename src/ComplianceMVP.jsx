@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info } from 'lucide-react';
+import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
+import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -337,6 +339,110 @@ const CORE_CONTROLS = [
 ];
 
 
+// Helper functions for control data mapping
+const generateMappedFields = (category, controlId) => {
+  const categoryMappings = {
+    "Access Control": ["SSO.Users", "IAM.Roles", "AD.Groups", "VPN.Logins"],
+    "Identity Management": ["SSO.MFA_Enabled", "IAM.Identities", "Okta.Users"],
+    "System Integrity": ["EDR.Coverage", "SIEM.Logs", "AV.Status"],
+    "Incident Response": ["SIEM.Alerts", "EDR.Incidents", "SOC.Tickets"],
+    "System Protection": ["Network.TLS", "Storage.Encryption", "VPN.Encryption"],
+    "Audit": ["Logs.Enabled", "SIEM.Retention", "AuditLog.Status"],
+    "Configuration Management": ["CMDB.Assets", "Config.Baseline", "Change.Management"],
+    "Risk Assessment": ["Scanner.Results", "Assets.VulnStatus", "Patch.Level"],
+    "Organizational": ["Policies.Status", "Training.Completion", "Vendor.Assessments"],
+    "People": ["HR.Onboarding", "Training.Completion", "Users.TrainingDate"],
+    "Physical": ["Access.Badge", "CCTV.Status", "Facility.Security"],
+    "Technological": ["EDR.Coverage", "Network.Segmentation", "Backup.Status"]
+  };
+  return categoryMappings[category] || ["General.Security"];
+};
+
+const getDefaultOwner = (category) => {
+  const ownerMappings = {
+    "Access Control": "Security Operations",
+    "Identity Management": "IT Operations",
+    "System Integrity": "Security Operations",
+    "Incident Response": "Security Operations",
+    "System Protection": "Infrastructure Team",
+    "Audit": "Security Operations",
+    "Configuration Management": "Infrastructure Team",
+    "Risk Assessment": "Security Operations",
+    "Organizational": "Compliance Officer",
+    "People": "HR/Security",
+    "Physical": "Facilities/Security",
+    "Technological": "Infrastructure Team"
+  };
+  return ownerMappings[category] || "Unassigned";
+};
+
+const getControlFamily = (controlId) => {
+  if (!controlId) return "Unknown";
+  const prefix = controlId.split('-')[0];
+  const families = {
+    "AC": "Access Control",
+    "IA": "Identification and Authentication",
+    "SI": "System and Information Integrity",
+    "IR": "Incident Response",
+    "SC": "System and Communications Protection",
+    "AU": "Audit and Accountability",
+    "CM": "Configuration Management",
+    "RA": "Risk Assessment",
+    "CA": "Security Assessment and Authorization"
+  };
+  return families[prefix] || prefix;
+};
+
+// API Data Segmentation Logic
+const segmentApiData = (apiData, controls, apiIntegrations) => {
+  // This function segments incoming API data and auto-assigns to controls
+  const segmentedData = [];
+  
+  apiIntegrations.forEach(api => {
+    if (api.status === 'active') {
+      // Find controls that this API covers
+      const relatedControls = controls.filter(c => 
+        api.controls_covered.includes(c.id) || 
+        c.mapped_fields.some(field => {
+          const [category] = field.split('.');
+          return api.type.toLowerCase().includes(category.toLowerCase());
+        })
+      );
+      
+      relatedControls.forEach(control => {
+        // Segment the data by responsibility
+        const segment = {
+          control_id: control.id,
+          api_integration_id: api.id,
+          api_name: api.name,
+          data_segment: api.data_attributes,
+          responsible_party: api.responsible_party,
+          last_sync: api.last_sync,
+          evidence_attribution: api.evidence_attribution,
+          coverage_type: control.coverage_type || "API Data Attribution"
+        };
+        
+        segmentedData.push(segment);
+        
+        // Update control with this segment
+        const controlIndex = controls.findIndex(c => c.id === control.id);
+        if (controlIndex >= 0) {
+          const updatedControl = {
+            ...controls[controlIndex],
+            api_data_segments: [
+              ...(controls[controlIndex].api_data_segments || []),
+              segment
+            ]
+          };
+          controls[controlIndex] = updatedControl;
+        }
+      });
+    }
+  });
+  
+  return { segmentedData, updatedControls: controls };
+};
+
 const ComplianceMVP = () => {
   const [activeView, setActiveView] = useState('controls');
   const [controls, setControls] = useState([]);
@@ -377,6 +483,10 @@ const ComplianceMVP = () => {
   const [matrixFilterCoverageType, setMatrixFilterCoverageType] = useState("ALL");
   const [matrixFilterOwnership, setMatrixFilterOwnership] = useState("ALL");
   
+  // Control detail view
+  const [selectedControl, setSelectedControl] = useState(null);
+  const [showControlDetail, setShowControlDetail] = useState(false);
+  
   // Data import features
   const [importHistory, setImportHistory] = useState([]);
   const [importProgress, setImportProgress] = useState(null);
@@ -411,6 +521,13 @@ const ComplianceMVP = () => {
     generateRecommendations();
     calculateTCO();
     if (controls.length > 0) {
+      // Auto-segment API data and assign responsibilities
+      if (apiIntegrations.length > 0) {
+        const { segmentedData, updatedControls } = segmentApiData(null, controls, apiIntegrations);
+        if (updatedControls.length > 0) {
+          setControls(updatedControls);
+        }
+      }
       generateResponsibilityMatrix();
       if (tcoResults) {
         generateAutomationPlan();
@@ -420,16 +537,54 @@ const ComplianceMVP = () => {
   }, [controls, tcoInputs, assets, apiIntegrations, mdrProviders, vendors]);
 
   const loadData = () => {
-    // Initialize with core controls
-    const initialControls = CORE_CONTROLS.map(control => ({
+    // Convert NIST 800-53 controls to our format
+    const nistControls = NIST_800_53_CONTROLS.map(ctrl => ({
+      id: ctrl.id,
+      control_name: ctrl.name,
+      description: `NIST 800-53 ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`NIST_800-53:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      nist_id: ctrl.id,
+      control_family: getControlFamily(ctrl.id)
+    }));
+    
+    // Convert ISO 27001 controls to our format
+    const isoControls = ISO_27001_CONTROLS.map(ctrl => ({
+      id: ctrl.id.replace(/\./g, '-'),
+      control_name: ctrl.name,
+      description: `ISO 27001:2022 ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`ISO27001:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      iso_id: ctrl.id,
+      control_category: ctrl.category
+    }));
+    
+    // Merge all controls: existing core + NIST + ISO (avoid duplicates)
+    const existingIds = new Set(CORE_CONTROLS.map(c => c.id));
+    const allControls = [
+      ...CORE_CONTROLS,
+      ...nistControls.filter(c => !existingIds.has(c.id)),
+      ...isoControls.filter(c => !existingIds.has(c.id))
+    ];
+    
+    // Initialize with all controls
+    const initialControls = allControls.map(control => ({
       ...control,
       status: "Partial",
       covered_by: "",
-      responsible_party: control.default_owner,
+      responsible_party: control.default_owner || "Unassigned",
       evidence_link: "",
       last_updated: new Date().toISOString().split('T')[0],
       auto_mapped: false,
-      entity_id: null // null = applies to all entities
+      entity_id: null, // null = applies to all entities
+      api_data_segments: [], // Store API data segments for this control
+      responsibility_segments: [] // Store responsibility assignments
     }));
     setControls(initialControls);
 
@@ -1362,13 +1517,13 @@ const ComplianceMVP = () => {
   const frameworks = ["ALL", ...Object.keys(FRAMEWORK_LIBRARY)];
   
   const statusColors = {
-    "Implemented": "bg-green-100 text-green-800 border-green-300",
-    "Compliant": "bg-green-100 text-green-800 border-green-300",
-    "Partially Implemented": "bg-yellow-100 text-yellow-800 border-yellow-300",
-    "Partial": "bg-yellow-100 text-yellow-800 border-yellow-300",
-    "Not Implemented": "bg-red-100 text-red-800 border-red-300",
-    "Non-Compliant": "bg-red-100 text-red-800 border-red-300",
-    "Vendor Managed": "bg-blue-100 text-blue-800 border-blue-300"
+    "Implemented": "bg-green-500/10 text-green-500 border-green-500/20",
+    "Compliant": "bg-green-500/10 text-green-500 border-green-500/20",
+    "Partially Implemented": "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    "Partial": "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+    "Not Implemented": "bg-red-500/10 text-red-500 border-red-500/20",
+    "Non-Compliant": "bg-red-500/10 text-red-500 border-red-500/20",
+    "Vendor Managed": "bg-blue-500/10 text-blue-500 border-blue-500/20"
   };
 
   const filteredControls = controls.filter(control => {
@@ -2635,10 +2790,22 @@ const ComplianceMVP = () => {
           </thead>
           <tbody>
             {filteredControls.map((control) => (
-              <tr key={control.id} className="border-b border-border100 hover:bg-muted">
+              <tr 
+                key={control.id} 
+                className="border-b border-[hsl(var(--border))] hover:bg-muted/50 cursor-pointer transition-colors"
+                onClick={() => {
+                  setSelectedControl(control);
+                  setShowControlDetail(true);
+                }}
+              >
                 <td className="py-3 px-4">
-                  <div className="font-medium text-foreground">{control.id}</div>
-                  <div className="text-sm text-muted-foreground">{control.control_name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <div className="font-medium text-foreground">{control.id}</div>
+                      <div className="text-sm text-muted-foreground">{control.control_name}</div>
+                    </div>
+                    <Info className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                  </div>
                 </td>
                 <td className="py-3 px-4 text-sm text-muted-foreground max-w-xs">{control.description}</td>
                 <td className="py-3 px-4">
@@ -2677,6 +2844,157 @@ const ComplianceMVP = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Control Detail Modal */}
+      {showControlDetail && selectedControl && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowControlDetail(false)}>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-card border-b border-[hsl(var(--border))] p-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-foreground">{selectedControl.id}: {selectedControl.control_name}</h2>
+                <p className="text-sm text-muted-foreground mt-1">{selectedControl.category} • Priority: {selectedControl.priority}</p>
+              </div>
+              <button
+                onClick={() => setShowControlDetail(false)}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-foreground" />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground mb-2">Description</h3>
+                <p className="text-muted-foreground">{selectedControl.description}</p>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-foreground mb-2">Status</h4>
+                  <select
+                    value={selectedControl.status}
+                    onChange={(e) => {
+                      updateControl(selectedControl.id, 'status', e.target.value);
+                      setSelectedControl({...selectedControl, status: e.target.value});
+                    }}
+                    className={`w-full px-3 py-2 rounded-lg text-sm font-medium border ${statusColors[selectedControl.status]}`}
+                  >
+                    <option>Partial</option>
+                    <option>Implemented</option>
+                    <option>Compliant</option>
+                    <option>Non-Compliant</option>
+                    <option>Vendor Managed</option>
+                  </select>
+                </div>
+                
+                <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                  <h4 className="text-sm font-semibold text-foreground mb-2">Responsible Party</h4>
+                  <input
+                    type="text"
+                    value={selectedControl.responsible_party}
+                    onChange={(e) => {
+                      updateControl(selectedControl.id, 'responsible_party', e.target.value);
+                      setSelectedControl({...selectedControl, responsible_party: e.target.value});
+                    }}
+                    className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg bg-card text-foreground"
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-semibold text-foreground mb-3">Frameworks</h3>
+                <div className="flex flex-wrap gap-2">
+                  {selectedControl.frameworks.map((fw, idx) => (
+                    <span key={idx} className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-full text-sm font-medium">
+                      {fw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              
+              {selectedControl.mapped_fields && selectedControl.mapped_fields.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-3">API Data Mapping</h3>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <p className="text-sm text-muted-foreground mb-2">These fields can be auto-mapped from API integrations:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedControl.mapped_fields.map((field, idx) => (
+                        <span key={idx} className="px-2 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground">
+                          {field}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {selectedControl.api_data_segments && selectedControl.api_data_segments.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-3">API Data Segments</h3>
+                  <div className="space-y-3">
+                    {selectedControl.api_data_segments.map((segment, idx) => (
+                      <div key={idx} className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <h4 className="font-semibold text-foreground">{segment.api_name}</h4>
+                            <p className="text-sm text-muted-foreground">{segment.responsible_party}</p>
+                          </div>
+                          <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">{segment.coverage_type}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground space-y-1">
+                          <div>Data Attributes: {segment.data_segment.join(', ')}</div>
+                          <div>Evidence: {segment.evidence_attribution}</div>
+                          <div>Last Sync: {new Date(segment.last_sync).toLocaleString()}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {selectedControl.nist_id && (
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Shield className="w-5 h-5 text-blue-500" />
+                    <h4 className="font-semibold text-foreground">NIST 800-53 Control</h4>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Control Family: {selectedControl.control_family || 'Unknown'}
+                  </p>
+                  <a 
+                    href={`https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-500 hover:underline flex items-center gap-1 mt-2"
+                  >
+                    View NIST 800-53 Documentation <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+              
+              {selectedControl.iso_id && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Shield className="w-5 h-5 text-green-500" />
+                    <h4 className="font-semibold text-foreground">ISO 27001:2022 Control</h4>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Category: {selectedControl.control_category || 'Unknown'}
+                  </p>
+                  <a 
+                    href={`https://hightable.io/iso-27001-annex-a-controls-list/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-green-500 hover:underline flex items-center gap-1 mt-2"
+                  >
+                    View ISO 27001 Documentation <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -2874,10 +3192,10 @@ const ComplianceMVP = () => {
               </thead>
               <tbody>
                 {filteredMatrix.map((matrix, idx) => (
-                  <tr key={idx} className={`border-b border-border100 hover:bg-muted ${
-                    matrix.coverage_type === "MDR/SOC Managed" ? "bg-primary/10" :
-                    matrix.coverage_type === "Vendor Inherited" ? "bg-green-50" :
-                    matrix.coverage_type === "API Data Attribution" ? "bg-purple-50" :
+                  <tr key={idx} className={`border-b border-[hsl(var(--border))] hover:bg-muted/50 transition-colors ${
+                    matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10" :
+                    matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10" :
+                    matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10" :
                     ""
                   }`}>
                     <td className="py-3 px-4">
@@ -2897,13 +3215,13 @@ const ComplianceMVP = () => {
                       <span className="text-xs bg-muted text-foreground px-2 py-1 rounded">{matrix.category}</span>
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-3 py-1 bg-indigo-100 text-indigo-800 rounded-full text-xs font-semibold">
+                      <span className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-full text-xs font-semibold">
                         {matrix.ownership}
                       </span>
                     </td>
                     <td className="py-3 px-4">
                       {matrix.shared_responsibility ? (
-                        <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
+                        <span className="px-2 py-1 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded-full text-xs font-semibold">
                           ✓ Yes
                         </span>
                       ) : (
@@ -2913,7 +3231,7 @@ const ComplianceMVP = () => {
                     <td className="py-3 px-4">
                       <div className="flex flex-wrap gap-1">
                         {matrix.secondary_owners.map((owner, oIdx) => (
-                          <span key={oIdx} className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
+                          <span key={oIdx} className="text-xs bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-1 rounded">
                             {owner}
                           </span>
                         ))}
@@ -2926,7 +3244,7 @@ const ComplianceMVP = () => {
                       <div className="space-y-1">
                         {matrix.data_sources.map((ds, dsIdx) => (
                           <div key={dsIdx} className="text-xs">
-                            <div className="font-medium text-purple-700">{ds.integration}</div>
+                            <div className="font-medium text-purple-500">{ds.integration}</div>
                             <div className="text-muted-foreground">{ds.vendor} • {ds.type}</div>
                             <div className="text-muted-foreground">Last: {new Date(ds.last_sync).toLocaleDateString()}</div>
                           </div>
@@ -2937,11 +3255,11 @@ const ComplianceMVP = () => {
                       </div>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-100 text-blue-800" :
-                        matrix.coverage_type === "Vendor Inherited" ? "bg-green-100 text-green-800" :
-                        matrix.coverage_type === "API Data Attribution" ? "bg-purple-100 text-purple-800" :
-                        "bg-muted text-foreground"
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                        matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                        matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10 text-green-500 border-green-500/20" :
+                        matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10 text-purple-500 border-purple-500/20" :
+                        "bg-muted text-foreground border-[hsl(var(--border))]"
                       }`}>
                         {matrix.coverage_type}
                       </span>
@@ -2950,7 +3268,7 @@ const ComplianceMVP = () => {
                       <div className="text-xs text-muted-foreground space-y-1">
                         {matrix.evidence_sources.map((source, eIdx) => (
                           <div key={eIdx} className="flex items-start gap-1">
-                            <CheckCircle className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" />
+                            <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0 mt-0.5" />
                             <span>{source}</span>
                           </div>
                         ))}
@@ -2987,7 +3305,7 @@ const ComplianceMVP = () => {
                     <div className="text-sm text-muted-foreground">{api.vendor} • {api.type}</div>
                   </div>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    api.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-muted text-foreground'
+                    api.status === 'active' ? 'bg-green-500/10 text-green-500 border border-green-500/20' : 'bg-muted text-muted-foreground border border-[hsl(var(--border))]'
                   }`}>
                     {api.status}
                   </span>
@@ -3045,7 +3363,7 @@ const ComplianceMVP = () => {
                     <span className="font-medium text-foreground">Controls Responsible: </span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {mdr.controls_responsible.map(id => (
-                        <span key={id} className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">{id}</span>
+                        <span key={id} className="text-xs bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-1 rounded">{id}</span>
                       ))}
                     </div>
                   </div>
