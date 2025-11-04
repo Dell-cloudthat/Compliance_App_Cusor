@@ -41,3 +41,12 @@ lerna-debug.log*
 .env
 .env.production
 
+# Backend
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/database/*.db
+backend/database/*.db-journal
+backend/*.pyc
+backend/.pytest_cache/
+
