@@ -163,6 +163,123 @@ CREATE INDEX IF NOT EXISTS idx_controls_user ON controls(user_id);
 CREATE INDEX IF NOT EXISTS idx_data_sources_user ON data_sources(user_id);
 CREATE INDEX IF NOT EXISTS idx_cost_tracking_user_month ON cost_tracking(user_id, month_year);
 
+-- Audit Engagements
+CREATE TABLE IF NOT EXISTS audit_engagements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  audit_name TEXT NOT NULL,
+  framework TEXT NOT NULL, -- 'SOC2', 'ISO27001', 'NIST_800-53', 'NIST_800-171', 'CIS'
+  audit_type TEXT NOT NULL, -- 'Type I', 'Type II', 'Surveillance', 'Recertification', 'Initial'
+  auditor_name TEXT, -- External auditor company
+  auditor_contact TEXT,
+  start_date DATE NOT NULL,
+  end_date DATE,
+  status TEXT DEFAULT 'planned', -- 'planned', 'in_progress', 'completed', 'cancelled'
+  scope TEXT, -- JSON array of control IDs
+  readiness_score INTEGER DEFAULT 0, -- 0-100
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Audit Findings
+CREATE TABLE IF NOT EXISTS audit_findings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  audit_engagement_id INTEGER NOT NULL,
+  control_id TEXT NOT NULL,
+  finding_type TEXT NOT NULL, -- 'observation', 'deficiency', 'non-conformity', 'major_nonconformity'
+  severity TEXT NOT NULL, -- 'critical', 'high', 'medium', 'low'
+  description TEXT NOT NULL,
+  remediation_plan TEXT,
+  assigned_to TEXT,
+  due_date DATE,
+  status TEXT DEFAULT 'open', -- 'open', 'in_progress', 'resolved', 'closed'
+  resolved_date DATE,
+  evidence_required TEXT, -- JSON array of evidence types
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (audit_engagement_id) REFERENCES audit_engagements(id)
+);
+
+-- Audit Evidence
+CREATE TABLE IF NOT EXISTS audit_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  audit_engagement_id INTEGER,
+  control_id TEXT NOT NULL,
+  evidence_type TEXT NOT NULL, -- 'document', 'screenshot', 'api_data', 'log_export', 'policy', 'procedure'
+  evidence_name TEXT NOT NULL,
+  file_path TEXT,
+  file_url TEXT,
+  file_size_bytes INTEGER,
+  uploaded_by TEXT,
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  validated BOOLEAN DEFAULT 0,
+  validated_by TEXT,
+  validated_at TIMESTAMP,
+  expiration_date DATE,
+  metadata TEXT, -- JSON object
+  notes TEXT,
+  FOREIGN KEY (audit_engagement_id) REFERENCES audit_engagements(id)
+);
+
+-- Certifications
+CREATE TABLE IF NOT EXISTS certifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  certification_name TEXT NOT NULL, -- 'SOC2 Type II', 'ISO 27001:2013'
+  certification_body TEXT, -- 'AICPA', 'BSI', 'ISO'
+  issue_date DATE,
+  expiration_date DATE NOT NULL,
+  status TEXT DEFAULT 'active', -- 'active', 'expired', 'suspended', 'revoked', 'pending_renewal'
+  scope TEXT, -- JSON array of control IDs or scope description
+  certificate_file_path TEXT,
+  renewal_reminder_days INTEGER DEFAULT 90,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Certification History
+CREATE TABLE IF NOT EXISTS certification_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  certification_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL, -- 'issued', 'renewed', 'expired', 'revoked', 'suspended'
+  event_date DATE NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (certification_id) REFERENCES certifications(id)
+);
+
+-- Evidence Requests (for workflow automation)
+CREATE TABLE IF NOT EXISTS evidence_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  audit_engagement_id INTEGER,
+  control_id TEXT NOT NULL,
+  requested_by TEXT NOT NULL,
+  requested_from TEXT NOT NULL, -- Control owner email/name
+  request_type TEXT DEFAULT 'evidence_upload', -- 'evidence_upload', 'evidence_refresh', 'evidence_validation'
+  due_date DATE NOT NULL,
+  status TEXT DEFAULT 'pending', -- 'pending', 'submitted', 'validated', 'rejected', 'overdue'
+  submitted_at TIMESTAMP,
+  validated_at TIMESTAMP,
+  reminder_sent BOOLEAN DEFAULT 0,
+  reminder_count INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (audit_engagement_id) REFERENCES audit_engagements(id)
+);
+
+-- Indexes for audit tables
+CREATE INDEX IF NOT EXISTS idx_audit_engagements_user ON audit_engagements(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_engagements_status ON audit_engagements(status);
+CREATE INDEX IF NOT EXISTS idx_audit_findings_audit ON audit_findings(audit_engagement_id);
+CREATE INDEX IF NOT EXISTS idx_audit_findings_status ON audit_findings(status);
+CREATE INDEX IF NOT EXISTS idx_audit_evidence_audit ON audit_evidence(audit_engagement_id);
+CREATE INDEX IF NOT EXISTS idx_audit_evidence_control ON audit_evidence(control_id);
+CREATE INDEX IF NOT EXISTS idx_certifications_user ON certifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_certifications_status ON certifications(status);
+CREATE INDEX IF NOT EXISTS idx_evidence_requests_audit ON evidence_requests(audit_engagement_id);
+
 -- Insert default metadata tags
 INSERT OR IGNORE INTO metadata_tags_registry (tag_name, tag_category, description, pii_related, cui_related) VALUES
 ('PII', 'DATA_TYPE', 'Personally Identifiable Information', 1, 0),

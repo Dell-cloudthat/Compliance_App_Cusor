@@ -41,19 +41,145 @@ def get_db():
 
 # Helper: Initialize database
 def init_db():
-    if not DB_PATH.exists():
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(DB_PATH))
-        cursor = conn.cursor()
-        
-        # Read and execute schema
-        with open(SCHEMA_PATH, 'r') as f:
-            schema = f.read()
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    cursor = conn.cursor()
+    
+    # Read and execute schema (will create tables if they don't exist)
+    with open(SCHEMA_PATH, 'r') as f:
+        schema = f.read()
+        # Split by semicolons and execute each statement
+        # This handles CREATE TABLE IF NOT EXISTS properly
+        try:
             cursor.executescript(schema)
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            # If table already exists, that's okay - continue
+            if "already exists" not in str(e).lower():
+                print(f"Schema execution warning: {e}")
+            conn.commit()
+    
+    # Check if audit tables exist, if not create them
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_engagements'")
+    if not cursor.fetchone():
+        print("Creating audit management tables...")
+        # Execute only the audit-related CREATE TABLE statements
+        audit_schema = """
+        CREATE TABLE IF NOT EXISTS audit_engagements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          audit_name TEXT NOT NULL,
+          framework TEXT NOT NULL,
+          audit_type TEXT NOT NULL,
+          auditor_name TEXT,
+          auditor_contact TEXT,
+          start_date DATE NOT NULL,
+          end_date DATE,
+          status TEXT DEFAULT 'planned',
+          scope TEXT,
+          readiness_score INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         
+        CREATE TABLE IF NOT EXISTS audit_findings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          audit_engagement_id INTEGER NOT NULL,
+          control_id TEXT NOT NULL,
+          finding_type TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          description TEXT NOT NULL,
+          remediation_plan TEXT,
+          assigned_to TEXT,
+          due_date DATE,
+          status TEXT DEFAULT 'open',
+          resolved_date DATE,
+          evidence_required TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (audit_engagement_id) REFERENCES audit_engagements(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS audit_evidence (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          audit_engagement_id INTEGER,
+          control_id TEXT NOT NULL,
+          evidence_type TEXT NOT NULL,
+          evidence_name TEXT NOT NULL,
+          file_path TEXT,
+          file_url TEXT,
+          file_size_bytes INTEGER,
+          uploaded_by TEXT,
+          uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          validated BOOLEAN DEFAULT 0,
+          validated_by TEXT,
+          validated_at TIMESTAMP,
+          expiration_date DATE,
+          metadata TEXT,
+          notes TEXT,
+          FOREIGN KEY (audit_engagement_id) REFERENCES audit_engagements(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS certifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          certification_name TEXT NOT NULL,
+          certification_body TEXT,
+          issue_date DATE,
+          expiration_date DATE NOT NULL,
+          status TEXT DEFAULT 'active',
+          scope TEXT,
+          certificate_file_path TEXT,
+          renewal_reminder_days INTEGER DEFAULT 90,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS certification_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          certification_id INTEGER NOT NULL,
+          event_type TEXT NOT NULL,
+          event_date DATE NOT NULL,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (certification_id) REFERENCES certifications(id)
+        );
+        
+        CREATE TABLE IF NOT EXISTS evidence_requests (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          audit_engagement_id INTEGER,
+          control_id TEXT NOT NULL,
+          requested_by TEXT NOT NULL,
+          requested_from TEXT NOT NULL,
+          request_type TEXT DEFAULT 'evidence_upload',
+          due_date DATE NOT NULL,
+          status TEXT DEFAULT 'pending',
+          submitted_at TIMESTAMP,
+          validated_at TIMESTAMP,
+          reminder_sent BOOLEAN DEFAULT 0,
+          reminder_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (audit_engagement_id) REFERENCES audit_engagements(id)
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_audit_engagements_user ON audit_engagements(user_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_engagements_status ON audit_engagements(status);
+        CREATE INDEX IF NOT EXISTS idx_audit_findings_audit ON audit_findings(audit_engagement_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_findings_status ON audit_findings(status);
+        CREATE INDEX IF NOT EXISTS idx_audit_evidence_audit ON audit_evidence(audit_engagement_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_evidence_control ON audit_evidence(control_id);
+        CREATE INDEX IF NOT EXISTS idx_certifications_user ON certifications(user_id);
+        CREATE INDEX IF NOT EXISTS idx_certifications_status ON certifications(status);
+        CREATE INDEX IF NOT EXISTS idx_evidence_requests_audit ON evidence_requests(audit_engagement_id);
+        """
+        cursor.executescript(audit_schema)
         conn.commit()
-        conn.close()
-        print(f"Database initialized at {DB_PATH}")
+    
+    conn.close()
+    print(f"Database initialized at {DB_PATH}")
 
 # Initialize on startup
 @app.on_event("startup")
@@ -421,6 +547,580 @@ async def get_metadata_tags():
     conn.close()
     
     return [dict(t) for t in tags]
+
+# ============================================================================
+# AUDIT MANAGEMENT ENDPOINTS
+# ============================================================================
+
+class AuditEngagementCreate(BaseModel):
+    audit_name: str
+    framework: str
+    audit_type: str
+    auditor_name: Optional[str] = None
+    auditor_contact: Optional[str] = None
+    start_date: str
+    end_date: Optional[str] = None
+    scope: Optional[List[str]] = None
+
+class AuditEngagementUpdate(BaseModel):
+    audit_name: Optional[str] = None
+    framework: Optional[str] = None
+    audit_type: Optional[str] = None
+    auditor_name: Optional[str] = None
+    auditor_contact: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    status: Optional[str] = None
+    scope: Optional[List[str]] = None
+
+class AuditFindingCreate(BaseModel):
+    control_id: str
+    finding_type: str
+    severity: str
+    description: str
+    remediation_plan: Optional[str] = None
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    evidence_required: Optional[List[str]] = None
+
+class AuditFindingUpdate(BaseModel):
+    finding_type: Optional[str] = None
+    severity: Optional[str] = None
+    description: Optional[str] = None
+    remediation_plan: Optional[str] = None
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    status: Optional[str] = None
+    resolved_date: Optional[str] = None
+
+class AuditEvidenceCreate(BaseModel):
+    control_id: str
+    evidence_type: str
+    evidence_name: str
+    file_url: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    expiration_date: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+class CertificationCreate(BaseModel):
+    certification_name: str
+    certification_body: Optional[str] = None
+    issue_date: Optional[str] = None
+    expiration_date: str
+    scope: Optional[List[str]] = None
+    certificate_file_path: Optional[str] = None
+    renewal_reminder_days: int = 90
+
+# Audit Engagement Endpoints
+@app.post("/api/audits")
+async def create_audit_engagement(audit: AuditEngagementCreate, user_id: int = Header(..., alias="X-User-Id")):
+    """Create a new audit engagement"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    scope_json = json.dumps(audit.scope or [])
+    
+    cursor.execute("""
+        INSERT INTO audit_engagements 
+        (user_id, audit_name, framework, audit_type, auditor_name, auditor_contact, 
+         start_date, end_date, scope, readiness_score)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    """, (
+        user_id, audit.audit_name, audit.framework, audit.audit_type,
+        audit.auditor_name, audit.auditor_contact, audit.start_date,
+        audit.end_date, scope_json
+    ))
+    
+    audit_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"id": audit_id, "message": "Audit engagement created successfully"}
+
+@app.get("/api/audits")
+async def list_audits(user_id: int = Header(..., alias="X-User-Id")):
+    """List all audit engagements for a user"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT *, 
+               (SELECT COUNT(*) FROM audit_findings WHERE audit_engagement_id = audit_engagements.id) as finding_count,
+               (SELECT COUNT(*) FROM audit_evidence WHERE audit_engagement_id = audit_engagements.id) as evidence_count
+        FROM audit_engagements 
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+    """, (user_id,))
+    
+    audits = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for audit in audits:
+        audit_dict = dict(audit)
+        audit_dict['scope'] = json.loads(audit_dict['scope']) if audit_dict['scope'] else []
+        result.append(audit_dict)
+    
+    return result
+
+@app.get("/api/audits/{audit_id}")
+async def get_audit(audit_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Get audit engagement details"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT * FROM audit_engagements 
+        WHERE id = ? AND user_id = ?
+    """, (audit_id, user_id))
+    
+    audit = cursor.fetchone()
+    if not audit:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    audit_dict = dict(audit)
+    audit_dict['scope'] = json.loads(audit_dict['scope']) if audit_dict['scope'] else []
+    
+    # Get findings count
+    cursor.execute("SELECT COUNT(*) as count FROM audit_findings WHERE audit_engagement_id = ?", (audit_id,))
+    findings_count = cursor.fetchone()['count']
+    audit_dict['findings_count'] = findings_count
+    
+    # Get evidence count
+    cursor.execute("SELECT COUNT(*) as count FROM audit_evidence WHERE audit_engagement_id = ?", (audit_id,))
+    evidence_count = cursor.fetchone()['count']
+    audit_dict['evidence_count'] = evidence_count
+    
+    conn.close()
+    return audit_dict
+
+@app.put("/api/audits/{audit_id}")
+async def update_audit(audit_id: int, audit_update: AuditEngagementUpdate, user_id: int = Header(..., alias="X-User-Id")):
+    """Update audit engagement"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Build update query dynamically
+    updates = []
+    values = []
+    
+    if audit_update.audit_name:
+        updates.append("audit_name = ?")
+        values.append(audit_update.audit_name)
+    if audit_update.framework:
+        updates.append("framework = ?")
+        values.append(audit_update.framework)
+    if audit_update.audit_type:
+        updates.append("audit_type = ?")
+        values.append(audit_update.audit_type)
+    if audit_update.auditor_name is not None:
+        updates.append("auditor_name = ?")
+        values.append(audit_update.auditor_name)
+    if audit_update.auditor_contact is not None:
+        updates.append("auditor_contact = ?")
+        values.append(audit_update.auditor_contact)
+    if audit_update.start_date:
+        updates.append("start_date = ?")
+        values.append(audit_update.start_date)
+    if audit_update.end_date is not None:
+        updates.append("end_date = ?")
+        values.append(audit_update.end_date)
+    if audit_update.status:
+        updates.append("status = ?")
+        values.append(audit_update.status)
+    if audit_update.scope is not None:
+        updates.append("scope = ?")
+        values.append(json.dumps(audit_update.scope))
+    
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([audit_id, user_id])
+    
+    cursor.execute(f"""
+        UPDATE audit_engagements 
+        SET {', '.join(updates)}
+        WHERE id = ? AND user_id = ?
+    """, values)
+    
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Audit updated successfully"}
+
+@app.get("/api/audits/{audit_id}/readiness")
+async def calculate_readiness(audit_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Calculate audit readiness score (0-100)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get audit
+    cursor.execute("SELECT * FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    audit = cursor.fetchone()
+    if not audit:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    audit_dict = dict(audit)
+    scope = json.loads(audit_dict['scope']) if audit_dict['scope'] else []
+    
+    if not scope:
+        return {"readiness_score": 0, "breakdown": {}}
+    
+    # Calculate evidence coverage
+    cursor.execute("""
+        SELECT control_id, COUNT(*) as evidence_count
+        FROM audit_evidence
+        WHERE audit_engagement_id = ? AND validated = 1
+        GROUP BY control_id
+    """, (audit_id,))
+    
+    evidence_by_control = {row['control_id']: row['evidence_count'] for row in cursor.fetchall()}
+    
+    # Calculate findings impact
+    cursor.execute("""
+        SELECT 
+            COUNT(*) as total_findings,
+            SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical_findings,
+            SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) as high_findings,
+            SUM(CASE WHEN status = 'resolved' OR status = 'closed' THEN 1 ELSE 0 END) as resolved_findings
+        FROM audit_findings
+        WHERE audit_engagement_id = ?
+    """, (audit_id,))
+    
+    findings_stats = dict(cursor.fetchone())
+    
+    # Calculate readiness score
+    # Evidence coverage: 50% of score
+    controls_with_evidence = sum(1 for cid in scope if cid in evidence_by_control and evidence_by_control[cid] > 0)
+    evidence_coverage = (controls_with_evidence / len(scope) * 100) if scope else 0
+    evidence_score = evidence_coverage * 0.5
+    
+    # Findings impact: 30% of score
+    total_findings = findings_stats['total_findings'] or 0
+    critical_findings = findings_stats['critical_findings'] or 0
+    high_findings = findings_stats['high_findings'] or 0
+    resolved_findings = findings_stats['resolved_findings'] or 0
+    
+    finding_penalty = (critical_findings * 10) + (high_findings * 5) + (total_findings - resolved_findings) * 2
+    findings_score = max(0, 30 - min(finding_penalty, 30))
+    
+    # Evidence validation: 20% of score
+    cursor.execute("""
+        SELECT 
+            COUNT(*) as total_evidence,
+            SUM(CASE WHEN validated = 1 THEN 1 ELSE 0 END) as validated_evidence
+        FROM audit_evidence
+        WHERE audit_engagement_id = ?
+    """, (audit_id,))
+    
+    validation_stats = dict(cursor.fetchone())
+    total_evidence = validation_stats['total_evidence'] or 0
+    validated_evidence = validation_stats['validated_evidence'] or 0
+    validation_score = (validated_evidence / total_evidence * 20) if total_evidence > 0 else 0
+    
+    readiness_score = min(100, int(evidence_score + findings_score + validation_score))
+    
+    # Update audit readiness score
+    cursor.execute("""
+        UPDATE audit_engagements 
+        SET readiness_score = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND user_id = ?
+    """, (readiness_score, audit_id, user_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "readiness_score": readiness_score,
+        "breakdown": {
+            "evidence_coverage": round(evidence_coverage, 1),
+            "evidence_score": round(evidence_score, 1),
+            "findings_penalty": finding_penalty,
+            "findings_score": round(findings_score, 1),
+            "validation_score": round(validation_score, 1),
+            "total_findings": total_findings,
+            "critical_findings": critical_findings,
+            "high_findings": high_findings,
+            "resolved_findings": resolved_findings,
+            "controls_with_evidence": controls_with_evidence,
+            "total_controls": len(scope),
+            "total_evidence": total_evidence,
+            "validated_evidence": validated_evidence
+        }
+    }
+
+# Audit Findings Endpoints
+@app.post("/api/audits/{audit_id}/findings")
+async def create_finding(audit_id: int, finding: AuditFindingCreate, user_id: int = Header(..., alias="X-User-Id")):
+    """Create a new audit finding"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit exists and belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    evidence_required_json = json.dumps(finding.evidence_required or [])
+    
+    cursor.execute("""
+        INSERT INTO audit_findings 
+        (audit_engagement_id, control_id, finding_type, severity, description, 
+         remediation_plan, assigned_to, due_date, evidence_required)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        audit_id, finding.control_id, finding.finding_type, finding.severity,
+        finding.description, finding.remediation_plan, finding.assigned_to,
+        finding.due_date, evidence_required_json
+    ))
+    
+    finding_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"id": finding_id, "message": "Audit finding created successfully"}
+
+@app.get("/api/audits/{audit_id}/findings")
+async def list_findings(audit_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """List all findings for an audit"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    cursor.execute("""
+        SELECT * FROM audit_findings 
+        WHERE audit_engagement_id = ?
+        ORDER BY 
+            CASE severity 
+                WHEN 'critical' THEN 1 
+                WHEN 'high' THEN 2 
+                WHEN 'medium' THEN 3 
+                ELSE 4 
+            END,
+            created_at DESC
+    """, (audit_id,))
+    
+    findings = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for finding in findings:
+        finding_dict = dict(finding)
+        finding_dict['evidence_required'] = json.loads(finding_dict['evidence_required']) if finding_dict['evidence_required'] else []
+        result.append(finding_dict)
+    
+    return result
+
+@app.put("/api/audits/{audit_id}/findings/{finding_id}")
+async def update_finding(audit_id: int, finding_id: int, finding_update: AuditFindingUpdate, user_id: int = Header(..., alias="X-User-Id")):
+    """Update audit finding"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    # Build update query
+    updates = []
+    values = []
+    
+    if finding_update.finding_type:
+        updates.append("finding_type = ?")
+        values.append(finding_update.finding_type)
+    if finding_update.severity:
+        updates.append("severity = ?")
+        values.append(finding_update.severity)
+    if finding_update.description:
+        updates.append("description = ?")
+        values.append(finding_update.description)
+    if finding_update.remediation_plan is not None:
+        updates.append("remediation_plan = ?")
+        values.append(finding_update.remediation_plan)
+    if finding_update.assigned_to is not None:
+        updates.append("assigned_to = ?")
+        values.append(finding_update.assigned_to)
+    if finding_update.due_date is not None:
+        updates.append("due_date = ?")
+        values.append(finding_update.due_date)
+    if finding_update.status:
+        updates.append("status = ?")
+        values.append(finding_update.status)
+        if finding_update.status in ['resolved', 'closed'] and not finding_update.resolved_date:
+            updates.append("resolved_date = CURRENT_DATE")
+    
+    if finding_update.resolved_date:
+        updates.append("resolved_date = ?")
+        values.append(finding_update.resolved_date)
+    
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    values.extend([finding_id, audit_id])
+    
+    cursor.execute(f"""
+        UPDATE audit_findings 
+        SET {', '.join(updates)}
+        WHERE id = ? AND audit_engagement_id = ?
+    """, values)
+    
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Finding updated successfully"}
+
+# Audit Evidence Endpoints
+@app.post("/api/audits/{audit_id}/evidence")
+async def create_evidence(audit_id: int, evidence: AuditEvidenceCreate, user_id: int = Header(..., alias="X-User-Id")):
+    """Upload audit evidence"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    metadata_json = json.dumps(evidence.metadata or {})
+    
+    cursor.execute("""
+        INSERT INTO audit_evidence 
+        (audit_engagement_id, control_id, evidence_type, evidence_name, 
+         file_url, file_size_bytes, expiration_date, metadata, notes, uploaded_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        audit_id, evidence.control_id, evidence.evidence_type, evidence.evidence_name,
+        evidence.file_url, evidence.file_size_bytes, evidence.expiration_date,
+        metadata_json, evidence.notes, f"user_{user_id}"
+    ))
+    
+    evidence_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"id": evidence_id, "message": "Evidence uploaded successfully"}
+
+@app.get("/api/audits/{audit_id}/evidence")
+async def list_evidence(audit_id: int, user_id: int = Header(..., alias="X-User-Id"), control_id: Optional[str] = None):
+    """List audit evidence"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    if control_id:
+        cursor.execute("""
+            SELECT * FROM audit_evidence 
+            WHERE audit_engagement_id = ? AND control_id = ?
+            ORDER BY uploaded_at DESC
+        """, (audit_id, control_id))
+    else:
+        cursor.execute("""
+            SELECT * FROM audit_evidence 
+            WHERE audit_engagement_id = ?
+            ORDER BY uploaded_at DESC
+        """, (audit_id,))
+    
+    evidence_list = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for ev in evidence_list:
+        ev_dict = dict(ev)
+        ev_dict['metadata'] = json.loads(ev_dict['metadata']) if ev_dict['metadata'] else {}
+        result.append(ev_dict)
+    
+    return result
+
+@app.put("/api/audits/{audit_id}/evidence/{evidence_id}/validate")
+async def validate_evidence(audit_id: int, evidence_id: int, user_id: int = Header(..., alias="X-User-Id"), validated: bool = True):
+    """Validate or reject audit evidence"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    cursor.execute("""
+        UPDATE audit_evidence 
+        SET validated = ?, validated_by = ?, validated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND audit_engagement_id = ?
+    """, (validated, f"user_{user_id}", evidence_id, audit_id))
+    
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Evidence validation updated successfully"}
+
+# Certification Endpoints
+@app.post("/api/certifications")
+async def create_certification(cert: CertificationCreate, user_id: int = Header(..., alias="X-User-Id")):
+    """Create a new certification"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    scope_json = json.dumps(cert.scope or [])
+    
+    cursor.execute("""
+        INSERT INTO certifications 
+        (user_id, certification_name, certification_body, issue_date, 
+         expiration_date, scope, certificate_file_path, renewal_reminder_days)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id, cert.certification_name, cert.certification_body, cert.issue_date,
+        cert.expiration_date, scope_json, cert.certificate_file_path, cert.renewal_reminder_days
+    ))
+    
+    cert_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"id": cert_id, "message": "Certification created successfully"}
+
+@app.get("/api/certifications")
+async def list_certifications(user_id: int = Header(..., alias="X-User-Id")):
+    """List all certifications for a user"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT * FROM certifications 
+        WHERE user_id = ?
+        ORDER BY expiration_date ASC
+    """, (user_id,))
+    
+    certs = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for cert in certs:
+        cert_dict = dict(cert)
+        cert_dict['scope'] = json.loads(cert_dict['scope']) if cert_dict['scope'] else []
+        result.append(cert_dict)
+    
+    return result
 
 if __name__ == "__main__":
     import uvicorn

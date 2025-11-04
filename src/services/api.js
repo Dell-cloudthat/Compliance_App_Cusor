@@ -89,6 +89,130 @@ class ComplianceAPI {
     return this.request('/api/metadata-tags');
   }
 
+  // Audit Management Endpoints
+  async createAudit(userId, auditData) {
+    return this.request('/api/audits', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(auditData),
+    });
+  }
+
+  async getAudits(userId) {
+    return this.request(`/api/audits`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getAudit(userId, auditId) {
+    return this.request(`/api/audits/${auditId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async updateAudit(userId, auditId, auditData) {
+    return this.request(`/api/audits/${auditId}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(auditData),
+    });
+  }
+
+  async getAuditReadiness(userId, auditId) {
+    return this.request(`/api/audits/${auditId}/readiness`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Audit Findings
+  async createFinding(userId, auditId, findingData) {
+    return this.request(`/api/audits/${auditId}/findings`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(findingData),
+    });
+  }
+
+  async getFindings(userId, auditId) {
+    return this.request(`/api/audits/${auditId}/findings`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async updateFinding(userId, auditId, findingId, findingData) {
+    return this.request(`/api/audits/${auditId}/findings/${findingId}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(findingData),
+    });
+  }
+
+  // Audit Evidence
+  async createEvidence(userId, auditId, evidenceData) {
+    return this.request(`/api/audits/${auditId}/evidence`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(evidenceData),
+    });
+  }
+
+  async getEvidence(userId, auditId, controlId = null) {
+    const url = controlId
+      ? `/api/audits/${auditId}/evidence?control_id=${controlId}`
+      : `/api/audits/${auditId}/evidence`;
+    return this.request(url, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async validateEvidence(userId, auditId, evidenceId, validated = true) {
+    return this.request(`/api/audits/${auditId}/evidence/${evidenceId}/validate?validated=${validated}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Certifications
+  async createCertification(userId, certData) {
+    return this.request('/api/certifications', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(certData),
+    });
+  }
+
+  async getCertifications(userId) {
+    return this.request('/api/certifications', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
   // Simulate API Data Ingestion
   async simulateAPIIngestion(userId, apiData) {
     /**

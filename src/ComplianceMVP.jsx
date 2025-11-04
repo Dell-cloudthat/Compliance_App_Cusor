@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import api from './services/api';
@@ -518,6 +518,44 @@ const ComplianceMVP = () => {
   const [showCostPlan, setShowCostPlan] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
+  // Audit Management
+  const [audits, setAudits] = useState([]);
+  const [selectedAudit, setSelectedAudit] = useState(null);
+  const [auditFindings, setAuditFindings] = useState([]);
+  const [auditEvidence, setAuditEvidence] = useState([]);
+  const [auditReadiness, setAuditReadiness] = useState(null);
+  const [showAuditCreate, setShowAuditCreate] = useState(false);
+  const [showFindingCreate, setShowFindingCreate] = useState(false);
+  const [showEvidenceUpload, setShowEvidenceUpload] = useState(false);
+  const [certifications, setCertifications] = useState([]);
+  const [auditFormData, setAuditFormData] = useState({
+    audit_name: '',
+    framework: 'SOC2',
+    audit_type: 'Type II',
+    auditor_name: '',
+    auditor_contact: '',
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: '',
+    scope: []
+  });
+  const [findingFormData, setFindingFormData] = useState({
+    control_id: '',
+    finding_type: 'observation',
+    severity: 'medium',
+    description: '',
+    remediation_plan: '',
+    assigned_to: '',
+    due_date: ''
+  });
+  const [evidenceFormData, setEvidenceFormData] = useState({
+    control_id: '',
+    evidence_type: 'document',
+    evidence_name: '',
+    file_url: '',
+    notes: '',
+    expiration_date: ''
+  });
+  
   // Partner Growth Tracking for QBR
   const [partnerGrowthHistory, setPartnerGrowthHistory] = useState([
     {
@@ -565,6 +603,119 @@ const ComplianceMVP = () => {
   useEffect(() => {
     initializeBackend();
   }, []);
+
+  // Load audits when backend is connected or when switching to audits view
+  useEffect(() => {
+    if (backendConnected && currentUser.id) {
+      loadAudits();
+      loadCertifications();
+    } else if (activeView === 'audits' && !backendConnected) {
+      // Demo mode - use empty arrays
+      setAudits([]);
+      setCertifications([]);
+    }
+  }, [backendConnected, currentUser.id, activeView]);
+
+  // Also load when switching to audits view
+  useEffect(() => {
+    if (activeView === 'audits') {
+      if (backendConnected && currentUser.id) {
+        loadAudits();
+        loadCertifications();
+      }
+    }
+  }, [activeView]);
+
+  const loadAudits = async () => {
+    if (!backendConnected || !currentUser.id) {
+      // Demo mode - set empty array
+      setAudits([]);
+      return;
+    }
+    try {
+      const auditsData = await api.getAudits(currentUser.id);
+      setAudits(auditsData || []);
+    } catch (error) {
+      console.error('Error loading audits:', error);
+      // On error, still set empty array so UI doesn't break
+      setAudits([]);
+    }
+  };
+
+  const loadCertifications = async () => {
+    if (!backendConnected || !currentUser.id) {
+      // Demo mode - set empty array
+      setCertifications([]);
+      return;
+    }
+    try {
+      const certs = await api.getCertifications(currentUser.id);
+      setCertifications(certs || []);
+    } catch (error) {
+      console.error('Error loading certifications:', error);
+      // On error, still set empty array so UI doesn't break
+      setCertifications([]);
+    }
+  };
+
+  const loadAuditDetails = async (auditId) => {
+    // Demo mode - find audit in local state
+    if (!backendConnected || !currentUser.id) {
+      const audit = audits.find(a => a.id === auditId || a.id === parseInt(auditId));
+      if (audit) {
+        setSelectedAudit(audit);
+        setAuditFindings([]);
+        setAuditEvidence([]);
+        setAuditReadiness({
+          readiness_score: audit.readiness_score || 0,
+          breakdown: {
+            controls_with_evidence: 0,
+            total_controls: audit.scope?.length || 0,
+            total_findings: 0,
+            resolved_findings: 0,
+            total_evidence: 0,
+            validated_evidence: 0
+          }
+        });
+      }
+      return;
+    }
+
+    try {
+      const audit = await api.getAudit(currentUser.id, auditId);
+      setSelectedAudit(audit);
+      
+      // Load findings and evidence
+      const findings = await api.getFindings(currentUser.id, auditId).catch(() => []);
+      setAuditFindings(findings || []);
+      
+      const evidence = await api.getEvidence(currentUser.id, auditId).catch(() => []);
+      setAuditEvidence(evidence || []);
+      
+      // Calculate readiness score
+      const readiness = await api.getAuditReadiness(currentUser.id, auditId).catch(() => ({
+        readiness_score: 0,
+        breakdown: {
+          controls_with_evidence: 0,
+          total_controls: audit.scope?.length || 0,
+          total_findings: 0,
+          resolved_findings: 0,
+          total_evidence: 0,
+          validated_evidence: 0
+        }
+      }));
+      setAuditReadiness(readiness);
+    } catch (error) {
+      console.error('Error loading audit details:', error);
+      // Try to find in local state as fallback
+      const audit = audits.find(a => a.id === auditId || a.id === parseInt(auditId));
+      if (audit) {
+        setSelectedAudit(audit);
+        setAuditFindings([]);
+        setAuditEvidence([]);
+      }
+    }
+  };
 
   const initializeBackend = async () => {
     try {
@@ -4514,6 +4665,964 @@ const ComplianceMVP = () => {
     );
   };
   
+  // ============================================================================
+  // AUDIT MANAGEMENT RENDER FUNCTIONS
+  // ============================================================================
+  
+  const renderAudits = () => {
+    if (selectedAudit) {
+      return renderAuditDetail();
+    }
+
+    // Show connection status
+    const showConnectionWarning = !backendConnected && activeView === 'audits';
+    
+    return (
+      <div className="space-y-6">
+        {showConnectionWarning && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-500" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Demo Mode</p>
+                <p className="text-xs text-muted-foreground">Backend not connected. Data will not persist. Connect backend to save audits.</p>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Header */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">Audit Management</h2>
+              <p className="text-sm text-muted-foreground mt-1">Manage audit engagements, evidence, and certifications</p>
+            </div>
+            <button
+              onClick={() => setShowAuditCreate(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New Audit
+            </button>
+          </div>
+        </div>
+
+        {/* Audit Dashboard */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <div className="text-sm font-medium text-muted-foreground">Total Audits</div>
+              <FileCheck className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-bold text-foreground">{audits.length}</div>
+              <p className="text-xs text-muted-foreground">Active engagements</p>
+            </div>
+          </div>
+
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <div className="text-sm font-medium text-muted-foreground">In Progress</div>
+              <Clock className="h-4 w-4 text-yellow-500" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-bold text-foreground">
+                {audits.filter(a => a.status === 'in_progress').length}
+              </div>
+              <p className="text-xs text-muted-foreground">Ongoing audits</p>
+            </div>
+          </div>
+
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <div className="text-sm font-medium text-muted-foreground">Certifications</div>
+              <Award className="h-4 w-4 text-green-500" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-bold text-foreground">{certifications.length}</div>
+              <p className="text-xs text-muted-foreground">Active certifications</p>
+            </div>
+          </div>
+
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <div className="text-sm font-medium text-muted-foreground">Avg Readiness</div>
+              <Target className="h-4 w-4 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <div className="text-2xl font-bold text-foreground">
+                {audits.length > 0
+                  ? Math.round(audits.reduce((sum, a) => sum + (a.readiness_score || 0), 0) / audits.length)
+                  : 0}%
+              </div>
+              <p className="text-xs text-muted-foreground">Readiness score</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Audits List */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <h3 className="text-lg font-semibold text-foreground">Audit Engagements</h3>
+          </div>
+          <div className="divide-y divide-[hsl(var(--border))]">
+            {audits.length === 0 ? (
+              <div className="p-12 text-center">
+                <FileCheck className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2 text-foreground">No audits yet</h3>
+                <p className="text-muted-foreground mb-6">Create your first audit engagement to get started</p>
+                <button
+                  onClick={() => setShowAuditCreate(true)}
+                  className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium"
+                >
+                  Create Audit
+                </button>
+              </div>
+            ) : (
+              audits.map((audit) => (
+                <div
+                  key={audit.id}
+                  onClick={() => loadAuditDetails(audit.id)}
+                  className="p-6 hover:bg-muted/30 cursor-pointer transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h4 className="text-lg font-semibold text-foreground">{audit.audit_name}</h4>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          audit.status === 'completed' ? 'bg-green-500/10 text-green-500' :
+                          audit.status === 'in_progress' ? 'bg-yellow-500/10 text-yellow-500' :
+                          audit.status === 'planned' ? 'bg-blue-500/10 text-blue-500' :
+                          'bg-gray-500/10 text-gray-500'
+                        }`}>
+                          {audit.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
+                        <span className="flex items-center gap-1">
+                          <Shield className="w-4 h-4" />
+                          {FRAMEWORK_LIBRARY[audit.framework]?.name || audit.framework}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <FileCheck className="w-4 h-4" />
+                          {audit.audit_type}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-4 h-4" />
+                          {new Date(audit.start_date).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2">
+                          <div className="relative w-32 h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`absolute h-full ${
+                                audit.readiness_score >= 80 ? 'bg-green-500' :
+                                audit.readiness_score >= 60 ? 'bg-yellow-500' :
+                                'bg-red-500'
+                              }`}
+                              style={{ width: `${audit.readiness_score || 0}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-foreground">{audit.readiness_score || 0}%</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {audit.finding_count || 0} findings • {audit.evidence_count || 0} evidence
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Certifications Section */}
+        {certifications.length > 0 && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+            <div className="p-6 border-b border-[hsl(var(--border))]">
+              <h3 className="text-lg font-semibold text-foreground">Certifications</h3>
+            </div>
+            <div className="divide-y divide-[hsl(var(--border))]">
+              {certifications.map((cert) => {
+                const daysUntilExpiry = Math.ceil((new Date(cert.expiration_date) - new Date()) / (1000 * 60 * 60 * 24));
+                const isExpiringSoon = daysUntilExpiry <= cert.renewal_reminder_days;
+                
+                return (
+                  <div key={cert.id} className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <h4 className="text-lg font-semibold text-foreground">{cert.certification_name}</h4>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            cert.status === 'active' ? 'bg-green-500/10 text-green-500' :
+                            cert.status === 'pending_renewal' ? 'bg-yellow-500/10 text-yellow-500' :
+                            'bg-red-500/10 text-red-500'
+                          }`}>
+                            {cert.status}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                          {cert.certification_body && (
+                            <span>Issued by: {cert.certification_body}</span>
+                          )}
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-4 h-4" />
+                            Expires: {new Date(cert.expiration_date).toLocaleDateString()}
+                          </span>
+                          {isExpiringSoon && (
+                            <span className="text-yellow-500 font-medium">
+                              {daysUntilExpiry} days until expiry
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Create Audit Modal */}
+        {showAuditCreate && renderAuditCreateModal()}
+      </div>
+    );
+  };
+
+  const renderAuditDetail = () => {
+    if (!selectedAudit) return null;
+
+    return (
+      <div className="space-y-6">
+        {/* Header with Back Button */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => {
+                  setSelectedAudit(null);
+                  setActiveView('audits');
+                }}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-foreground" />
+              </button>
+              <div>
+                <h2 className="text-2xl font-bold text-foreground">{selectedAudit.audit_name}</h2>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {FRAMEWORK_LIBRARY[selectedAudit.framework]?.name || selectedAudit.framework} • {selectedAudit.audit_type}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                selectedAudit.status === 'completed' ? 'bg-green-500/10 text-green-500' :
+                selectedAudit.status === 'in_progress' ? 'bg-yellow-500/10 text-yellow-500' :
+                'bg-blue-500/10 text-blue-500'
+              }`}>
+                {selectedAudit.status}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Readiness Score */}
+        {auditReadiness && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-foreground">Audit Readiness Score</h3>
+              {backendConnected && (
+                <button
+                  onClick={() => loadAuditDetails(selectedAudit.id)}
+                  className="text-sm text-primary hover:underline"
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-8">
+              <div className="relative w-48 h-48">
+                <svg className="transform -rotate-90" width="192" height="192">
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="80"
+                    stroke="hsl(var(--muted))"
+                    strokeWidth="16"
+                    fill="none"
+                  />
+                  <circle
+                    cx="96"
+                    cy="96"
+                    r="80"
+                    stroke={
+                      auditReadiness.readiness_score >= 80 ? 'hsl(142, 76%, 36%)' :
+                      auditReadiness.readiness_score >= 60 ? 'hsl(45, 93%, 47%)' :
+                      'hsl(0, 84%, 60%)'
+                    }
+                    strokeWidth="16"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 80}`}
+                    strokeDashoffset={`${2 * Math.PI * 80 * (1 - (auditReadiness.readiness_score || 0) / 100)}`}
+                    className="transition-all duration-1000"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <div className={`text-4xl font-bold ${
+                    (auditReadiness.readiness_score || 0) >= 80 ? 'text-green-500' :
+                    (auditReadiness.readiness_score || 0) >= 60 ? 'text-yellow-500' :
+                    'text-red-500'
+                  }`}>
+                    {auditReadiness.readiness_score || 0}%
+                  </div>
+                  <div className="text-sm text-muted-foreground">Ready</div>
+                </div>
+              </div>
+              <div className="flex-1 space-y-3">
+                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                  <span className="text-sm font-medium text-foreground">Evidence Coverage</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {auditReadiness.breakdown?.controls_with_evidence || 0}/{auditReadiness.breakdown?.total_controls || 0} controls
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                  <span className="text-sm font-medium text-foreground">Total Findings</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {auditReadiness.breakdown?.total_findings || 0} ({auditReadiness.breakdown?.resolved_findings || 0} resolved)
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                  <span className="text-sm font-medium text-foreground">Validated Evidence</span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {auditReadiness.breakdown?.validated_evidence || 0}/{auditReadiness.breakdown?.total_evidence || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Findings */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-foreground">Audit Findings</h3>
+            <button
+              onClick={() => setShowFindingCreate(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Add Finding
+            </button>
+          </div>
+          <div className="divide-y divide-[hsl(var(--border))]">
+            {auditFindings.length === 0 ? (
+              <div className="p-12 text-center">
+                <CheckCircle className="w-16 h-16 mx-auto mb-4 text-green-500" />
+                <h3 className="text-lg font-semibold mb-2 text-foreground">No findings</h3>
+                <p className="text-muted-foreground">Great! No audit findings to report.</p>
+              </div>
+            ) : (
+              auditFindings.map((finding) => (
+                <div key={finding.id} className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          finding.severity === 'critical' ? 'bg-red-500/10 text-red-500' :
+                          finding.severity === 'high' ? 'bg-orange-500/10 text-orange-500' :
+                          finding.severity === 'medium' ? 'bg-yellow-500/10 text-yellow-500' :
+                          'bg-blue-500/10 text-blue-500'
+                        }`}>
+                          {finding.severity}
+                        </span>
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-muted text-foreground">
+                          {finding.finding_type}
+                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          finding.status === 'closed' ? 'bg-green-500/10 text-green-500' :
+                          finding.status === 'resolved' ? 'bg-blue-500/10 text-blue-500' :
+                          finding.status === 'in_progress' ? 'bg-yellow-500/10 text-yellow-500' :
+                          'bg-gray-500/10 text-gray-500'
+                        }`}>
+                          {finding.status}
+                        </span>
+                      </div>
+                      <p className="text-sm text-foreground mb-2">{finding.description}</p>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>Control: {finding.control_id}</span>
+                        {finding.assigned_to && <span>Assigned to: {finding.assigned_to}</span>}
+                        {finding.due_date && <span>Due: {new Date(finding.due_date).toLocaleDateString()}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Evidence */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-foreground">Evidence ({auditEvidence.length})</h3>
+            <button
+              onClick={() => setShowEvidenceUpload(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm"
+            >
+              <Upload className="w-4 h-4" />
+              Upload Evidence
+            </button>
+          </div>
+          <div className="divide-y divide-[hsl(var(--border))]">
+            {auditEvidence.length === 0 ? (
+              <div className="p-12 text-center">
+                <Upload className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold mb-2 text-foreground">No evidence uploaded</h3>
+                <p className="text-muted-foreground mb-6">Upload evidence to support your audit</p>
+              </div>
+            ) : (
+              auditEvidence.map((evidence) => (
+                <div key={evidence.id} className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3 flex-1">
+                      <FileCheck className={`w-5 h-5 mt-1 ${
+                        evidence.validated ? 'text-green-500' : 'text-muted-foreground'
+                      }`} />
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="text-sm font-semibold text-foreground">{evidence.evidence_name}</h4>
+                          {evidence.validated && (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                          <span>Type: {evidence.evidence_type}</span>
+                          <span>Control: {evidence.control_id}</span>
+                          <span>Uploaded: {new Date(evidence.uploaded_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Modals */}
+        {showFindingCreate && renderFindingCreateModal()}
+        {showEvidenceUpload && renderEvidenceUploadModal()}
+      </div>
+    );
+  };
+
+  const handleUploadEvidence = async (evidenceData) => {
+    if (!selectedAudit) return;
+    
+    // Demo mode
+    if (!backendConnected || !currentUser.id) {
+      const newEvidence = {
+        id: Date.now(),
+        audit_engagement_id: selectedAudit.id,
+        control_id: evidenceData.control_id,
+        evidence_type: evidenceData.evidence_type,
+        evidence_name: evidenceData.evidence_name,
+        file_url: evidenceData.file_url,
+        file_size_bytes: evidenceData.file_size_bytes,
+        expiration_date: evidenceData.expiration_date,
+        notes: evidenceData.notes,
+        validated: false,
+        uploaded_by: currentUser.email,
+        uploaded_at: new Date().toISOString()
+      };
+      setAuditEvidence([...auditEvidence, newEvidence]);
+      setShowEvidenceUpload(false);
+      alert('Evidence uploaded (demo mode)');
+      return;
+    }
+    
+    try {
+      await api.createEvidence(currentUser.id, selectedAudit.id, evidenceData);
+      await loadAuditDetails(selectedAudit.id);
+      setShowEvidenceUpload(false);
+    } catch (error) {
+      console.error('Error uploading evidence:', error);
+      alert('Failed to upload evidence: ' + error.message);
+    }
+  };
+
+  const handleSubmitEvidence = async () => {
+    if (!evidenceFormData.control_id || !evidenceFormData.evidence_name) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    await handleUploadEvidence(evidenceFormData);
+    setEvidenceFormData({
+      control_id: '',
+      evidence_type: 'document',
+      evidence_name: '',
+      file_url: '',
+      notes: '',
+      expiration_date: ''
+    });
+  };
+
+  const renderEvidenceUploadModal = () => {
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-xl font-bold text-foreground">Upload Audit Evidence</h3>
+            <button
+              onClick={() => setShowEvidenceUpload(false)}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-foreground" />
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Control ID *</label>
+              <input
+                type="text"
+                value={evidenceFormData.control_id}
+                onChange={(e) => setEvidenceFormData({ ...evidenceFormData, control_id: e.target.value })}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="e.g., AC-001"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Evidence Type *</label>
+                <select
+                  value={evidenceFormData.evidence_type}
+                  onChange={(e) => setEvidenceFormData({ ...evidenceFormData, evidence_type: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                >
+                  <option value="document">Document</option>
+                  <option value="screenshot">Screenshot</option>
+                  <option value="api_data">API Data</option>
+                  <option value="log_export">Log Export</option>
+                  <option value="policy">Policy</option>
+                  <option value="procedure">Procedure</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Expiration Date</label>
+                <input
+                  type="date"
+                  value={evidenceFormData.expiration_date}
+                  onChange={(e) => setEvidenceFormData({ ...evidenceFormData, expiration_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Evidence Name *</label>
+              <input
+                type="text"
+                value={evidenceFormData.evidence_name}
+                onChange={(e) => setEvidenceFormData({ ...evidenceFormData, evidence_name: e.target.value })}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="e.g., Access Control Policy v2.0"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">File URL / Link</label>
+              <input
+                type="text"
+                value={evidenceFormData.file_url}
+                onChange={(e) => setEvidenceFormData({ ...evidenceFormData, file_url: e.target.value })}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="https://... or /path/to/file"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Notes</label>
+              <textarea
+                value={evidenceFormData.notes}
+                onChange={(e) => setEvidenceFormData({ ...evidenceFormData, notes: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="Additional notes about this evidence..."
+              />
+            </div>
+          </div>
+          <div className="p-6 border-t border-[hsl(var(--border))] flex items-center justify-end gap-3">
+            <button
+              onClick={() => setShowEvidenceUpload(false)}
+              className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmitEvidence}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium"
+            >
+              Upload Evidence
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleCreateAudit = async () => {
+    if (!auditFormData.audit_name || !auditFormData.start_date) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    // Demo mode - create local audit if backend not connected
+    if (!backendConnected || !currentUser.id) {
+      const newAudit = {
+        id: Date.now(), // Temporary ID
+        audit_name: auditFormData.audit_name,
+        framework: auditFormData.framework,
+        audit_type: auditFormData.audit_type,
+        auditor_name: auditFormData.auditor_name,
+        auditor_contact: auditFormData.auditor_contact,
+        start_date: auditFormData.start_date,
+        end_date: auditFormData.end_date,
+        status: 'planned',
+        readiness_score: 0,
+        scope: auditFormData.scope || [],
+        finding_count: 0,
+        evidence_count: 0,
+        created_at: new Date().toISOString()
+      };
+      setAudits([...audits, newAudit]);
+      setShowAuditCreate(false);
+      setAuditFormData({
+        audit_name: '',
+        framework: 'SOC2',
+        audit_type: 'Type II',
+        auditor_name: '',
+        auditor_contact: '',
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: '',
+        scope: []
+      });
+      alert('Audit created (demo mode - not saved to backend)');
+      return;
+    }
+
+    try {
+      await api.createAudit(currentUser.id, auditFormData);
+      await loadAudits();
+      setShowAuditCreate(false);
+      setAuditFormData({
+        audit_name: '',
+        framework: 'SOC2',
+        audit_type: 'Type II',
+        auditor_name: '',
+        auditor_contact: '',
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: '',
+        scope: []
+      });
+    } catch (error) {
+      console.error('Error creating audit:', error);
+      alert('Failed to create audit: ' + error.message);
+    }
+  };
+
+  const renderAuditCreateModal = () => {
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-xl font-bold text-foreground">Create New Audit Engagement</h3>
+            <button
+              onClick={() => setShowAuditCreate(false)}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-foreground" />
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Audit Name *</label>
+              <input
+                type="text"
+                value={auditFormData.audit_name}
+                onChange={(e) => setAuditFormData({ ...auditFormData, audit_name: e.target.value })}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="e.g., SOC2 Type II 2024"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Framework *</label>
+                <select
+                value={auditFormData.framework}
+                onChange={(e) => setAuditFormData({ ...auditFormData, framework: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                >
+                  {Object.entries(FRAMEWORK_LIBRARY).map(([key, value]) => (
+                    <option key={key} value={key}>{value.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Audit Type *</label>
+                <select
+                value={auditFormData.audit_type}
+                onChange={(e) => setAuditFormData({ ...auditFormData, audit_type: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                >
+                  <option value="Type I">Type I</option>
+                  <option value="Type II">Type II</option>
+                  <option value="Surveillance">Surveillance</option>
+                  <option value="Recertification">Recertification</option>
+                  <option value="Initial">Initial</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Start Date *</label>
+                <input
+                  type="date"
+                value={auditFormData.start_date}
+                onChange={(e) => setAuditFormData({ ...auditFormData, start_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">End Date</label>
+                <input
+                  type="date"
+                value={auditFormData.end_date}
+                onChange={(e) => setAuditFormData({ ...auditFormData, end_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Auditor Name</label>
+                <input
+                  type="text"
+                value={auditFormData.auditor_name}
+                onChange={(e) => setAuditFormData({ ...auditFormData, auditor_name: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                  placeholder="e.g., Big 4 Audit Firm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Auditor Contact</label>
+                <input
+                  type="text"
+                value={auditFormData.auditor_contact}
+                onChange={(e) => setAuditFormData({ ...auditFormData, auditor_contact: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                  placeholder="auditor@firm.com"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="p-6 border-t border-[hsl(var(--border))] flex items-center justify-end gap-3">
+            <button
+              onClick={() => setShowAuditCreate(false)}
+              className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateAudit}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium"
+            >
+              Create Audit
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleCreateFinding = async () => {
+    if (!findingFormData.control_id || !findingFormData.description) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    if (!selectedAudit) {
+      alert('No audit selected');
+      return;
+    }
+
+    // Demo mode
+    if (!backendConnected || !currentUser.id) {
+      const newFinding = {
+        id: Date.now(),
+        audit_engagement_id: selectedAudit.id,
+        control_id: findingFormData.control_id,
+        finding_type: findingFormData.finding_type,
+        severity: findingFormData.severity,
+        description: findingFormData.description,
+        remediation_plan: findingFormData.remediation_plan,
+        assigned_to: findingFormData.assigned_to,
+        due_date: findingFormData.due_date,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+      setAuditFindings([...auditFindings, newFinding]);
+      setShowFindingCreate(false);
+      setFindingFormData({
+        control_id: '',
+        finding_type: 'observation',
+        severity: 'medium',
+        description: '',
+        remediation_plan: '',
+        assigned_to: '',
+        due_date: ''
+      });
+      alert('Finding created (demo mode)');
+      return;
+    }
+
+    try {
+      await api.createFinding(currentUser.id, selectedAudit.id, findingFormData);
+      await loadAuditDetails(selectedAudit.id);
+      setShowFindingCreate(false);
+      setFindingFormData({
+        control_id: '',
+        finding_type: 'observation',
+        severity: 'medium',
+        description: '',
+        remediation_plan: '',
+        assigned_to: '',
+        due_date: ''
+      });
+    } catch (error) {
+      console.error('Error creating finding:', error);
+      alert('Failed to create finding: ' + error.message);
+    }
+  };
+
+  const renderFindingCreateModal = () => {
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-xl font-bold text-foreground">Create Audit Finding</h3>
+            <button
+              onClick={() => setShowFindingCreate(false)}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-foreground" />
+            </button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Control ID *</label>
+              <input
+                type="text"
+                value={findingFormData.control_id}
+                onChange={(e) => setFindingFormData({ ...findingFormData, control_id: e.target.value })}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="e.g., AC-001"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Finding Type *</label>
+                <select
+                  value={findingFormData.finding_type}
+                  onChange={(e) => setFindingFormData({ ...findingFormData, finding_type: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                >
+                  <option value="observation">Observation</option>
+                  <option value="deficiency">Deficiency</option>
+                  <option value="non-conformity">Non-Conformity</option>
+                  <option value="major_nonconformity">Major Non-Conformity</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Severity *</label>
+                <select
+                  value={findingFormData.severity}
+                  onChange={(e) => setFindingFormData({ ...findingFormData, severity: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Description *</label>
+              <textarea
+                value={findingFormData.description}
+                onChange={(e) => setFindingFormData({ ...findingFormData, description: e.target.value })}
+                rows={4}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="Describe the finding..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-2">Remediation Plan</label>
+              <textarea
+                value={findingFormData.remediation_plan}
+                onChange={(e) => setFindingFormData({ ...findingFormData, remediation_plan: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                placeholder="Describe the remediation plan..."
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Assigned To</label>
+                <input
+                  type="text"
+                  value={findingFormData.assigned_to}
+                  onChange={(e) => setFindingFormData({ ...findingFormData, assigned_to: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                  placeholder="team@company.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">Due Date</label>
+                <input
+                  type="date"
+                  value={findingFormData.due_date}
+                  onChange={(e) => setFindingFormData({ ...findingFormData, due_date: e.target.value })}
+                  className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="p-6 border-t border-[hsl(var(--border))] flex items-center justify-end gap-3">
+            <button
+              onClick={() => setShowFindingCreate(false)}
+              className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateFinding}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium"
+            >
+              Create Finding
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderTimeline = () => {
     if (!projectTimeline) {
       return (
@@ -4952,6 +6061,20 @@ const ComplianceMVP = () => {
                   {!sidebarCollapsed && <span>Responsibility Matrix</span>}
                 </button>
                 <button
+                  onClick={() => {
+                    setActiveView('audits');
+                    setSelectedAudit(null);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'audits'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <FileCheck className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Audits & Certifications</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('tco')}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     activeView === 'tco'
@@ -5089,6 +6212,7 @@ const ComplianceMVP = () => {
         )}
 
               {activeView === 'dashboard' ? renderDashboard() : 
+               activeView === 'audits' ? renderAudits() :
                activeView === 'tco' ? renderTCOCalculator() : 
                activeView === 'automation' ? renderAutomationPlan() :
                activeView === 'import' ? renderDataImport() :
