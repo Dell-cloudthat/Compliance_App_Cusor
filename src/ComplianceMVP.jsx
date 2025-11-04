@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import api from './services/api';
@@ -514,6 +514,9 @@ const ComplianceMVP = () => {
     onboardingHours: 40
   });
   const [tcoResults, setTcoResults] = useState(null);
+  const [costPlan, setCostPlan] = useState(null);
+  const [showCostPlan, setShowCostPlan] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     initializeBackend();
@@ -1367,8 +1370,26 @@ const ComplianceMVP = () => {
     // Use backend prediction if available, otherwise calculate locally
     let totalStorageMonthly;
     let s3StandardGB, glacierGB, storageGBTotal;
+    let backendCosts = null;
     
-    if (backendCosts && backendCosts.monthly.storage) {
+    // Try to get backend costs if connected
+    if (backendConnected && currentUser.id) {
+      try {
+        const estimatedStorage = inputs.numAssets * 0.2;
+        const apiRequests = inputs.numAssets * 24 * 30;
+        const costPrediction = await api.predictCosts({
+          num_users: 1,
+          avg_storage_gb_per_user: estimatedStorage,
+          api_requests_per_month: apiRequests,
+          retention_days: inputs.retentionYears * 365
+        });
+        backendCosts = costPrediction;
+      } catch (error) {
+        console.warn('Could not get cost prediction from backend, using local calculation:', error);
+      }
+    }
+    
+    if (backendCosts && backendCosts.monthly && backendCosts.monthly.storage) {
       // Use backend storage cost breakdown
       totalStorageMonthly = typeof backendCosts.monthly.storage === 'object' 
         ? (backendCosts.monthly.storage.total || 0)
@@ -1378,7 +1399,7 @@ const ComplianceMVP = () => {
       s3StandardGB = storageGBPerMonth * 6;
       glacierGB = storageGBTotal - s3StandardGB;
     } else {
-      // Calculate locally
+      // Calculate locally (demo mode)
       const storageGBPerMonth = (inputs.numAssets * 0.05);
       storageGBTotal = storageGBPerMonth * 12 * inputs.retentionYears;
       s3StandardGB = storageGBPerMonth * 6;
@@ -1391,10 +1412,10 @@ const ComplianceMVP = () => {
     // Compute costs (AI mapping + workers)
     // Use backend prediction if available
     let totalComputeMonthly;
-    if (backendCosts && backendCosts.monthly.compute) {
+    if (backendCosts && backendCosts.monthly && backendCosts.monthly.compute) {
       totalComputeMonthly = backendCosts.monthly.compute;
     } else {
-      // Calculate locally
+      // Calculate locally (demo mode)
       const baseComputeCost = 50;
       const assetComputeCost = Math.ceil(inputs.numAssets / 100) * 10;
       const cloudComputeCost = inputs.numCloudAccounts * 20;
@@ -1509,12 +1530,20 @@ const ComplianceMVP = () => {
     });
   };
   const generateAutomationPlan = () => {
-    if (!tcoResults) return;
-
-    // Get all non-compliant controls
+    // Get all non-compliant controls (works with demo data)
     const gapControls = controls.filter(c => 
       c.status === "Not Implemented" || c.status === "Non-Compliant" || c.status === "Partial"
     );
+    
+    // If no gap controls found, use demo data
+    if (gapControls.length === 0) {
+      // Use a subset of controls as demo gaps
+      const demoGaps = controls.slice(0, Math.min(10, controls.length)).map(c => ({
+        ...c,
+        status: "Partial"
+      }));
+      gapControls.push(...demoGaps);
+    }
 
     // Risk scoring algorithm
     const scoredControls = gapControls.map(control => {
@@ -2484,14 +2513,25 @@ const ComplianceMVP = () => {
   };
 
   const generateProjectTimeline = () => {
-    if (!tcoResults || !automationPlan) return;
-
     const today = new Date();
     const milestones = [];
     
-    // Get vendor recommendations for gaps
+    // Get vendor recommendations for gaps (works with demo data)
     const gaps = controls.filter(c => c.status === "Not Implemented" || c.status === "Partial");
-    const vendorRecommendations = generateVendorRecommendations(gaps);
+    const vendorRecommendations = generateVendorRecommendations(gaps.length > 0 ? gaps : controls.slice(0, 5));
+    
+    // Generate automation plan if it doesn't exist (for demo)
+    let planToUse = automationPlan;
+    if (!planToUse) {
+      generateAutomationPlan();
+      planToUse = automationPlan || {
+        phases: {
+          phase1: { controls: gaps.slice(0, 5) || controls.slice(0, 5), metrics: { totalHours: 40, totalCost: 5000 } },
+          phase2: { controls: gaps.slice(5, 10) || controls.slice(5, 10), metrics: { totalHours: 60, totalCost: 7500 } },
+          phase3: { controls: gaps.slice(10, 15) || controls.slice(10, 15), metrics: { totalHours: 50, totalCost: 6250 } }
+        }
+      };
+    }
     
     milestones.push({
       id: 'start',
@@ -2508,10 +2548,14 @@ const ComplianceMVP = () => {
     phase1End.setDate(phase1End.getDate() + 30);
     
     // Assign vendors to Phase 1
+    const phase1Controls = planToUse.phases?.phase1?.controls || gaps.slice(0, 5) || controls.slice(0, 5);
     const phase1Vendors = vendorRecommendations
-      .filter(v => v.controlsList.some(c => automationPlan.phases.phase1.controls.find(pc => pc.id === c.id)))
+      .filter(v => v.controlsList && v.controlsList.some(c => phase1Controls.find(pc => pc.id === c.id)))
       .slice(0, 3);
-    const phase1VendorCost = phase1Vendors.reduce((sum, v) => sum + v.monthlyPrice, 0);
+    const phase1VendorCost = phase1Vendors.length > 0 
+      ? phase1Vendors.reduce((sum, v) => sum + v.monthlyPrice, 0)
+      : 2500; // Demo fallback
+    const phase1Cost = (planToUse.phases?.phase1?.metrics?.totalCost || 5000) + (phase1VendorCost * 3);
     
     milestones.push({
       id: 'phase1-start',
@@ -2519,10 +2563,10 @@ const ComplianceMVP = () => {
       date: new Date(today.getTime() + 5 * 24 * 60 * 60 * 1000),
       type: 'phase',
       status: 'in-progress',
-      description: `${automationPlan.phases.phase1.controls.length} critical controls`,
-      controls: automationPlan.phases.phase1.controls.length,
-      hours: automationPlan.phases.phase1.metrics.totalHours,
-      cost: automationPlan.phases.phase1.metrics.totalCost + (phase1VendorCost * 3), // 3 months
+      description: `${phase1Controls.length} critical controls`,
+      controls: phase1Controls.length,
+      hours: planToUse.phases?.phase1?.metrics?.totalHours || 40,
+      cost: phase1Cost,
       vendors: phase1Vendors,
       vendorCost: phase1VendorCost
     });
@@ -2545,10 +2589,14 @@ const ComplianceMVP = () => {
     const phase2End = new Date(today);
     phase2End.setDate(phase2End.getDate() + 60);
     
+    const phase2Controls = planToUse.phases?.phase2?.controls || gaps.slice(5, 10) || controls.slice(5, 10);
     const phase2Vendors = vendorRecommendations
-      .filter(v => v.controlsList.some(c => automationPlan.phases.phase2.controls.find(pc => pc.id === c.id)))
+      .filter(v => v.controlsList && v.controlsList.some(c => phase2Controls.find(pc => pc.id === c.id)))
       .slice(0, 2);
-    const phase2VendorCost = phase2Vendors.reduce((sum, v) => sum + v.monthlyPrice, 0);
+    const phase2VendorCost = phase2Vendors.length > 0 
+      ? phase2Vendors.reduce((sum, v) => sum + v.monthlyPrice, 0)
+      : 1500; // Demo fallback
+    const phase2Cost = (planToUse.phases?.phase2?.metrics?.totalCost || 7500) + (phase2VendorCost * 2);
     
     milestones.push({
       id: 'phase2-start',
@@ -2556,10 +2604,10 @@ const ComplianceMVP = () => {
       date: phase2Start,
       type: 'phase',
       status: 'upcoming',
-      description: `${automationPlan.phases.phase2.controls.length} high-priority controls`,
-      controls: automationPlan.phases.phase2.controls.length,
-      hours: automationPlan.phases.phase2.metrics.totalHours,
-      cost: automationPlan.phases.phase2.metrics.totalCost + (phase2VendorCost * 2), // 2 months
+      description: `${phase2Controls.length} high-priority controls`,
+      controls: phase2Controls.length,
+      hours: planToUse.phases?.phase2?.metrics?.totalHours || 60,
+      cost: phase2Cost,
       vendors: phase2Vendors,
       vendorCost: phase2VendorCost
     });
@@ -2582,10 +2630,14 @@ const ComplianceMVP = () => {
     const phase3End = new Date(today);
     phase3End.setDate(phase3End.getDate() + 90);
     
+    const phase3Controls = planToUse.phases?.phase3?.controls || gaps.slice(10, 15) || controls.slice(10, 15);
     const phase3Vendors = vendorRecommendations
-      .filter(v => !phase1Vendors.includes(v) && !phase2Vendors.includes(v))
+      .filter(v => v.controlsList && !phase1Vendors.some(pv => pv.vendor === v.vendor) && !phase2Vendors.some(pv => pv.vendor === v.vendor))
       .slice(0, 2);
-    const phase3VendorCost = phase3Vendors.reduce((sum, v) => sum + v.monthlyPrice, 0);
+    const phase3VendorCost = phase3Vendors.length > 0 
+      ? phase3Vendors.reduce((sum, v) => sum + v.monthlyPrice, 0)
+      : 1000; // Demo fallback
+    const phase3Cost = (planToUse.phases?.phase3?.metrics?.totalCost || 6250) + (phase3VendorCost * 1);
     
     milestones.push({
       id: 'phase3-start',
@@ -2593,10 +2645,10 @@ const ComplianceMVP = () => {
       date: phase3Start,
       type: 'phase',
       status: 'upcoming',
-      description: `${automationPlan.phases.phase3.controls.length} remaining controls`,
-      controls: automationPlan.phases.phase3.controls.length,
-      hours: automationPlan.phases.phase3.metrics.totalHours,
-      cost: automationPlan.phases.phase3.metrics.totalCost + (phase3VendorCost * 1), // 1 month
+      description: `${phase3Controls.length} remaining controls`,
+      controls: phase3Controls.length,
+      hours: planToUse.phases?.phase3?.metrics?.totalHours || 50,
+      cost: phase3Cost,
       vendors: phase3Vendors,
       vendorCost: phase3VendorCost
     });
@@ -2651,6 +2703,13 @@ const ComplianceMVP = () => {
       });
     }
 
+    const totalControls = (planToUse.phases?.phase1?.controls?.length || 0) + 
+                          (planToUse.phases?.phase2?.controls?.length || 0) + 
+                          (planToUse.phases?.phase3?.controls?.length || 0) || gaps.length || controls.length;
+    const totalCost = (planToUse.phases?.phase1?.metrics?.totalCost || 0) + 
+                      (planToUse.phases?.phase2?.metrics?.totalCost || 0) + 
+                      (planToUse.phases?.phase3?.metrics?.totalCost || 0) || 18750;
+    
     setProjectTimeline({
       milestones,
       timelineData,
@@ -2658,9 +2717,11 @@ const ComplianceMVP = () => {
       summary: {
         totalDuration: 90,
         totalMilestones: milestones.length,
-        totalControls: automationPlan.summary.totalControls,
-        totalBudget: automationPlan.summary.totalCost,
-        totalVendorCost: vendorRecommendations.reduce((sum, v) => sum + v.monthlyPrice * 12, 0)
+        totalControls: totalControls,
+        totalBudget: totalCost,
+        totalVendorCost: vendorRecommendations.length > 0 
+          ? vendorRecommendations.reduce((sum, v) => sum + v.monthlyPrice * 12, 0)
+          : 50000 // Demo fallback
       }
     });
   };
@@ -2849,14 +2910,14 @@ const ComplianceMVP = () => {
                     <div className="font-semibold text-foreground">{rec.title}</div>
                     <div className="text-sm text-muted-foreground mt-1">{rec.description}</div>
                     {rec.estimatedImpact && (
-                      <div className="text-xs text-indigo-700 mt-2 font-medium">
+                      <div className="text-xs text-primary mt-2 font-medium">
                         💡 {rec.estimatedImpact}
                       </div>
                     )}
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    rec.type === 'critical' ? 'bg-red-200 text-red-800' :
-                    rec.type === 'high-priority' ? 'bg-orange-200 text-orange-800' :
+                    rec.type === 'critical' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                    rec.type === 'high-priority' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' :
                     'bg-muted text-foreground'
                   }`}>
                     Priority {rec.priority}
@@ -2871,17 +2932,17 @@ const ComplianceMVP = () => {
                         <div key={vIdx} className="bg-card rounded-lg p-3 border border-[hsl(var(--border))] hover:shadow-md transition-shadow">
                           <div className="flex items-start justify-between mb-2">
                             <div className="font-semibold text-foreground">{vendor.vendor}</div>
-                            <span className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">
+                            <span className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded">
                               {vendor.category}
                             </span>
                           </div>
                           <div className="text-xs text-muted-foreground space-y-1">
                             <div>💰 ${vendor.monthlyPrice.toLocaleString()}/mo</div>
-                            <div>📊 ROI: <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-600' : 'text-red-600'}`}>{vendor.roi}%</span></div>
+                            <div>📊 ROI: <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-500' : 'text-red-500'}`}>{vendor.roi}%</span></div>
                             <div>🎯 Covers: {vendor.controlsCovered.join(', ')}</div>
                             <div>📋 {vendor.controlsList.length} control{vendor.controlsList.length > 1 ? 's' : ''}</div>
                             {vendor.automatable && (
-                              <div className="text-green-700 font-medium">⚡ Auto-mappable</div>
+                              <div className="text-green-500 font-medium">⚡ Auto-mappable</div>
                             )}
                           </div>
                         </div>
@@ -2902,7 +2963,7 @@ const ComplianceMVP = () => {
                 )}
 
                 {rec.estimatedSavings && (
-                  <div className="mt-3 p-2 bg-green-100 border border-green-300 rounded text-sm text-green-800 font-semibold">
+                  <div className="mt-3 p-2 bg-green-500/10 border border-green-500/20 rounded text-sm text-green-500 font-semibold">
                     💰 {rec.estimatedSavings}
                   </div>
                 )}
@@ -2915,10 +2976,158 @@ const ComplianceMVP = () => {
     );
   };
 
+  const generateCostPlan = () => {
+    if (!tcoResults) {
+      calculateTCO();
+      return;
+    }
+
+    // AI-powered cost optimization recommendations
+    const aiRecommendations = [];
+    
+    // Analyze backend costs
+    if (tcoResults.backendCosts) {
+      const backendMonthly = tcoResults.backendCosts.monthly;
+      const totalBackend = (backendMonthly.auth || 0) + 
+        (typeof backendMonthly.storage === 'object' ? backendMonthly.storage.total : backendMonthly.storage || 0) +
+        (backendMonthly.api_requests || 0) + 
+        (backendMonthly.compute || 0) + 
+        (backendMonthly.database || 0);
+      
+      if (totalBackend > tcoResults.monthly.total * 0.3) {
+        aiRecommendations.push({
+          type: 'cost_optimization',
+          priority: 'high',
+          title: 'Backend Costs High',
+          description: `Backend infrastructure costs ($${totalBackend.toFixed(0)}/month) represent ${((totalBackend / tcoResults.monthly.total) * 100).toFixed(1)}% of total monthly costs.`,
+          recommendation: 'Consider implementing data retention policies, API rate limiting, and storage tiering to reduce costs by 20-30%.',
+          estimatedSavings: totalBackend * 0.25,
+          implementationEffort: 'Medium',
+          timeframe: '30-60 days'
+        });
+      }
+    }
+
+    // Analyze vendor tool costs
+    const vendorCostEstimate = tcoInputs.numVendorTools * 500; // Rough estimate
+    if (vendorCostEstimate > tcoResults.monthly.total * 0.4) {
+      aiRecommendations.push({
+        type: 'vendor_optimization',
+        priority: 'high',
+        title: 'Vendor Tool Consolidation',
+        description: `Estimated vendor tool costs ($${vendorCostEstimate.toFixed(0)}/month) are high.`,
+        recommendation: 'Review overlapping tool capabilities and consolidate to 3-4 core vendors. Consider vendor bundles with volume discounts.',
+        estimatedSavings: vendorCostEstimate * 0.15,
+        implementationEffort: 'High',
+        timeframe: '60-90 days'
+      });
+    }
+
+    // Analyze asset scaling
+    if (tcoInputs.numAssets > 500) {
+      aiRecommendations.push({
+        type: 'scaling',
+        priority: 'medium',
+        title: 'Asset Scaling Opportunities',
+        description: `With ${tcoInputs.numAssets} assets, volume discounts may apply.`,
+        recommendation: 'Negotiate enterprise pricing tiers. Consider annual prepayment for 10-15% discount.',
+        estimatedSavings: tcoResults.annual.total * 0.12,
+        implementationEffort: 'Low',
+        timeframe: '15-30 days'
+      });
+    }
+
+    // Analyze compliance gaps cost impact
+    const gapControls = controls.filter(c => 
+      c.status === "Not Implemented" || c.status === "Non-Compliant" || c.status === "Partial"
+    );
+    if (gapControls.length > 10) {
+      aiRecommendations.push({
+        type: 'compliance_gaps',
+        priority: 'critical',
+        title: 'Compliance Gap Cost Impact',
+        description: `${gapControls.length} controls are non-compliant, increasing audit risk and potential fines.`,
+        recommendation: 'Prioritize critical controls (AC-*, SI-*, IR-*) to reduce audit findings and potential penalties by 40-60%.',
+        estimatedSavings: gapControls.length * 2000, // Estimated audit finding cost
+        implementationEffort: 'High',
+        timeframe: '90-180 days'
+      });
+    }
+
+    // Analyze retention costs
+    if (tcoInputs.retentionYears > 3) {
+      aiRecommendations.push({
+        type: 'retention',
+        priority: 'medium',
+        title: 'Data Retention Optimization',
+        description: `${tcoInputs.retentionYears}-year retention may be excessive for some data types.`,
+        recommendation: 'Implement tiered retention: 7 years for critical data, 3 years for standard, 1 year for non-critical. Reduces storage costs by 25-35%.',
+        estimatedSavings: (tcoResults.backendCosts?.monthly?.storage && typeof tcoResults.backendCosts.monthly.storage === 'object' 
+          ? tcoResults.backendCosts.monthly.storage.total 
+          : tcoResults.backendCosts?.monthly?.storage || 500) * 0.3 * 12,
+        implementationEffort: 'Medium',
+        timeframe: '45-60 days'
+      });
+    }
+
+    // Cost breakdown analysis
+    const costPlanData = {
+      currentState: {
+        monthly: tcoResults.monthly.total,
+        annual: tcoResults.annual.total,
+        threeYear: tcoResults.threeYear.total,
+        breakdown: {
+          platform: tcoResults.monthly.platform || 0,
+          backend: tcoResults.backendCosts ? 
+            (tcoResults.backendCosts.monthly.auth || 0) + 
+            (typeof tcoResults.backendCosts.monthly.storage === 'object' ? tcoResults.backendCosts.monthly.storage.total : tcoResults.backendCosts.monthly.storage || 0) +
+            (tcoResults.backendCosts.monthly.api_requests || 0) + 
+            (tcoResults.backendCosts.monthly.compute || 0) + 
+            (tcoResults.backendCosts.monthly.database || 0) : 0,
+          vendors: vendorCostEstimate,
+          audits: (tcoResults.annual.audits || 0) / 12,
+          onboarding: (tcoResults.monthly.onboarding || 0)
+        }
+      },
+      optimizedState: {
+        monthly: tcoResults.monthly.total * 0.85, // 15% optimization potential
+        annual: tcoResults.annual.total * 0.85,
+        threeYear: tcoResults.threeYear.total * 0.85,
+        savings: {
+          monthly: tcoResults.monthly.total * 0.15,
+          annual: tcoResults.annual.total * 0.15,
+          threeYear: tcoResults.threeYear.total * 0.15
+        }
+      },
+      aiRecommendations: aiRecommendations.sort((a, b) => {
+        const priorityOrder = { 'critical': 3, 'high': 2, 'medium': 1, 'low': 0 };
+        return priorityOrder[b.priority] - priorityOrder[a.priority];
+      }),
+      timeline: {
+        immediate: aiRecommendations.filter(r => r.timeframe.includes('15') || r.timeframe.includes('30')).length,
+        shortTerm: aiRecommendations.filter(r => r.timeframe.includes('60') || r.timeframe.includes('45')).length,
+        longTerm: aiRecommendations.filter(r => r.timeframe.includes('90') || r.timeframe.includes('180')).length
+      },
+      generatedAt: new Date().toISOString()
+    };
+
+    setCostPlan(costPlanData);
+    setShowCostPlan(true);
+  };
+
   const renderTCOCalculator = () => (
     <div className="space-y-6">
       <div className="bg-card rounded-lg shadow p-6">
-        <h3 className="text-xl font-semibold mb-4">TCO Calculator Inputs</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-semibold">TCO Calculator Inputs</h3>
+          <button
+            onClick={generateCostPlan}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
+          >
+            <Sparkles className="w-4 h-4" />
+            Generate Cost Plan
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
@@ -2928,7 +3137,7 @@ const ComplianceMVP = () => {
               type="number"
               value={tcoInputs.numAssets}
               onChange={(e) => updateTCOInput('numAssets', parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
             />
           </div>
           
@@ -2940,7 +3149,7 @@ const ComplianceMVP = () => {
               type="number"
               value={tcoInputs.numCloudAccounts}
               onChange={(e) => updateTCOInput('numCloudAccounts', parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
             />
           </div>
           
@@ -2952,7 +3161,7 @@ const ComplianceMVP = () => {
               type="number"
               value={tcoInputs.numVendorTools}
               onChange={(e) => updateTCOInput('numVendorTools', parseInt(e.target.value))}
-              className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+              className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
             />
           </div>
         </div>
@@ -2961,31 +3170,31 @@ const ComplianceMVP = () => {
       {tcoResults && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow p-6 text-white">
-              <div className="text-sm opacity-90 mb-1">Monthly Cost</div>
-              <div className="text-3xl font-bold">${tcoResults.monthly.total.toFixed(0)}</div>
-              <div className="text-xs opacity-75 mt-1">
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">Monthly Cost</div>
+              <div className="text-3xl font-bold text-foreground">${tcoResults.monthly.total.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">
                 {tcoResults.platformTier} Tier
-                {tcoResults.backendConnected && <span className="block mt-1">✓ Backend Predicted</span>}
+                {tcoResults.backendConnected && <span className="block mt-1 text-green-500">✓ Backend Predicted</span>}
               </div>
             </div>
             
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow p-6 text-white">
-              <div className="text-sm opacity-90 mb-1">Annual Cost</div>
-              <div className="text-3xl font-bold">${tcoResults.annual.total.toFixed(0)}</div>
-              <div className="text-xs opacity-75 mt-1">Including audits</div>
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">Annual Cost</div>
+              <div className="text-3xl font-bold text-foreground">${tcoResults.annual.total.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">Including audits</div>
             </div>
             
-            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg shadow p-6 text-white">
-              <div className="text-sm opacity-90 mb-1">3-Year TCO</div>
-              <div className="text-3xl font-bold">${tcoResults.threeYear.total.toFixed(0)}</div>
-              <div className="text-xs opacity-75 mt-1">${tcoResults.threeYear.perAsset}/asset/mo</div>
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">3-Year TCO</div>
+              <div className="text-3xl font-bold text-foreground">${tcoResults.threeYear.total.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">${tcoResults.threeYear.perAsset}/asset/mo</div>
             </div>
             
-            <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg shadow p-6 text-white">
-              <div className="text-sm opacity-90 mb-1">ROI</div>
-              <div className="text-3xl font-bold">{tcoResults.roi.roiPercent}%</div>
-              <div className="text-xs opacity-75 mt-1">{tcoResults.roi.paybackMonths} mo payback</div>
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">ROI</div>
+              <div className="text-3xl font-bold text-foreground">{tcoResults.roi.roiPercent}%</div>
+              <div className="text-xs text-muted-foreground mt-1">{tcoResults.roi.paybackMonths} mo payback</div>
             </div>
           </div>
           
@@ -3030,6 +3239,120 @@ const ComplianceMVP = () => {
           )}
         </>
       )}
+
+      {/* AI Cost Plan Display */}
+      {showCostPlan && costPlan && (
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <Sparkles className="w-6 h-6 text-primary" />
+                AI-Generated Cost Optimization Plan
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Generated {new Date(costPlan.generatedAt).toLocaleString()}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCostPlan(false)}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-foreground" />
+            </button>
+          </div>
+
+          {/* Cost Comparison */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-muted/50 border border-[hsl(var(--border))] rounded-lg p-4">
+              <div className="text-sm text-muted-foreground mb-1">Current Monthly Cost</div>
+              <div className="text-2xl font-bold text-foreground">${costPlan.currentState.monthly.toFixed(0)}</div>
+            </div>
+            <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+              <div className="text-sm text-primary mb-1">Optimized Monthly Cost</div>
+              <div className="text-2xl font-bold text-primary">${costPlan.optimizedState.monthly.toFixed(0)}</div>
+            </div>
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+              <div className="text-sm text-green-500 mb-1">Potential Savings</div>
+              <div className="text-2xl font-bold text-green-500">${costPlan.optimizedState.savings.monthly.toFixed(0)}/mo</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                ${costPlan.optimizedState.savings.annual.toFixed(0)}/year
+              </div>
+            </div>
+          </div>
+
+          {/* AI Recommendations */}
+          <div>
+            <h4 className="text-lg font-semibold text-foreground mb-4">AI Recommendations</h4>
+            <div className="space-y-3">
+              {costPlan.aiRecommendations.map((rec, idx) => (
+                <div
+                  key={idx}
+                  className={`border rounded-lg p-4 ${
+                    rec.priority === 'critical' ? 'border-red-500/30 bg-red-500/5' :
+                    rec.priority === 'high' ? 'border-orange-500/30 bg-orange-500/5' :
+                    'border-blue-500/30 bg-blue-500/5'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          rec.priority === 'critical' ? 'bg-red-500/20 text-red-500' :
+                          rec.priority === 'high' ? 'bg-orange-500/20 text-orange-500' :
+                          'bg-blue-500/20 text-blue-500'
+                        }`}>
+                          {rec.priority.toUpperCase()}
+                        </span>
+                        <span className="text-sm font-medium text-foreground">{rec.title}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">{rec.description}</p>
+                      <p className="text-sm text-foreground font-medium">{rec.recommendation}</p>
+                    </div>
+                    <div className="text-right ml-4">
+                      <div className="text-lg font-bold text-green-500">
+                        ${rec.estimatedSavings.toFixed(0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">savings</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 pt-2 border-t border-[hsl(var(--border))]">
+                    <span>Effort: {rec.implementationEffort}</span>
+                    <span>•</span>
+                    <span>Timeframe: {rec.timeframe}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cost Breakdown */}
+          <div>
+            <h4 className="text-lg font-semibold text-foreground mb-4">Cost Breakdown</h4>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Platform</div>
+                <div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.platform.toFixed(0)}</div>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Backend</div>
+                <div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.backend.toFixed(0)}</div>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Vendors</div>
+                <div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.vendors.toFixed(0)}</div>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Audits</div>
+                <div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.audits.toFixed(0)}</div>
+              </div>
+              <div className="bg-muted/30 rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">Onboarding</div>
+                <div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.onboarding.toFixed(0)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -3044,7 +3367,7 @@ const ComplianceMVP = () => {
               placeholder="Search controls..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
         </div>
@@ -3052,7 +3375,7 @@ const ComplianceMVP = () => {
         <select
           value={selectedFramework}
           onChange={(e) => setSelectedFramework(e.target.value)}
-          className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+          className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
         >
           {frameworks.map(f => (
             <option key={f} value={f}>{f}</option>
@@ -3079,7 +3402,7 @@ const ComplianceMVP = () => {
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b-2 border-[hsl(var(--border))]">
+            <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
               <th className="text-left py-3 px-4 font-semibold text-foreground">Control</th>
               <th className="text-left py-3 px-4 font-semibold text-foreground">Description</th>
               <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
@@ -3126,7 +3449,7 @@ const ComplianceMVP = () => {
                     value={control.responsible_party}
                     onChange={(e) => updateControl(control.id, 'responsible_party', e.target.value)}
                     placeholder="Owner name"
-                    className="w-full px-2 py-1 text-sm border border-[hsl(var(--border))] rounded"
+                    className="w-full px-2 py-1 text-sm bg-card border border-[hsl(var(--border))] rounded text-foreground"
                   />
                 </td>
                 <td className="py-3 px-4">
@@ -3303,17 +3626,17 @@ const ComplianceMVP = () => {
 
     return (
       <div className="space-y-6">
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg shadow-lg p-8 text-white">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-3xl font-bold mb-2">90-Day Compliance Automation Plan</h2>
-              <p className="text-indigo-100">
+              <h2 className="text-3xl font-bold mb-2 text-foreground">90-Day Compliance Automation Plan</h2>
+              <p className="text-muted-foreground">
                 Risk-prioritized roadmap • Generated {new Date(plan.generated).toLocaleDateString()}
               </p>
             </div>
             <button
               onClick={exportAutomationPlan}
-              className="flex items-center gap-2 px-6 py-3 bg-card text-indigo-600 rounded-lg hover:bg-indigo-50 font-medium"
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
             >
               <Download className="w-4 h-4" />
               Export Plan
@@ -3364,17 +3687,17 @@ const ComplianceMVP = () => {
 
     return (
       <div className="space-y-6">
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg shadow-lg p-8 text-white">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-3xl font-bold mb-2">Responsibility & Data Attribution Matrix</h2>
-              <p className="text-indigo-100">
+              <h2 className="text-3xl font-bold mb-2 text-foreground">Responsibility & Data Attribution Matrix</h2>
+              <p className="text-muted-foreground">
                 Audit-ready matrix showing control ownership, data sources, and evidence attribution
               </p>
             </div>
             <button
               onClick={exportResponsibilityMatrix}
-              className="flex items-center gap-2 px-6 py-3 bg-card text-indigo-600 rounded-lg hover:bg-indigo-50 font-medium"
+              className="flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
             >
               <Download className="w-4 h-4" />
               Export Matrix
@@ -3384,25 +3707,25 @@ const ComplianceMVP = () => {
 
         {/* Summary Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-card rounded-lg shadow p-6">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
             <div className="text-sm text-muted-foreground mb-1">Total Controls</div>
-            <div className="text-3xl font-bold text-indigo-600">{responsibilityMatrix.length}</div>
+            <div className="text-3xl font-bold text-primary">{responsibilityMatrix.length}</div>
           </div>
-          <div className="bg-card rounded-lg shadow p-6">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
             <div className="text-sm text-muted-foreground mb-1">Shared Responsibility</div>
-            <div className="text-3xl font-bold text-orange-600">
+            <div className="text-3xl font-bold text-orange-500">
               {responsibilityMatrix.filter(m => m.shared_responsibility).length}
             </div>
           </div>
-          <div className="bg-card rounded-lg shadow p-6">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
             <div className="text-sm text-muted-foreground mb-1">MDR/SOC Managed</div>
-            <div className="text-3xl font-bold text-green-600">
+            <div className="text-3xl font-bold text-green-500">
               {responsibilityMatrix.filter(m => m.coverage_type === "MDR/SOC Managed").length}
             </div>
           </div>
-          <div className="bg-card rounded-lg shadow p-6">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
             <div className="text-sm text-muted-foreground mb-1">API Integrated</div>
-            <div className="text-3xl font-bold text-blue-600">
+            <div className="text-3xl font-bold text-blue-500">
               {responsibilityMatrix.filter(m => m.data_sources.length > 0).length}
             </div>
           </div>
@@ -3417,7 +3740,7 @@ const ComplianceMVP = () => {
               <select
                 value={matrixFilterCategory}
                 onChange={(e) => setMatrixFilterCategory(e.target.value)}
-                className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="ALL">All Categories</option>
                 {uniqueCategories.map(cat => (
@@ -3430,7 +3753,7 @@ const ComplianceMVP = () => {
               <select
                 value={matrixFilterCoverageType}
                 onChange={(e) => setMatrixFilterCoverageType(e.target.value)}
-                className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="ALL">All Types</option>
                 {uniqueCoverageTypes.map(type => (
@@ -3443,7 +3766,7 @@ const ComplianceMVP = () => {
               <select
                 value={matrixFilterOwnership}
                 onChange={(e) => setMatrixFilterOwnership(e.target.value)}
-                className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="ALL">All Owners</option>
                 {uniqueOwners.map(owner => (
@@ -3460,7 +3783,7 @@ const ComplianceMVP = () => {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b-2 border-[hsl(var(--border))]">
+                <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
                   <th className="text-left py-3 px-4 font-semibold text-foreground">Control ID</th>
                   <th className="text-left py-3 px-4 font-semibold text-foreground">Control Name</th>
                   <th className="text-left py-3 px-4 font-semibold text-foreground">Category</th>
@@ -3478,7 +3801,7 @@ const ComplianceMVP = () => {
                     matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10" :
                     matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10" :
                     matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10" :
-                    ""
+                    "bg-card"
                   }`}>
                     <td className="py-3 px-4">
                       <div className="font-medium text-foreground">{matrix.control_id}</div>
@@ -3513,7 +3836,7 @@ const ComplianceMVP = () => {
                     <td className="py-3 px-4">
                       <div className="flex flex-wrap gap-1">
                         {matrix.secondary_owners.map((owner, oIdx) => (
-                          <span key={oIdx} className="text-xs bg-green-500/10 text-green-500 border border-green-500/20 px-2 py-1 rounded">
+                          <span key={oIdx} className="text-xs bg-green-500/20 text-green-500 border border-green-500/30 px-2 py-1 rounded">
                             {owner}
                           </span>
                         ))}
@@ -3580,7 +3903,7 @@ const ComplianceMVP = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {apiIntegrations.map(api => (
-              <div key={api.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+              <div key={api.id} className="bg-card border border-[hsl(var(--border))] rounded-lg p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h4 className="font-semibold text-foreground">{api.name}</h4>
@@ -3597,7 +3920,7 @@ const ComplianceMVP = () => {
                     <span className="font-medium text-foreground">Controls Covered: </span>
                     <div className="flex flex-wrap gap-1 mt-1">
                       {api.controls_covered.map(id => (
-                        <span key={id} className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">{id}</span>
+                        <span key={id} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded">{id}</span>
                       ))}
                     </div>
                   </div>
@@ -3634,7 +3957,7 @@ const ComplianceMVP = () => {
                     <h4 className="font-semibold text-foreground">{mdr.name}</h4>
                     <div className="text-sm text-muted-foreground">{mdr.type}</div>
                   </div>
-                  <Server className="w-6 h-6 text-blue-600" />
+                  <Server className="w-6 h-6 text-blue-500" />
                 </div>
                 <div className="space-y-2 text-sm">
                   <div>
@@ -3669,14 +3992,14 @@ const ComplianceMVP = () => {
 
         {/* Multi-Customer Support Info */}
         {currentEntity && (
-          <div className="bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-indigo-200 rounded-lg p-6">
-            <h3 className="text-lg font-semibold mb-3 text-indigo-900">
+          <div className="bg-primary/10 border-2 border-primary/20 rounded-lg p-6">
+            <h3 className="text-lg font-semibold mb-3 text-foreground">
               📊 Multi-Customer Responsibility Matrix
             </h3>
-            <p className="text-sm text-indigo-800 mb-3">
+            <p className="text-sm text-primary mb-3">
               This responsibility matrix is generated for: <strong>{currentEntity.name}</strong>
             </p>
-            <div className="text-sm text-indigo-700 space-y-1">
+            <div className="text-sm text-primary/80 space-y-1">
               <div>✓ Control ownership clearly attributed to internal teams, vendors, or MDR providers</div>
               <div>✓ Data source attribution shows which APIs provide evidence for each control</div>
               <div>✓ Export ready for audit documentation and customer reporting</div>
@@ -3745,9 +4068,9 @@ const ComplianceMVP = () => {
 
     return (
       <div className="space-y-6">
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg shadow-lg p-8 text-white">
-          <h2 className="text-3xl font-bold mb-2">Project Timeline with Cost Analysis</h2>
-          <p className="text-purple-100">{timeline.summary.totalDuration} days • {timeline.summary.totalMilestones} milestones</p>
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
+          <h2 className="text-3xl font-bold mb-2 text-foreground">Project Timeline with Cost Analysis</h2>
+          <p className="text-muted-foreground">{timeline.summary.totalDuration} days • {timeline.summary.totalMilestones} milestones</p>
         </div>
 
         {/* Filters */}
@@ -3759,7 +4082,7 @@ const ComplianceMVP = () => {
               <select
                 value={selectedVendorFilter}
                 onChange={(e) => setSelectedVendorFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="ALL">All Vendors</option>
                 {allVendors.map(vendor => (
@@ -3773,7 +4096,7 @@ const ComplianceMVP = () => {
               <select
                 value={selectedPriorityFilter}
                 onChange={(e) => setSelectedPriorityFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="ALL">All Priorities</option>
                 <option value="critical">Critical Only</option>
@@ -3786,7 +4109,7 @@ const ComplianceMVP = () => {
               <select
                 value={selectedPriceFilter}
                 onChange={(e) => setSelectedPriceFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg focus:ring-2 focus:ring-indigo-500"
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="ALL">All Prices</option>
                 <option value="low">Under $1,000/mo</option>
@@ -3901,26 +4224,26 @@ const ComplianceMVP = () => {
             {filteredMilestones.map((milestone, idx) => (
               <div key={idx} className="flex items-start gap-4 pb-4 border-b last:border-b-0">
                 <div className={`flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center ${
-                  milestone.status === 'completed' ? 'bg-green-100' :
-                  milestone.status === 'in-progress' ? 'bg-yellow-100' :
+                  milestone.status === 'completed' ? 'bg-green-500/10' :
+                  milestone.status === 'in-progress' ? 'bg-yellow-500/10' :
                   'bg-muted'
                 }`}>
-                  {milestone.type === 'start' && <CheckCircle className={`w-6 h-6 ${milestone.status === 'completed' ? 'text-green-600' : 'text-muted-foreground'}`} />}
-                  {milestone.type === 'phase' && <Server className={`w-6 h-6 ${milestone.status === 'in-progress' ? 'text-yellow-600' : 'text-muted-foreground'}`} />}
-                  {milestone.type === 'milestone' && <Award className={`w-6 h-6 ${milestone.status === 'completed' ? 'text-green-600' : 'text-muted-foreground'}`} />}
+                  {milestone.type === 'start' && <CheckCircle className={`w-6 h-6 ${milestone.status === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />}
+                  {milestone.type === 'phase' && <Server className={`w-6 h-6 ${milestone.status === 'in-progress' ? 'text-yellow-500' : 'text-muted-foreground'}`} />}
+                  {milestone.type === 'milestone' && <Award className={`w-6 h-6 ${milestone.status === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
                     <h4 className="font-semibold text-foreground">{milestone.name}</h4>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      milestone.status === 'completed' ? 'bg-green-100 text-green-800' :
-                      milestone.status === 'in-progress' ? 'bg-yellow-100 text-yellow-800' :
+                      milestone.status === 'completed' ? 'bg-green-500/10 text-green-500 border border-green-500/20' :
+                      milestone.status === 'in-progress' ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' :
                       'bg-muted text-muted-foreground'
                     }`}>
                       {milestone.status}
                     </span>
                     {milestone.cost > 0 && (
-                      <span className="text-sm font-semibold text-indigo-600">
+                      <span className="text-sm font-semibold text-primary">
                         ${milestone.cost.toLocaleString()}
                       </span>
                     )}
@@ -3933,23 +4256,23 @@ const ComplianceMVP = () => {
                   </div>
                   
                   {milestone.vendors && milestone.vendors.length > 0 && (
-                    <div className="mt-3 p-3 bg-indigo-50 rounded-lg">
-                      <div className="text-sm font-semibold text-indigo-900 mb-2">Recommended Vendors:</div>
+                    <div className="mt-3 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+                      <div className="text-sm font-semibold text-foreground mb-2">Recommended Vendors:</div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {milestone.vendors.map((vendor, vIdx) => (
-                          <div key={vIdx} className="bg-card p-2 rounded border border-indigo-200">
+                          <div key={vIdx} className="bg-card p-2 rounded border border-primary/20">
                             <div className="flex items-center justify-between">
                               <span className="font-medium text-sm">{vendor.vendor}</span>
-                              <span className="text-xs text-indigo-700">${vendor.monthlyPrice}/mo</span>
+                              <span className="text-xs text-primary">${vendor.monthlyPrice}/mo</span>
                             </div>
                             <div className="text-xs text-muted-foreground mt-1">
-                              Covers: {vendor.controlsCovered.join(', ')} • ROI: <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-600' : 'text-red-600'}`}>{vendor.roi}%</span>
+                              Covers: {vendor.controlsCovered.join(', ')} • ROI: <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-500' : 'text-red-500'}`}>{vendor.roi}%</span>
                             </div>
                           </div>
                         ))}
                       </div>
                       {milestone.vendorCost > 0 && (
-                        <div className="text-xs text-indigo-700 mt-2 font-semibold">
+                        <div className="text-xs text-primary mt-2 font-semibold">
                           Total Vendor Cost: ${milestone.vendorCost.toLocaleString()}/month
                         </div>
                       )}
@@ -3988,20 +4311,20 @@ const ComplianceMVP = () => {
                       <td className="py-3 px-4">
                         <div className="flex flex-wrap gap-1">
                           {vendor.controlsCovered.map((id, cIdx) => (
-                            <span key={cIdx} className="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded">{id}</span>
+                            <span key={cIdx} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded">{id}</span>
                           ))}
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-500' : 'text-red-500'}`}>
                           {vendor.roi}%
                         </span>
                       </td>
                       <td className="py-3 px-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                          vendor.priority === 1 ? 'bg-red-100 text-red-800' :
-                          vendor.priority === 2 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-blue-100 text-blue-800'
+                          vendor.priority === 1 ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                          vendor.priority === 2 ? 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20' :
+                          'bg-blue-500/10 text-blue-500 border border-blue-500/20'
                         }`}>
                           {vendor.priority === 1 ? 'High' : vendor.priority === 2 ? 'Medium' : 'Low'}
                         </span>
@@ -4051,213 +4374,229 @@ const ComplianceMVP = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Backend Connection Status */}
-        {backendConnected && (
-          <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-green-500" />
-            <span className="text-sm text-green-500">Backend API Connected</span>
-          </div>
-        )}
-        {apiError && (
-          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-yellow-500" />
-            <span className="text-sm text-yellow-500">{apiError}</span>
-          </div>
-        )}
-
-        {/* Modern Header with shadcn/ui styling */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="space-y-2">
-              <h1 className="text-3xl md:text-4xl font-bold text-foreground">Compliance Automation Platform</h1>
-              <p className="text-muted-foreground text-sm md:text-base">Multi-framework control mapping with auto-assignment</p>
-              {backendConnected && (
-                <p className="text-xs text-green-500">✓ Backend API connected - Data segmentation active</p>
+    <div className="min-h-screen bg-background">
+      <div className="flex h-screen overflow-hidden">
+        {/* Sidebar Navigation - shadcn dashboard style */}
+        <aside className={`${sidebarCollapsed ? 'w-16' : 'w-64'} border-r border-[hsl(var(--border))] bg-card transition-all duration-300 flex flex-col`}>
+          {/* Sidebar Header */}
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <div className="flex items-center justify-between">
+              {!sidebarCollapsed && (
+                <div>
+                  <h2 className="text-lg font-semibold text-foreground">Compliance</h2>
+                  <p className="text-xs text-muted-foreground">Automation Platform</p>
+                </div>
               )}
-              <div className="flex flex-wrap gap-2 mt-3">
-                {Object.entries(FRAMEWORK_LIBRARY).slice(0, 5).map(([key, fw]) => (
-                  <span key={key} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-                    {fw.name} {fw.version}
-                  </span>
-                ))}
-                {Object.keys(FRAMEWORK_LIBRARY).length > 5 && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-muted-foreground">
-                    +{Object.keys(FRAMEWORK_LIBRARY).length - 5} more
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col md:items-end space-y-1">
-              <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
-              <div className="text-sm text-muted-foreground">{currentUser.email}</div>
-              <div className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-secondary text-secondary-foreground">
-                {currentUser.role}
-              </div>
+              <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <Menu className="w-4 h-4 text-foreground" />
+              </button>
             </div>
           </div>
-        </div>
 
-        {/* Modern Navigation with Dropdown Menus */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm">
-          <div className="flex flex-wrap items-center gap-2 p-4">
-            {/* Quick Access - Current View */}
-            <div className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary/10 text-primary font-medium border border-primary/20">
-              {getViewIcon(activeView)}
-              <span className="hidden sm:inline">{getViewName(activeView)}</span>
+          {/* Navigation Links */}
+          <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+            {/* Home Section */}
+            <div className="mb-6">
+              {!sidebarCollapsed && (
+                <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Home
+                </div>
+              )}
+              <button
+                onClick={() => setActiveView('dashboard')}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeView === 'dashboard'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <Home className="w-4 h-4" />
+                {!sidebarCollapsed && <span>Dashboard</span>}
+              </button>
             </div>
 
-            {/* Overview Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none">
-                <LayoutDashboard className="w-4 h-4" />
-                <span className="hidden sm:inline">Overview</span>
-                <ChevronDown className="w-4 h-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Overview</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={() => setActiveView('dashboard')}
-                  className={activeView === 'dashboard' ? 'bg-accent' : ''}
-                >
-                  <LayoutDashboard className="w-4 h-4 mr-2" />
-                  Dashboard
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Compliance Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none">
-                <Shield className="w-4 h-4" />
-                <span className="hidden sm:inline">Compliance</span>
-                <ChevronDown className="w-4 h-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Compliance</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
+            {/* Documents Section */}
+            <div className="mb-6">
+              {!sidebarCollapsed && (
+                <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Documents
+                </div>
+              )}
+              <div className="space-y-1">
+                <button
                   onClick={() => setActiveView('controls')}
-                  className={activeView === 'controls' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'controls'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <Shield className="w-4 h-4 mr-2" />
-                  Controls
-                </DropdownMenuItem>
-                <DropdownMenuItem 
+                  <Shield className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Controls</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('responsibility')}
-                  className={activeView === 'responsibility' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'responsibility'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <Database className="w-4 h-4 mr-2" />
-                  Responsibility Matrix
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Planning & Analysis Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none">
-                <TrendingUp className="w-4 h-4" />
-                <span className="hidden sm:inline">Planning</span>
-                <ChevronDown className="w-4 h-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Planning & Analysis</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
+                  <Database className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Responsibility Matrix</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('tco')}
-                  className={activeView === 'tco' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'tco'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <TrendingUp className="w-4 h-4 mr-2" />
-                  TCO Calculator
-                </DropdownMenuItem>
-                <DropdownMenuItem 
+                  <BarChart3 className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>TCO Calculator</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('timeline')}
-                  className={activeView === 'timeline' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'timeline'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <TrendingUp className="w-4 h-4 mr-2" />
-                  Timeline
-                </DropdownMenuItem>
-                <DropdownMenuItem 
+                  <TrendingUp className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Timeline</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('automation')}
-                  className={activeView === 'automation' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'automation'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <Award className="w-4 h-4 mr-2" />
-                  Automation Plan
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Management Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none">
-                <Menu className="w-4 h-4" />
-                <span className="hidden sm:inline">Management</span>
-                <ChevronDown className="w-4 h-4" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Management</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
+                  <Award className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Automation Plan</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('vendors')}
-                  className={activeView === 'vendors' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'vendors'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <Users className="w-4 h-4 mr-2" />
-                  Vendors
-                </DropdownMenuItem>
-                <DropdownMenuItem 
+                  <Users className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Vendors</span>}
+                </button>
+                <button
                   onClick={() => setActiveView('import')}
-                  className={activeView === 'import' ? 'bg-accent' : ''}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'import'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
                 >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Data Import
-                </DropdownMenuItem>
-                <DropdownMenuItem 
-                  onClick={() => setActiveView('rbac')}
-                  className={activeView === 'rbac' ? 'bg-accent' : ''}
-                >
-                  <Shield className="w-4 h-4 mr-2" />
-                  Roles & Permissions
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
+                  <FileText className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Data Import</span>}
+                </button>
+              </div>
+            </div>
 
-        {/* Stats Cards with shadcn/ui styling */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            {/* Settings Section */}
+            {!sidebarCollapsed && (
+              <div className="mt-auto pt-4 border-t border-[hsl(var(--border))]">
+                <button
+                  onClick={() => setActiveView('rbac')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'rbac'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Settings</span>
+                </button>
+              </div>
+            )}
+          </nav>
+        </aside>
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Top Header */}
+          <header className="border-b border-[hsl(var(--border))] bg-card p-4 md:p-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="space-y-1">
+                <h1 className="text-2xl md:text-3xl font-bold text-foreground">{getViewName(activeView)}</h1>
+                <p className="text-sm text-muted-foreground">Compliance Automation Platform</p>
+              </div>
+              <div className="flex items-center gap-4">
+                {backendConnected && (
+                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span className="text-xs text-green-500">API Connected</span>
+                  </div>
+                )}
+                {apiError && (
+                  <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-yellow-500" />
+                    <span className="text-xs text-yellow-500">{apiError}</span>
+                  </div>
+                )}
+                <div className="flex flex-col items-end">
+                  <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
+                  <div className="text-xs text-muted-foreground">{currentUser.email}</div>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* Scrollable Content */}
+          <main className="flex-1 overflow-y-auto p-4 md:p-8">
+            <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* Stats Cards with shadcn/ui styling - Only show on dashboard */}
+        {activeView === 'dashboard' && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4 md:p-6 hover:shadow-md transition-shadow">
             <div className="text-xs md:text-sm text-muted-foreground mb-1">Total Controls</div>
             <div className="text-2xl md:text-3xl font-bold text-foreground">{stats.total}</div>
           </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4 md:p-6 hover:shadow-md transition-shadow">
             <div className="text-xs md:text-sm text-muted-foreground mb-1">Implemented</div>
-            <div className="text-2xl md:text-3xl font-bold text-green-600">{stats.implemented}</div>
+            <div className="text-2xl md:text-3xl font-bold text-green-500">{stats.implemented}</div>
           </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4 md:p-6 hover:shadow-md transition-shadow">
             <div className="text-xs md:text-sm text-muted-foreground mb-1">Vendor Managed</div>
-            <div className="text-2xl md:text-3xl font-bold text-blue-600">{stats.vendorManaged}</div>
+            <div className="text-2xl md:text-3xl font-bold text-blue-500">{stats.vendorManaged}</div>
           </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4 md:p-6 hover:shadow-md transition-shadow">
             <div className="text-xs md:text-sm text-muted-foreground mb-1">Auto-Mapped</div>
-            <div className="text-2xl md:text-3xl font-bold text-purple-600">{stats.autoMapped}</div>
+            <div className="text-2xl md:text-3xl font-bold text-purple-500">{stats.autoMapped}</div>
           </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4 md:p-6 hover:shadow-md transition-shadow">
             <div className="text-xs md:text-sm text-muted-foreground mb-1">Coverage</div>
             <div className="text-2xl md:text-3xl font-bold text-primary">{coverage}%</div>
           </div>
         </div>
+        )}
 
-        {activeView === 'dashboard' ? renderDashboard() : 
-         activeView === 'tco' ? renderTCOCalculator() : 
-         activeView === 'automation' ? renderAutomationPlan() :
-         activeView === 'import' ? renderDataImport() :
-         activeView === 'vendors' ? renderVendors() :
-         activeView === 'rbac' ? renderRBAC() :
-         activeView === 'timeline' ? renderTimeline() :
-         activeView === 'responsibility' ? renderResponsibilityMatrix() :
-         renderControls()}
+              {activeView === 'dashboard' ? renderDashboard() : 
+               activeView === 'tco' ? renderTCOCalculator() : 
+               activeView === 'automation' ? renderAutomationPlan() :
+               activeView === 'import' ? renderDataImport() :
+               activeView === 'vendors' ? renderVendors() :
+               activeView === 'rbac' ? renderRBAC() :
+               activeView === 'timeline' ? renderTimeline() :
+               activeView === 'responsibility' ? renderResponsibilityMatrix() :
+               renderControls()}
+            </div>
+          </main>
+        </div>
       </div>
     </div>
   );
