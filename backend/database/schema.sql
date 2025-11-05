@@ -301,3 +301,299 @@ INSERT OR IGNORE INTO metadata_tags_registry (tag_name, tag_category, descriptio
 ('API_ATTRIBUTED', 'SOURCE', 'Data from API integration', 0, 0),
 ('INTERNAL_MANAGED', 'SOURCE', 'Internally managed', 0, 0);
 
+-- ============================================================================
+-- IAM (Identity & Access Management) Tables
+-- ============================================================================
+
+-- User Roles (Multi-tenant support)
+CREATE TABLE IF NOT EXISTS user_roles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  role_name TEXT NOT NULL, -- 'Admin', 'Engineer', 'Auditor', 'Vendor', 'ReadOnly'
+  entity_id INTEGER, -- For multi-tenant isolation
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Permission Templates (Reusable permission sets)
+CREATE TABLE IF NOT EXISTS permission_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_name TEXT NOT NULL UNIQUE, -- 'Vendor Read-Only', 'Vendor Read-Write', 'Engineer Full'
+  description TEXT,
+  permissions_json TEXT NOT NULL, -- JSON: {"controls": ["read"], "audits": ["read", "write"], "reports": ["read"]}
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User Permissions (Granular permissions)
+CREATE TABLE IF NOT EXISTS user_permissions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  resource_type TEXT NOT NULL, -- 'control', 'audit', 'report', 'evidence', 'vendor', 'all'
+  resource_id TEXT, -- Specific control ID, audit ID, or NULL for all resources of this type
+  permission_type TEXT NOT NULL, -- 'read', 'write', 'execute', 'delete'
+  granted_by INTEGER NOT NULL, -- User ID who granted this
+  granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP, -- NULL for permanent permissions
+  approval_workflow_id INTEGER, -- Link to approval workflow
+  metadata_json TEXT, -- Additional context JSON
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (granted_by) REFERENCES users(id),
+  FOREIGN KEY (approval_workflow_id) REFERENCES approval_workflows(id)
+);
+
+-- Approval Workflows (For permission requests)
+CREATE TABLE IF NOT EXISTS approval_workflows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  workflow_name TEXT,
+  requestor_id INTEGER NOT NULL,
+  approver_id INTEGER, -- NULL if pending approval
+  resource_type TEXT NOT NULL,
+  resource_id TEXT,
+  permission_requested TEXT NOT NULL, -- JSON permission request
+  status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'expired'
+  requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  approved_at TIMESTAMP,
+  rejected_at TIMESTAMP,
+  rejection_reason TEXT,
+  FOREIGN KEY (requestor_id) REFERENCES users(id),
+  FOREIGN KEY (approver_id) REFERENCES users(id)
+);
+
+-- Permission Audit Log (Immutable audit trail)
+CREATE TABLE IF NOT EXISTS permission_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  log_hash TEXT NOT NULL UNIQUE, -- SHA-256 hash for immutability
+  event_type TEXT NOT NULL, -- 'grant', 'revoke', 'modify', 'approve', 'reject', 'access'
+  user_id INTEGER NOT NULL, -- User affected
+  permission_id INTEGER, -- Link to user_permissions
+  granted_by INTEGER, -- Who performed the action
+  ip_address TEXT,
+  user_agent TEXT,
+  resource_type TEXT,
+  resource_id TEXT,
+  permission_type TEXT,
+  previous_permissions TEXT, -- JSON snapshot before change
+  new_permissions TEXT, -- JSON snapshot after change
+  metadata_json TEXT, -- Additional context
+  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (granted_by) REFERENCES users(id),
+  FOREIGN KEY (permission_id) REFERENCES user_permissions(id)
+);
+
+-- Vendor Access Profiles (Templates for vendor access)
+CREATE TABLE IF NOT EXISTS vendor_access_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vendor_id INTEGER, -- Link to vendors (if exists in vendors table)
+  vendor_name TEXT NOT NULL, -- Vendor name if not in vendors table
+  profile_name TEXT NOT NULL, -- 'SOC Team Read-Only', 'MDR Full Access'
+  entity_id INTEGER, -- Multi-tenant isolation
+  scope_json TEXT NOT NULL, -- {"controls": ["AC-001", "AC-002"], "frameworks": ["NIST"], "audits": [1, 2]}
+  permissions_json TEXT NOT NULL, -- {"controls": ["read"], "audits": ["read", "write"], "evidence": ["read", "write", "execute"]}
+  access_expires_at TIMESTAMP,
+  auto_renew BOOLEAN DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Vendor User Assignments (Link vendor users to access profiles)
+CREATE TABLE IF NOT EXISTS vendor_user_assignments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vendor_access_profile_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL, -- Vendor's user account
+  assigned_by INTEGER NOT NULL,
+  assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP,
+  status TEXT DEFAULT 'active', -- 'active', 'suspended', 'revoked'
+  FOREIGN KEY (vendor_access_profile_id) REFERENCES vendor_access_profiles(id),
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (assigned_by) REFERENCES users(id)
+);
+
+-- Indexes for IAM tables (Performance optimization)
+CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_roles_entity ON user_roles(entity_id);
+CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_permissions_resource ON user_permissions(resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_user_permissions_expires ON user_permissions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_permission_audit_user ON permission_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_permission_audit_timestamp ON permission_audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_permission_audit_hash ON permission_audit_log(log_hash);
+CREATE INDEX IF NOT EXISTS idx_approval_workflows_status ON approval_workflows(status);
+CREATE INDEX IF NOT EXISTS idx_approval_workflows_requestor ON approval_workflows(requestor_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_access_profiles_vendor ON vendor_access_profiles(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_user_assignments_user ON vendor_user_assignments(user_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_user_assignments_profile ON vendor_user_assignments(vendor_access_profile_id);
+
+-- ============================================================================
+-- Continuous Security-Compliance Alignment (CSCA) Tables
+-- ============================================================================
+
+-- Security Events (from SIEM, EDR, CSPM, etc.)
+CREATE TABLE IF NOT EXISTS security_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL, -- 'threat_detected', 'vulnerability_found', 'incident', 'policy_violation', 'configuration_change'
+  event_source TEXT NOT NULL, -- 'SIEM', 'EDR', 'CSPM', 'Vulnerability Scanner', 'Manual'
+  source_tool TEXT, -- 'CrowdStrike', 'Splunk', 'AWS Security Hub', etc.
+  severity TEXT NOT NULL, -- 'critical', 'high', 'medium', 'low', 'info'
+  title TEXT NOT NULL,
+  description TEXT,
+  affected_resources TEXT, -- JSON array of resource IDs, IPs, hostnames, etc.
+  security_event_data TEXT, -- JSON object with event details
+  detected_at TIMESTAMP NOT NULL,
+  resolved_at TIMESTAMP,
+  status TEXT DEFAULT 'open', -- 'open', 'investigating', 'resolved', 'false_positive'
+  assigned_to TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Security Event to Compliance Control Mapping
+CREATE TABLE IF NOT EXISTS security_event_compliance_mapping (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  security_event_id INTEGER NOT NULL,
+  control_id TEXT NOT NULL,
+  framework TEXT NOT NULL, -- 'NIST_800-53', 'ISO27001', 'SOC2', 'CIS'
+  impact_level TEXT NOT NULL, -- 'critical', 'high', 'medium', 'low'
+  compliance_impact TEXT, -- 'compliance_gap', 'evidence_update', 'control_degradation', 'risk_increase'
+  mapped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (security_event_id) REFERENCES security_events(id),
+  FOREIGN KEY (control_id) REFERENCES controls(id)
+);
+
+-- Compliance Score History (for real-time tracking)
+CREATE TABLE IF NOT EXISTS compliance_score_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  framework TEXT NOT NULL,
+  overall_score INTEGER NOT NULL, -- 0-100
+  controls_implemented INTEGER,
+  controls_total INTEGER,
+  gaps_count INTEGER,
+  security_event_impact INTEGER DEFAULT 0, -- Impact from recent security events
+  calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Security-Compliance Correlation Metrics
+CREATE TABLE IF NOT EXISTS security_compliance_correlation (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  metric_type TEXT NOT NULL, -- 'security_event_impact', 'vulnerability_impact', 'incident_impact', 'policy_violation_impact'
+  metric_value REAL NOT NULL,
+  compliance_score_delta INTEGER, -- Change in compliance score
+  framework TEXT,
+  control_id TEXT,
+  calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Real-Time Compliance Alerts (when security events affect compliance)
+CREATE TABLE IF NOT EXISTS compliance_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  alert_type TEXT NOT NULL, -- 'compliance_degradation', 'gap_created', 'evidence_expired', 'control_failed'
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  security_event_id INTEGER, -- Link to security event if applicable
+  control_id TEXT,
+  framework TEXT,
+  compliance_score_before INTEGER,
+  compliance_score_after INTEGER,
+  acknowledged BOOLEAN DEFAULT 0,
+  acknowledged_at TIMESTAMP,
+  acknowledged_by TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (security_event_id) REFERENCES security_events(id)
+);
+
+-- Indexes for CSCA tables
+CREATE INDEX IF NOT EXISTS idx_security_events_user ON security_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_security_events_status ON security_events(status);
+CREATE INDEX IF NOT EXISTS idx_security_events_detected ON security_events(detected_at);
+CREATE INDEX IF NOT EXISTS idx_event_compliance_mapping_event ON security_event_compliance_mapping(security_event_id);
+CREATE INDEX IF NOT EXISTS idx_event_compliance_mapping_control ON security_event_compliance_mapping(control_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_score_history_user ON compliance_score_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_score_history_framework ON compliance_score_history(framework);
+CREATE INDEX IF NOT EXISTS idx_compliance_score_history_calculated ON compliance_score_history(calculated_at);
+CREATE INDEX IF NOT EXISTS idx_security_compliance_correlation_user ON security_compliance_correlation(user_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_alerts_user ON compliance_alerts(user_id);
+CREATE INDEX IF NOT EXISTS idx_compliance_alerts_acknowledged ON compliance_alerts(acknowledged);
+
+-- ============================================================================
+-- Security Event Pattern Detection & Trend Analysis
+-- ============================================================================
+
+-- Detected Security Event Patterns
+CREATE TABLE IF NOT EXISTS security_event_patterns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  pattern_name TEXT NOT NULL,
+  pattern_type TEXT NOT NULL, -- 'recurring_event', 'trend_anomaly', 'spike_detection', 'correlation_pattern'
+  pattern_description TEXT,
+  pattern_signature TEXT NOT NULL, -- JSON string describing the pattern
+  confidence_score REAL DEFAULT 0.0, -- 0.0 to 1.0
+  severity TEXT NOT NULL, -- 'critical', 'high', 'medium', 'low'
+  first_detected_at TIMESTAMP NOT NULL,
+  last_detected_at TIMESTAMP NOT NULL,
+  occurrence_count INTEGER DEFAULT 1,
+  affected_frameworks TEXT, -- JSON array
+  affected_controls TEXT, -- JSON array
+  trend_direction TEXT, -- 'increasing', 'decreasing', 'stable', 'fluctuating'
+  trend_percentage REAL, -- Percentage change over 30 days
+  status TEXT DEFAULT 'active', -- 'active', 'resolved', 'false_positive'
+  auto_acknowledged BOOLEAN DEFAULT 0,
+  acknowledged_at TIMESTAMP,
+  acknowledged_by TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Pattern Detection Events (matches against patterns)
+CREATE TABLE IF NOT EXISTS pattern_detection_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pattern_id INTEGER NOT NULL,
+  security_event_id INTEGER NOT NULL,
+  matched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  match_confidence REAL DEFAULT 0.0,
+  FOREIGN KEY (pattern_id) REFERENCES security_event_patterns(id),
+  FOREIGN KEY (security_event_id) REFERENCES security_events(id)
+);
+
+-- Pattern Alerts (notifications when patterns are detected)
+CREATE TABLE IF NOT EXISTS pattern_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  pattern_id INTEGER NOT NULL,
+  alert_type TEXT NOT NULL, -- 'pattern_detected', 'pattern_trend_change', 'pattern_spike'
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  pattern_trend_data TEXT, -- JSON string with trend details
+  acknowledged BOOLEAN DEFAULT 0,
+  acknowledged_at TIMESTAMP,
+  acknowledged_by TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (pattern_id) REFERENCES security_event_patterns(id)
+);
+
+-- Indexes for pattern tables
+CREATE INDEX IF NOT EXISTS idx_security_event_patterns_user ON security_event_patterns(user_id);
+CREATE INDEX IF NOT EXISTS idx_security_event_patterns_type ON security_event_patterns(pattern_type);
+CREATE INDEX IF NOT EXISTS idx_security_event_patterns_status ON security_event_patterns(status);
+CREATE INDEX IF NOT EXISTS idx_security_event_patterns_last_detected ON security_event_patterns(last_detected_at);
+CREATE INDEX IF NOT EXISTS idx_pattern_detection_events_pattern ON pattern_detection_events(pattern_id);
+CREATE INDEX IF NOT EXISTS idx_pattern_detection_events_event ON pattern_detection_events(security_event_id);
+CREATE INDEX IF NOT EXISTS idx_pattern_alerts_user ON pattern_alerts(user_id);
+CREATE INDEX IF NOT EXISTS idx_pattern_alerts_pattern ON pattern_alerts(pattern_id);
+CREATE INDEX IF NOT EXISTS idx_pattern_alerts_acknowledged ON pattern_alerts(acknowledged);
+

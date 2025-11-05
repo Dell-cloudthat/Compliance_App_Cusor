@@ -12,26 +12,82 @@ class ComplianceAPI {
 
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    
+    // Prepare body - stringify if it's an object
+    let body = options.body;
+    if (body !== undefined && body !== null) {
+      // If body is already a string, use it as-is
+      // If it's an object, stringify it
+      if (typeof body !== 'string') {
+        body = JSON.stringify(body);
+      }
+    }
+    
     const config = {
+      method: options.method || 'GET',
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
       },
-      ...options,
     };
+    
+    // Only add body for methods that support it
+    if (body !== undefined && body !== null && config.method !== 'GET' && config.method !== 'HEAD') {
+      config.body = body;
+    }
 
     try {
       const response = await fetch(url, config);
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: response.statusText }));
-        throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          errorData = { detail: response.statusText || `HTTP ${response.status}` };
+        }
+        
+        // FastAPI validation errors have a specific format
+        let errorMessage;
+        if (errorData.detail) {
+          if (Array.isArray(errorData.detail)) {
+            // Validation errors from Pydantic
+            errorMessage = errorData.detail.map(err => {
+              const loc = err.loc ? err.loc.join('.') : '';
+              return `${loc}: ${err.msg}`;
+            }).join('; ');
+          } else {
+            errorMessage = errorData.detail;
+          }
+        } else {
+          errorMessage = errorData.message || errorData.error || `HTTP error! status: ${response.status}`;
+        }
+        
+        const error = new Error(errorMessage);
+        error.detail = errorMessage;
+        error.status = response.status;
+        error.rawError = errorData; // Store raw error for debugging
+        throw error;
       }
 
       return await response.json();
     } catch (error) {
       console.error(`API Error (${endpoint}):`, error);
-      throw error;
+      
+      // If it's already an Error with a message, check if it has detail
+      if (error instanceof Error) {
+        // Preserve the detail property if it exists
+        if (error.detail) {
+          error.message = error.detail;
+        }
+        throw error;
+      }
+      
+      // For non-Error objects, try to extract message
+      const errorMessage = error?.detail || error?.message || error?.error || String(error);
+      const newError = new Error(errorMessage);
+      newError.detail = errorMessage;
+      throw newError;
     }
   }
 
@@ -210,6 +266,228 @@ class ComplianceAPI {
       headers: {
         'X-User-Id': userId.toString(),
       },
+    });
+  }
+
+  // ============================================================================
+  // IAM (Identity & Access Management) Endpoints
+  // ============================================================================
+
+  async grantPermission(userId, permissionData) {
+    return this.request('/api/permissions/grant', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: permissionData, // Will be stringified by request method
+    });
+  }
+
+  async revokePermission(userId, permissionId, reason) {
+    return this.request('/api/permissions/revoke', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify({
+        permission_id: permissionId,
+        reason: reason,
+      }),
+    });
+  }
+
+  async checkPermission(permissionCheck) {
+    return this.request('/api/permissions/check', {
+      method: 'POST',
+      body: JSON.stringify(permissionCheck),
+    });
+  }
+
+  async getUserPermissions(userId, targetUserId) {
+    return this.request(`/api/permissions/user/${targetUserId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async createVendorAccessProfile(userId, profileData) {
+    return this.request('/api/vendor-access/profiles', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(profileData),
+    });
+  }
+
+  async assignVendorUser(userId, assignmentData) {
+    return this.request('/api/vendor-access/assign', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(assignmentData),
+    });
+  }
+
+  async getAuditLog(userId, filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.user_id) params.append('user_id', filters.user_id);
+    if (filters.vendor_id) params.append('vendor_id', filters.vendor_id);
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    if (filters.event_type) params.append('event_type', filters.event_type);
+
+    const queryString = params.toString();
+    const url = queryString ? `/api/permissions/audit-log?${queryString}` : '/api/permissions/audit-log';
+
+    return this.request(url, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async bootstrapAdmin(userId) {
+    return this.request('/api/permissions/bootstrap-admin', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // ============================================================================
+  // CSCA (Continuous Security-Compliance Alignment) Endpoints
+  // ============================================================================
+
+  async createSecurityEvent(eventData, userId) {
+    return this.request('/api/security-events', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(eventData)
+    });
+  }
+
+  async getSecurityEvents(filters = {}, userId) {
+    const params = new URLSearchParams();
+    if (filters.event_type) params.append('event_type', filters.event_type);
+    if (filters.severity) params.append('severity', filters.severity);
+    if (filters.status) params.append('status', filters.status);
+    if (filters.limit) params.append('limit', filters.limit);
+    
+    const query = params.toString();
+    return this.request(`/api/security-events${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getSecurityEventComplianceImpact(eventId, userId) {
+    return this.request(`/api/security-events/${eventId}/compliance-impact`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getComplianceScoreHistory(framework = null, days = 30, userId) {
+    const params = new URLSearchParams();
+    if (framework) params.append('framework', framework);
+    params.append('days', days);
+    return this.request(`/api/compliance-score-history?${params.toString()}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getComplianceAlerts(filters = {}, userId) {
+    const params = new URLSearchParams();
+    if (filters.acknowledged !== undefined) params.append('acknowledged', filters.acknowledged);
+    if (filters.severity) params.append('severity', filters.severity);
+    if (filters.limit) params.append('limit', filters.limit);
+    
+    const query = params.toString();
+    return this.request(`/api/compliance-alerts${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async acknowledgeComplianceAlert(alertId, userId) {
+    return this.request(`/api/compliance-alerts/${alertId}/acknowledge`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getSecurityComplianceCorrelation(days = 30, userId) {
+    return this.request(`/api/security-compliance-correlation?days=${days}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  // ============================================================================
+  // Pattern Detection & Trend Analysis Endpoints
+  // ============================================================================
+
+  async detectPatterns(userId, lookbackDays = 30) {
+    return this.request(`/api/patterns/detect?lookback_days=${lookbackDays}`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getPatterns(userId, status = null) {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    const query = params.toString();
+    return this.request(`/api/patterns${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getPatternAlerts(userId, filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.acknowledged !== undefined) params.append('acknowledged', filters.acknowledged);
+    if (filters.limit) params.append('limit', filters.limit);
+    const query = params.toString();
+    return this.request(`/api/pattern-alerts${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async acknowledgePatternAlert(alertId, userId) {
+    return this.request(`/api/pattern-alerts/${alertId}/acknowledge`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getPatternTrends(userId, lookbackDays = 30) {
+    return this.request(`/api/patterns/trends?lookback_days=${lookbackDays}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
     });
   }
 

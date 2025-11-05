@@ -3,7 +3,7 @@ FastAPI Backend for Compliance Automation Platform
 Handles data segmentation, metadata tagging, PII/CUI filtering, and cost tracking
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -13,7 +13,12 @@ import sqlite3
 import json
 import hashlib
 import os
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from services.iam_service import check_permission, create_audit_log, get_user_permissions
+from services.csca_engine import map_security_event_to_compliance, calculate_compliance_impact, update_compliance_scores_from_security_event, get_security_compliance_correlation
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -61,7 +66,13 @@ def init_db():
     
     # Check if audit tables exist, if not create them
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_engagements'")
-    if not cursor.fetchone():
+    audit_tables_exist = cursor.fetchone()
+    
+    # Check if IAM tables exist
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_permissions'")
+    iam_tables_exist = cursor.fetchone()
+    
+    if not audit_tables_exist:
         print("Creating audit management tables...")
         # Execute only the audit-related CREATE TABLE statements
         audit_schema = """
@@ -178,6 +189,250 @@ def init_db():
         cursor.executescript(audit_schema)
         conn.commit()
     
+    # Check if CSCA tables exist
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='security_events'")
+    csca_tables_exist = cursor.fetchone()
+    
+    if not iam_tables_exist:
+        print("Creating IAM system tables...")
+        # IAM tables are already in schema.sql, but we'll verify they exist
+        # The schema.sql should have been executed, so this is just a safety check
+        # Re-run the schema to ensure IAM tables are created
+        try:
+            with open(SCHEMA_PATH, 'r') as f:
+                full_schema = f.read()
+                # Extract just the IAM section (or re-run entire schema)
+                cursor.executescript(full_schema)
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not create IAM tables from schema: {e}")
+            # Create IAM tables manually if schema execution fails
+            iam_schema = """
+            CREATE TABLE IF NOT EXISTS user_roles (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              role_name TEXT NOT NULL,
+              entity_id INTEGER,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS permission_templates (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              template_name TEXT NOT NULL UNIQUE,
+              description TEXT,
+              permissions_json TEXT NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            CREATE TABLE IF NOT EXISTS user_permissions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              resource_type TEXT NOT NULL,
+              resource_id TEXT,
+              permission_type TEXT NOT NULL,
+              granted_by INTEGER NOT NULL,
+              granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              expires_at TIMESTAMP,
+              approval_workflow_id INTEGER,
+              metadata_json TEXT,
+              FOREIGN KEY (user_id) REFERENCES users(id),
+              FOREIGN KEY (granted_by) REFERENCES users(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS approval_workflows (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              workflow_name TEXT,
+              requestor_id INTEGER NOT NULL,
+              approver_id INTEGER,
+              resource_type TEXT NOT NULL,
+              resource_id TEXT,
+              permission_requested TEXT NOT NULL,
+              status TEXT DEFAULT 'pending',
+              requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              approved_at TIMESTAMP,
+              rejected_at TIMESTAMP,
+              rejection_reason TEXT,
+              FOREIGN KEY (requestor_id) REFERENCES users(id),
+              FOREIGN KEY (approver_id) REFERENCES users(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS permission_audit_log (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              log_hash TEXT NOT NULL UNIQUE,
+              event_type TEXT NOT NULL,
+              user_id INTEGER NOT NULL,
+              permission_id INTEGER,
+              granted_by INTEGER,
+              ip_address TEXT,
+              user_agent TEXT,
+              resource_type TEXT,
+              resource_id TEXT,
+              permission_type TEXT,
+              previous_permissions TEXT,
+              new_permissions TEXT,
+              metadata_json TEXT,
+              timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id),
+              FOREIGN KEY (granted_by) REFERENCES users(id),
+              FOREIGN KEY (permission_id) REFERENCES user_permissions(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS vendor_access_profiles (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              vendor_id INTEGER,
+              vendor_name TEXT NOT NULL,
+              profile_name TEXT NOT NULL,
+              entity_id INTEGER,
+              scope_json TEXT NOT NULL,
+              permissions_json TEXT NOT NULL,
+              access_expires_at TIMESTAMP,
+              auto_renew BOOLEAN DEFAULT 0,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            CREATE TABLE IF NOT EXISTS vendor_user_assignments (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              vendor_access_profile_id INTEGER NOT NULL,
+              user_id INTEGER NOT NULL,
+              assigned_by INTEGER NOT NULL,
+              assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              expires_at TIMESTAMP,
+              status TEXT DEFAULT 'active',
+              FOREIGN KEY (vendor_access_profile_id) REFERENCES vendor_access_profiles(id),
+              FOREIGN KEY (user_id) REFERENCES users(id),
+              FOREIGN KEY (assigned_by) REFERENCES users(id)
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_permissions_user ON user_permissions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_permissions_resource ON user_permissions(resource_type, resource_id);
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_user ON permission_audit_log(user_id);
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_timestamp ON permission_audit_log(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_permission_audit_hash ON permission_audit_log(log_hash);
+            CREATE INDEX IF NOT EXISTS idx_approval_workflows_status ON approval_workflows(status);
+            CREATE INDEX IF NOT EXISTS idx_vendor_user_assignments_user ON vendor_user_assignments(user_id);
+            """
+            cursor.executescript(iam_schema)
+            conn.commit()
+            print("IAM tables created successfully")
+    
+    if not csca_tables_exist:
+        print("Creating CSCA system tables...")
+        try:
+            with open(SCHEMA_PATH, 'r') as f:
+                full_schema = f.read()
+                cursor.executescript(full_schema)
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not create CSCA tables from schema: {e}")
+            # Create CSCA tables manually if schema execution fails
+            csca_schema = """
+            CREATE TABLE IF NOT EXISTS security_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              event_type TEXT NOT NULL,
+              event_source TEXT NOT NULL,
+              source_tool TEXT,
+              severity TEXT NOT NULL,
+              title TEXT NOT NULL,
+              description TEXT,
+              affected_resources TEXT,
+              security_event_data TEXT,
+              detected_at TIMESTAMP NOT NULL,
+              resolved_at TIMESTAMP,
+              status TEXT DEFAULT 'open',
+              assigned_to TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS security_event_compliance_mapping (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              security_event_id INTEGER NOT NULL,
+              control_id TEXT NOT NULL,
+              framework TEXT NOT NULL,
+              impact_level TEXT NOT NULL,
+              compliance_impact TEXT,
+              mapped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (security_event_id) REFERENCES security_events(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS compliance_score_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              framework TEXT NOT NULL,
+              overall_score INTEGER NOT NULL,
+              controls_implemented INTEGER,
+              controls_total INTEGER,
+              gaps_count INTEGER,
+              security_event_impact INTEGER DEFAULT 0,
+              calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS security_compliance_correlation (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              metric_type TEXT NOT NULL,
+              metric_value REAL NOT NULL,
+              compliance_score_delta INTEGER,
+              framework TEXT,
+              control_id TEXT,
+              calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS compliance_alerts (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              alert_type TEXT NOT NULL,
+              severity TEXT NOT NULL,
+              title TEXT NOT NULL,
+              description TEXT,
+              security_event_id INTEGER,
+              control_id TEXT,
+              framework TEXT,
+              compliance_score_before INTEGER,
+              compliance_score_after INTEGER,
+              acknowledged BOOLEAN DEFAULT 0,
+              acknowledged_at TIMESTAMP,
+              acknowledged_by TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (user_id) REFERENCES users(id),
+              FOREIGN KEY (security_event_id) REFERENCES security_events(id)
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_security_events_user ON security_events(user_id);
+            CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
+            CREATE INDEX IF NOT EXISTS idx_security_events_status ON security_events(status);
+            CREATE INDEX IF NOT EXISTS idx_event_compliance_mapping_event ON security_event_compliance_mapping(security_event_id);
+            CREATE INDEX IF NOT EXISTS idx_compliance_score_history_user ON compliance_score_history(user_id);
+            CREATE INDEX IF NOT EXISTS idx_compliance_alerts_user ON compliance_alerts(user_id);
+            """
+            cursor.executescript(csca_schema)
+            conn.commit()
+            print("CSCA tables created successfully")
+    
+    # Check if pattern detection tables exist
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='security_event_patterns'")
+    pattern_tables_exist = cursor.fetchone()
+    
+    if not pattern_tables_exist:
+        print("Creating pattern detection tables...")
+        try:
+            with open(SCHEMA_PATH, 'r') as f:
+                full_schema = f.read()
+                cursor.executescript(full_schema)
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not create pattern tables from schema: {e}")
+            # Pattern tables will be created on next schema execution
+    
     conn.close()
     print(f"Database initialized at {DB_PATH}")
 
@@ -226,6 +481,67 @@ class CostPredictionRequest(BaseModel):
     avg_storage_gb_per_user: float = 0.2  # 200MB per user
     api_requests_per_month: int = 50000
     retention_days: int = 90
+
+# IAM Models
+class PermissionGrant(BaseModel):
+    user_id: int
+    vendor_id: Optional[int] = None
+    resource_type: str  # 'control', 'audit', 'report', 'evidence', 'all'
+    resource_id: Optional[str] = None
+    permission_type: str  # 'read', 'write', 'execute', 'delete'
+    expires_at: Optional[str] = None
+    approval_required: bool = False
+    metadata: Optional[Dict[str, Any]] = None
+
+class PermissionRevoke(BaseModel):
+    permission_id: int
+    reason: str
+
+class PermissionCheck(BaseModel):
+    user_id: int
+    resource_type: str
+    resource_id: Optional[str] = None
+    permission_type: str
+
+class VendorAccessProfileCreate(BaseModel):
+    vendor_id: Optional[int] = None
+    vendor_name: str
+    profile_name: str
+    entity_id: Optional[int] = None
+    scope: Dict[str, Any]  # {"controls": [...], "frameworks": [...], "audits": [...]}
+    permissions: Dict[str, List[str]]  # {"controls": ["read"], "audits": ["read", "write"]}
+    access_expires_at: Optional[str] = None
+    auto_renew: bool = False
+
+class VendorUserAssign(BaseModel):
+    vendor_access_profile_id: int
+    vendor_user_id: int
+    expires_at: Optional[str] = None
+
+class ApprovalWorkflowRequest(BaseModel):
+    resource_type: str
+    resource_id: Optional[str] = None
+    permission_type: str
+    reason: str
+
+class ApprovalWorkflowResponse(BaseModel):
+    workflow_id: int
+    approver_id: Optional[int] = None
+    status: str
+    reason: Optional[str] = None
+
+# CSCA Models
+class SecurityEventCreate(BaseModel):
+    event_type: str  # 'threat_detected', 'vulnerability_found', 'incident', 'policy_violation', 'configuration_change'
+    event_source: str  # 'SIEM', 'EDR', 'CSPM', 'Vulnerability Scanner'
+    source_tool: Optional[str] = None
+    severity: str  # 'critical', 'high', 'medium', 'low', 'info'
+    title: str
+    description: Optional[str] = None
+    affected_resources: Optional[List[str]] = None
+    security_event_data: Optional[Dict[str, Any]] = None
+    detected_at: Optional[str] = None  # ISO format timestamp
+    frameworks: Optional[List[str]] = None  # Which frameworks to map to
 
 # Metadata Tagging Functions
 def detect_pii_in_data(data: Dict[str, Any]) -> tuple[bool, List[str]]:
@@ -1121,6 +1437,612 @@ async def list_certifications(user_id: int = Header(..., alias="X-User-Id")):
         result.append(cert_dict)
     
     return result
+
+# ============================================================================
+# IAM (Identity & Access Management) Endpoints
+# ============================================================================
+
+@app.post("/api/permissions/grant")
+async def grant_permission(permission: PermissionGrant, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+    """Grant permission to a user"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Check if grantor has permission to grant permissions (admin check)
+    # First, check if user has admin role
+    cursor.execute("SELECT role_name FROM user_roles WHERE user_id = ? AND role_name = 'Admin'", (user_id,))
+    has_admin_role = cursor.fetchone()
+    
+    # If no admin role, check permission system
+    if not has_admin_role:
+        allowed, reason = check_permission(user_id, "all", None, "write")
+        if not allowed:
+            # Check if this is the first user (bootstrap admin)
+            cursor.execute("SELECT COUNT(*) as count FROM users")
+            user_count = cursor.fetchone()['count']
+            if user_count <= 1:
+                # First user automatically gets admin
+                cursor.execute("INSERT OR IGNORE INTO user_roles (user_id, role_name) VALUES (?, 'Admin')", (user_id,))
+                conn.commit()
+            else:
+                raise HTTPException(status_code=403, detail="Insufficient permissions to grant access. Admin role required.")
+    
+    # Get IP and user agent
+    ip_address = request.client.host if request else None
+    user_agent = request.headers.get("user-agent") if request else None
+    
+    # Insert permission
+    expires_at = permission.expires_at if permission.expires_at else None
+    metadata_json = json.dumps(permission.metadata) if permission.metadata else None
+    
+    cursor.execute("""
+        INSERT INTO user_permissions 
+        (user_id, resource_type, resource_id, permission_type, granted_by, expires_at, metadata_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        permission.user_id, permission.resource_type, permission.resource_id,
+        permission.permission_type, user_id, expires_at, metadata_json
+    ))
+    
+    perm_id = cursor.lastrowid
+    conn.commit()
+    
+    # Create audit log
+    create_audit_log(
+        event_type="grant",
+        user_id=permission.user_id,
+        granted_by=user_id,
+        resource_type=permission.resource_type,
+        resource_id=permission.resource_id,
+        permission_type=permission.permission_type,
+        permission_id=perm_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        new_permissions={"resource_type": permission.resource_type, "permission_type": permission.permission_type}
+    )
+    
+    conn.close()
+    return {"id": perm_id, "message": "Permission granted successfully"}
+
+@app.post("/api/permissions/revoke")
+async def revoke_permission(revoke: PermissionRevoke, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+    """Revoke a permission"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Check if grantor has permission
+    allowed, reason = check_permission(user_id, "all", None, "write")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    # Get permission before deleting
+    cursor.execute("SELECT * FROM user_permissions WHERE id = ?", (revoke.permission_id,))
+    perm = cursor.fetchone()
+    if not perm:
+        raise HTTPException(status_code=404, detail="Permission not found")
+    
+    perm_dict = dict(perm)
+    
+    # Delete permission
+    cursor.execute("DELETE FROM user_permissions WHERE id = ?", (revoke.permission_id,))
+    conn.commit()
+    
+    # Create audit log
+    ip_address = request.client.host if request else None
+    user_agent = request.headers.get("user-agent") if request else None
+    
+    create_audit_log(
+        event_type="revoke",
+        user_id=perm_dict['user_id'],
+        granted_by=user_id,
+        resource_type=perm_dict['resource_type'],
+        resource_id=perm_dict['resource_id'],
+        permission_type=perm_dict['permission_type'],
+        permission_id=revoke.permission_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        previous_permissions=perm_dict,
+        metadata={"reason": revoke.reason}
+    )
+    
+    conn.close()
+    return {"message": "Permission revoked successfully"}
+
+@app.post("/api/permissions/check")
+async def check_user_permission(check: PermissionCheck):
+    """Check if user has permission"""
+    allowed, reason = check_permission(check.user_id, check.resource_type, check.resource_id, check.permission_type)
+    return {"allowed": allowed, "reason": reason}
+
+@app.get("/api/permissions/user/{target_user_id}")
+async def list_user_permissions(target_user_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """List all permissions for a user (requires admin or self)"""
+    # Check if user is viewing their own permissions or is admin
+    if target_user_id != user_id:
+        allowed, _ = check_permission(user_id, "all", None, "read")
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    permissions = get_user_permissions(target_user_id)
+    return permissions
+
+@app.post("/api/permissions/bootstrap-admin")
+async def bootstrap_admin(user_id: int = Header(..., alias="X-User-Id")):
+    """Bootstrap admin role for first user (one-time setup)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Check if user already has admin role
+    cursor.execute("SELECT id FROM user_roles WHERE user_id = ? AND role_name = 'Admin'", (user_id,))
+    if cursor.fetchone():
+        conn.close()
+        return {"message": "User already has admin role"}
+    
+    # Check if this is the first user or if no admins exist
+    cursor.execute("SELECT COUNT(*) as count FROM users")
+    user_count = cursor.fetchone()['count']
+    
+    cursor.execute("SELECT COUNT(*) as count FROM user_roles WHERE role_name = 'Admin'")
+    admin_count = cursor.fetchone()['count']
+    
+    if user_count <= 1 or admin_count == 0:
+        # Grant admin role
+        cursor.execute("INSERT INTO user_roles (user_id, role_name) VALUES (?, 'Admin')", (user_id,))
+        conn.commit()
+        conn.close()
+        return {"message": "Admin role granted successfully"}
+    else:
+        conn.close()
+        raise HTTPException(status_code=403, detail="Cannot bootstrap admin: admins already exist")
+
+@app.post("/api/vendor-access/profiles")
+async def create_vendor_access_profile(profile: VendorAccessProfileCreate, user_id: int = Header(..., alias="X-User-Id")):
+    """Create a vendor access profile"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Check admin permission
+    cursor.execute("SELECT role_name FROM user_roles WHERE user_id = ? AND role_name = 'Admin'", (user_id,))
+    has_admin_role = cursor.fetchone()
+    
+    if not has_admin_role:
+        allowed, _ = check_permission(user_id, "all", None, "write")
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    cursor.execute("""
+        INSERT INTO vendor_access_profiles 
+        (vendor_id, vendor_name, profile_name, entity_id, scope_json, permissions_json, access_expires_at, auto_renew)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        profile.vendor_id, profile.vendor_name, profile.profile_name, profile.entity_id,
+        json.dumps(profile.scope), json.dumps(profile.permissions),
+        profile.access_expires_at, profile.auto_renew
+    ))
+    
+    profile_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"id": profile_id, "message": "Vendor access profile created successfully"}
+
+@app.post("/api/vendor-access/assign")
+async def assign_vendor_user(assign: VendorUserAssign, user_id: int = Header(..., alias="X-User-Id")):
+    """Assign a vendor user to an access profile"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Check admin permission
+    allowed, _ = check_permission(user_id, "all", None, "write")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    cursor.execute("""
+        INSERT INTO vendor_user_assignments 
+        (vendor_access_profile_id, user_id, assigned_by, expires_at)
+        VALUES (?, ?, ?, ?)
+    """, (assign.vendor_access_profile_id, assign.vendor_user_id, user_id, assign.expires_at))
+    
+    assignment_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    return {"id": assignment_id, "message": "Vendor user assigned successfully"}
+
+@app.get("/api/permissions/audit-log")
+async def get_audit_log(user_id: Optional[int] = None, vendor_id: Optional[int] = None,
+                       start_date: Optional[str] = None, end_date: Optional[str] = None,
+                       event_type: Optional[str] = None,
+                       current_user_id: int = Header(..., alias="X-User-Id")):
+    """Get permission audit log"""
+    # Check admin permission
+    allowed, _ = check_permission(current_user_id, "all", None, "read")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    query = "SELECT * FROM permission_audit_log WHERE 1=1"
+    params = []
+    
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    
+    if start_date:
+        query += " AND timestamp >= ?"
+        params.append(start_date)
+    
+    if end_date:
+        query += " AND timestamp <= ?"
+        params.append(end_date)
+    
+    if event_type:
+        query += " AND event_type = ?"
+        params.append(event_type)
+    
+    query += " ORDER BY timestamp DESC LIMIT 1000"
+    
+    cursor.execute(query, params)
+    logs = cursor.fetchall()
+    conn.close()
+    
+    result = []
+    for log in logs:
+        log_dict = dict(log)
+        log_dict['previous_permissions'] = json.loads(log_dict['previous_permissions']) if log_dict.get('previous_permissions') else None
+        log_dict['new_permissions'] = json.loads(log_dict['new_permissions']) if log_dict.get('new_permissions') else None
+        log_dict['metadata_json'] = json.loads(log_dict['metadata_json']) if log_dict.get('metadata_json') else None
+        result.append(log_dict)
+    
+    return result
+
+# ============================================================================
+# CSCA (Continuous Security-Compliance Alignment) Endpoints
+# ============================================================================
+
+@app.post("/api/security-events")
+async def create_security_event(event: SecurityEventCreate, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+    """Ingest a security event and automatically map to compliance controls"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Insert security event
+    detected_at = event.detected_at if event.detected_at else datetime.now().isoformat()
+    affected_resources_json = json.dumps(event.affected_resources) if event.affected_resources else None
+    event_data_json = json.dumps(event.security_event_data) if event.security_event_data else None
+    
+    cursor.execute("""
+        INSERT INTO security_events 
+        (user_id, event_type, event_source, source_tool, severity, title, description, 
+         affected_resources, security_event_data, detected_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id, event.event_type, event.event_source, event.source_tool,
+        event.severity, event.title, event.description,
+        affected_resources_json, event_data_json, detected_at
+    ))
+    
+    event_id = cursor.lastrowid
+    conn.commit()
+    
+    # Map to compliance controls
+    event_dict = {
+        'event_type': event.event_type,
+        'severity': event.severity,
+        'frameworks': event.frameworks or ['NIST_800-53', 'ISO27001', 'SOC2', 'CIS']
+    }
+    mappings = map_security_event_to_compliance(user_id, event_dict)
+    
+    # Insert compliance mappings
+    for mapping in mappings:
+        cursor.execute("""
+            INSERT INTO security_event_compliance_mapping
+            (security_event_id, control_id, framework, impact_level, compliance_impact)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            event_id, mapping['control_id'], mapping['framework'],
+            mapping['impact_level'], mapping['compliance_impact']
+        ))
+    
+    conn.commit()
+    
+    # Update compliance scores
+    update_compliance_scores_from_security_event(user_id, event_id)
+    
+    # Insert correlation metric
+    if mappings:
+        cursor.execute("""
+            INSERT INTO security_compliance_correlation
+            (user_id, metric_type, metric_value, compliance_score_delta, framework)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            user_id, f'{event.event_type}_impact', abs(mappings[0].get('compliance_score_delta', 0)),
+            mappings[0].get('compliance_score_delta', 0), mappings[0].get('framework')
+        ))
+        conn.commit()
+    
+    conn.close()
+    
+    return {
+        "id": event_id,
+        "mappings": len(mappings),
+        "message": "Security event ingested and mapped to compliance controls"
+    }
+
+@app.get("/api/security-events")
+async def list_security_events(user_id: int = Header(..., alias="X-User-Id"), 
+                              event_type: Optional[str] = None,
+                              severity: Optional[str] = None,
+                              status: Optional[str] = None,
+                              limit: int = 100):
+    """List security events with compliance mappings"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    query = "SELECT * FROM security_events WHERE user_id = ?"
+    params = [user_id]
+    
+    if event_type:
+        query += " AND event_type = ?"
+        params.append(event_type)
+    
+    if severity:
+        query += " AND severity = ?"
+        params.append(severity)
+    
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    
+    query += " ORDER BY detected_at DESC LIMIT ?"
+    params.append(limit)
+    
+    cursor.execute(query, params)
+    events = cursor.fetchall()
+    
+    # Get compliance mappings for each event
+    result = []
+    for event in events:
+        event_dict = dict(event)
+        event_dict['affected_resources'] = json.loads(event_dict['affected_resources']) if event_dict.get('affected_resources') else []
+        event_dict['security_event_data'] = json.loads(event_dict['security_event_data']) if event_dict.get('security_event_data') else {}
+        
+        # Get compliance mappings
+        cursor.execute("""
+            SELECT * FROM security_event_compliance_mapping
+            WHERE security_event_id = ?
+        """, (event_dict['id'],))
+        mappings = cursor.fetchall()
+        event_dict['compliance_mappings'] = [dict(m) for m in mappings]
+        
+        result.append(event_dict)
+    
+    conn.close()
+    return result
+
+@app.get("/api/security-events/{event_id}/compliance-impact")
+async def get_security_event_compliance_impact(event_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Get compliance impact of a specific security event"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify event belongs to user
+    cursor.execute("SELECT id FROM security_events WHERE id = ? AND user_id = ?", (event_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Security event not found")
+    
+    impact = calculate_compliance_impact(user_id, event_id)
+    
+    # Get compliance mappings
+    cursor.execute("""
+        SELECT secm.*, c.control_name
+        FROM security_event_compliance_mapping secm
+        LEFT JOIN controls c ON secm.control_id = c.id
+        WHERE secm.security_event_id = ?
+    """, (event_id,))
+    mappings = cursor.fetchall()
+    
+    conn.close()
+    
+    return {
+        "event_id": event_id,
+        "framework_impacts": impact,
+        "control_mappings": [dict(m) for m in mappings]
+    }
+
+@app.get("/api/compliance-score-history")
+async def get_compliance_score_history(user_id: int = Header(..., alias="X-User-Id"),
+                                       framework: Optional[str] = None,
+                                       days: int = 30):
+    """Get compliance score history with security event impacts"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    query = """
+        SELECT * FROM compliance_score_history
+        WHERE user_id = ? AND calculated_at >= datetime('now', '-' || ? || ' days')
+    """
+    params = [user_id, days]
+    
+    if framework:
+        query += " AND framework = ?"
+        params.append(framework)
+    
+    query += " ORDER BY framework, calculated_at DESC"
+    
+    cursor.execute(query, params)
+    history = cursor.fetchall()
+    
+    conn.close()
+    return [dict(h) for h in history]
+
+@app.get("/api/compliance-alerts")
+async def get_compliance_alerts(user_id: int = Header(..., alias="X-User-Id"),
+                               acknowledged: Optional[bool] = None,
+                               severity: Optional[str] = None,
+                               limit: int = 50):
+    """Get compliance alerts (including security event triggered alerts)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    query = "SELECT * FROM compliance_alerts WHERE user_id = ?"
+    params = [user_id]
+    
+    if acknowledged is not None:
+        query += " AND acknowledged = ?"
+        params.append(1 if acknowledged else 0)
+    
+    if severity:
+        query += " AND severity = ?"
+        params.append(severity)
+    
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    
+    cursor.execute(query, params)
+    alerts = cursor.fetchall()
+    
+    conn.close()
+    return [dict(a) for a in alerts]
+
+@app.post("/api/compliance-alerts/{alert_id}/acknowledge")
+async def acknowledge_compliance_alert(alert_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Acknowledge a compliance alert"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify alert belongs to user
+    cursor.execute("SELECT id FROM compliance_alerts WHERE id = ? AND user_id = ?", (alert_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    cursor.execute("""
+        UPDATE compliance_alerts
+        SET acknowledged = 1, acknowledged_at = datetime('now'), acknowledged_by = ?
+        WHERE id = ?
+    """, (user_id, alert_id))
+    
+    conn.commit()
+    conn.close()
+    return {"message": "Alert acknowledged"}
+
+@app.get("/api/security-compliance-correlation")
+async def get_security_compliance_correlation_endpoint(user_id: int = Header(..., alias="X-User-Id"), days: int = 30):
+    """Get correlation metrics between security events and compliance scores"""
+    correlation = get_security_compliance_correlation(user_id, days)
+    return correlation
+
+# ============================================================================
+# Pattern Detection & Trend Analysis Endpoints
+# ============================================================================
+
+@app.post("/api/patterns/detect")
+async def detect_security_patterns(user_id: int = Header(..., alias="X-User-Id"), lookback_days: int = 30):
+    """Detect security event patterns and save them"""
+    from services.pattern_detector import detect_patterns, save_patterns
+    
+    try:
+        patterns = detect_patterns(user_id, lookback_days)
+        if patterns:
+            save_patterns(user_id, patterns)
+        
+        return {
+            "patterns_detected": len(patterns),
+            "patterns": patterns
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Pattern detection failed: {str(e)}")
+
+@app.get("/api/patterns")
+async def get_patterns_endpoint(user_id: int = Header(..., alias="X-User-Id"), status: Optional[str] = None):
+    """Get all detected patterns"""
+    from services.pattern_detector import get_patterns
+    
+    patterns = get_patterns(user_id, status)
+    
+    # Parse JSON fields
+    for pattern in patterns:
+        if pattern.get('pattern_signature'):
+            try:
+                pattern['pattern_signature'] = json.loads(pattern['pattern_signature'])
+            except:
+                pass
+        if pattern.get('affected_frameworks'):
+            try:
+                pattern['affected_frameworks'] = json.loads(pattern['affected_frameworks'])
+            except:
+                pass
+        if pattern.get('affected_controls'):
+            try:
+                pattern['affected_controls'] = json.loads(pattern['affected_controls'])
+            except:
+                pass
+    
+    return patterns
+
+@app.get("/api/pattern-alerts")
+async def get_pattern_alerts(user_id: int = Header(..., alias="X-User-Id"), acknowledged: Optional[bool] = None, limit: int = 50):
+    """Get pattern alerts"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    query = "SELECT pa.*, sp.pattern_name, sp.pattern_type FROM pattern_alerts pa JOIN security_event_patterns sp ON pa.pattern_id = sp.id WHERE pa.user_id = ?"
+    params = [user_id]
+    
+    if acknowledged is not None:
+        query += " AND pa.acknowledged = ?"
+        params.append(1 if acknowledged else 0)
+    
+    query += " ORDER BY pa.created_at DESC LIMIT ?"
+    params.append(limit)
+    
+    cursor.execute(query, params)
+    alerts = cursor.fetchall()
+    
+    # Parse JSON fields
+    result = []
+    for alert in alerts:
+        alert_dict = dict(alert)
+        if alert_dict.get('pattern_trend_data'):
+            try:
+                alert_dict['pattern_trend_data'] = json.loads(alert_dict['pattern_trend_data'])
+            except:
+                pass
+        result.append(alert_dict)
+    
+    conn.close()
+    return result
+
+@app.post("/api/pattern-alerts/{alert_id}/acknowledge")
+async def acknowledge_pattern_alert(alert_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Acknowledge a pattern alert"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify alert belongs to user
+    cursor.execute("SELECT id FROM pattern_alerts WHERE id = ? AND user_id = ?", (alert_id, user_id))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    cursor.execute("""
+        UPDATE pattern_alerts
+        SET acknowledged = 1, acknowledged_at = datetime('now'), acknowledged_by = ?
+        WHERE id = ?
+    """, (user_id, alert_id))
+    
+    conn.commit()
+    conn.close()
+    return {"message": "Alert acknowledged"}
+
+@app.get("/api/patterns/trends")
+async def get_pattern_trends_endpoint(user_id: int = Header(..., alias="X-User-Id"), lookback_days: int = 30):
+    """Get pattern trend analysis"""
+    from services.pattern_detector import get_pattern_trends
+    
+    trends = get_pattern_trends(user_id, lookback_days)
+    return trends
 
 if __name__ == "__main__":
     import uvicorn

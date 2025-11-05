@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import api from './services/api';
@@ -556,6 +556,44 @@ const ComplianceMVP = () => {
     expiration_date: ''
   });
   
+  // IAM (Identity & Access Management) State
+  const [userPermissions, setUserPermissions] = useState([]);
+  const [vendorAccessProfiles, setVendorAccessProfiles] = useState([]);
+  const [permissionAuditLog, setPermissionAuditLog] = useState([]);
+  const [showPermissionGrant, setShowPermissionGrant] = useState(false);
+  const [showVendorProfile, setShowVendorProfile] = useState(false);
+  const [selectedUserForPermissions, setSelectedUserForPermissions] = useState(null);
+  const [permissionFormData, setPermissionFormData] = useState({
+    user_id: null,
+    resource_type: 'control',
+    resource_id: '',
+    permission_type: 'read',
+    expires_at: '',
+    metadata: {}
+  });
+  const [vendorProfileFormData, setVendorProfileFormData] = useState({
+    vendor_name: '',
+    profile_name: '',
+    scope: { controls: [], frameworks: [], audits: [] },
+    permissions: { controls: ['read'], audits: ['read'], evidence: ['read'] },
+    access_expires_at: '',
+    auto_renew: false
+  });
+  
+  // CSCA (Continuous Security-Compliance Alignment) State
+  const [securityEvents, setSecurityEvents] = useState([]);
+  const [complianceScoreHistory, setComplianceScoreHistory] = useState([]);
+  const [complianceAlerts, setComplianceAlerts] = useState([]);
+  const [securityComplianceCorrelation, setSecurityComplianceCorrelation] = useState(null);
+  const [selectedSecurityEvent, setSelectedSecurityEvent] = useState(null);
+  const [showSecurityEventModal, setShowSecurityEventModal] = useState(false);
+  
+  // Pattern Detection & Trend Analysis State
+  const [detectedPatterns, setDetectedPatterns] = useState([]);
+  const [patternAlerts, setPatternAlerts] = useState([]);
+  const [patternTrends, setPatternTrends] = useState(null);
+  const [patternDetectionRunning, setPatternDetectionRunning] = useState(false);
+  
   // Partner Growth Tracking for QBR
   const [partnerGrowthHistory, setPartnerGrowthHistory] = useState([
     {
@@ -625,6 +663,408 @@ const ComplianceMVP = () => {
       }
     }
   }, [activeView]);
+
+  // Load IAM data
+  useEffect(() => {
+    if (activeView === 'iam' && backendConnected && currentUser.id) {
+      loadIAMData();
+    }
+  }, [activeView, backendConnected, currentUser.id]);
+
+  // Load CSCA data
+  useEffect(() => {
+    if (activeView === 'csca') {
+      if (backendConnected && currentUser.id) {
+        loadCSCAData();
+      } else {
+        // Initialize with demo data for testing
+        loadDemoCSCAData();
+      }
+    }
+  }, [activeView, backendConnected, currentUser.id]);
+
+  const loadDemoCSCAData = () => {
+    // Demo security events
+    const demoEvents = [
+      {
+        id: 1,
+        event_type: 'threat_detected',
+        event_source: 'SIEM',
+        source_tool: 'Splunk Enterprise Security',
+        severity: 'critical',
+        title: 'Malware Detected on Production Server',
+        description: 'Advanced persistent threat detected on production web server. Multiple suspicious processes spawned.',
+        affected_resources: ['prod-web-01', '10.0.1.45'],
+        security_event_data: { threat_type: 'malware', confidence: 'high' },
+        detected_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        status: 'open',
+        compliance_mappings: [
+          { control_id: 'SI-3', framework: 'NIST_800-53', impact_level: 'critical' },
+          { control_id: 'SI-4', framework: 'NIST_800-53', impact_level: 'critical' },
+          { control_id: 'A.12.4.1', framework: 'ISO27001', impact_level: 'critical' }
+        ]
+      },
+      {
+        id: 2,
+        event_type: 'vulnerability_found',
+        event_source: 'Vulnerability Scanner',
+        source_tool: 'Tenable.io',
+        severity: 'high',
+        title: 'Critical CVE-2024-1234 in Apache Web Server',
+        description: 'Remote code execution vulnerability found in Apache httpd version 2.4.55',
+        affected_resources: ['prod-web-01', 'prod-web-02'],
+        security_event_data: { cve_id: 'CVE-2024-1234', cvss_score: 9.8 },
+        detected_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+        status: 'investigating',
+        compliance_mappings: [
+          { control_id: 'SI-2', framework: 'NIST_800-53', impact_level: 'high' },
+          { control_id: 'RA-5', framework: 'NIST_800-53', impact_level: 'high' },
+          { control_id: 'A.12.6.1', framework: 'ISO27001', impact_level: 'high' }
+        ]
+      },
+      {
+        id: 3,
+        event_type: 'incident',
+        event_source: 'EDR',
+        source_tool: 'CrowdStrike Falcon',
+        severity: 'high',
+        title: 'Unauthorized Access Attempt Detected',
+        description: 'Multiple failed login attempts from external IP followed by successful authentication',
+        affected_resources: ['vpn-gateway-01'],
+        security_event_data: { incident_type: 'unauthorized_access', attempts: 47 },
+        detected_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+        status: 'resolved',
+        compliance_mappings: [
+          { control_id: 'IR-1', framework: 'NIST_800-53', impact_level: 'high' },
+          { control_id: 'IR-4', framework: 'NIST_800-53', impact_level: 'high' },
+          { control_id: 'A.16.1.1', framework: 'ISO27001', impact_level: 'high' }
+        ]
+      },
+      {
+        id: 4,
+        event_type: 'policy_violation',
+        event_source: 'CSPM',
+        source_tool: 'AWS Security Hub',
+        severity: 'medium',
+        title: 'S3 Bucket Publicly Accessible',
+        description: 'S3 bucket found to be publicly accessible, violating data protection policy',
+        affected_resources: ['s3://customer-data-backup'],
+        security_event_data: { resource_type: 's3_bucket', contains_pii: true },
+        detected_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        status: 'open',
+        compliance_mappings: [
+          { control_id: 'AC-1', framework: 'NIST_800-53', impact_level: 'medium' },
+          { control_id: 'AC-4', framework: 'NIST_800-53', impact_level: 'medium' }
+        ]
+      },
+      {
+        id: 5,
+        event_type: 'configuration_change',
+        event_source: 'CSPM',
+        source_tool: 'Azure Security Center',
+        severity: 'low',
+        title: 'Security Group Rule Modified',
+        description: 'Network security group rule allowing inbound traffic from 0.0.0.0/0 was added',
+        affected_resources: ['nsg-prod-web'],
+        security_event_data: { change_type: 'security_group_rule_added' },
+        detected_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'open',
+        compliance_mappings: [
+          { control_id: 'CM-2', framework: 'NIST_800-53', impact_level: 'low' },
+          { control_id: 'CM-3', framework: 'NIST_800-53', impact_level: 'low' }
+        ]
+      }
+    ];
+
+    // Demo compliance score history (30 days)
+    const demoHistory = [];
+    const frameworks = ['NIST_800-53', 'ISO27001', 'SOC2', 'CIS'];
+    const now = Date.now();
+    
+    frameworks.forEach(framework => {
+      let baseScore = 85;
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date(now - i * 24 * 60 * 60 * 1000);
+        // Simulate score variations
+        const variation = Math.random() * 5 - 2.5; // ±2.5 points
+        const eventImpact = i % 7 === 0 ? Math.floor(Math.random() * 5) : 0; // Random impact every 7 days
+        const score = Math.max(70, Math.min(100, baseScore + variation - eventImpact));
+        baseScore = score;
+        
+        demoHistory.push({
+          id: `${framework}-${i}`,
+          user_id: 1,
+          framework: framework,
+          overall_score: Math.round(score),
+          controls_implemented: Math.round(score * 0.8),
+          controls_total: 100,
+          gaps_count: Math.round(100 - score),
+          security_event_impact: eventImpact,
+          calculated_at: date.toISOString()
+        });
+      }
+    });
+
+    // Demo compliance alerts
+    const demoAlerts = [
+      {
+        id: 1,
+        user_id: 1,
+        alert_type: 'compliance_degradation',
+        severity: 'high',
+        title: 'Compliance Score Degraded: NIST_800-53',
+        description: 'Security event caused 8 point drop in NIST_800-53 compliance score. 3 controls affected.',
+        security_event_id: 1,
+        framework: 'NIST_800-53',
+        compliance_score_before: 85,
+        compliance_score_after: 77,
+        acknowledged: false,
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 2,
+        user_id: 1,
+        alert_type: 'compliance_degradation',
+        severity: 'medium',
+        title: 'Compliance Score Degraded: ISO27001',
+        description: 'Security event caused 5 point drop in ISO27001 compliance score. 2 controls affected.',
+        security_event_id: 2,
+        framework: 'ISO27001',
+        compliance_score_before: 88,
+        compliance_score_after: 83,
+        acknowledged: false,
+        created_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
+      }
+    ];
+
+    // Demo correlation data
+    const demoCorrelation = {
+      security_events: [
+        { event_type: 'threat_detected', severity: 'critical', event_count: 2, avg_impact: -8.5 },
+        { event_type: 'vulnerability_found', severity: 'high', event_count: 1, avg_impact: -5.0 },
+        { event_type: 'incident', severity: 'high', event_count: 1, avg_impact: -5.0 },
+        { event_type: 'policy_violation', severity: 'medium', event_count: 1, avg_impact: -2.0 },
+        { event_type: 'configuration_change', severity: 'low', event_count: 1, avg_impact: -1.0 }
+      ],
+      compliance_trends: demoHistory,
+      correlation_score: 0.72
+    };
+
+    // Demo patterns
+    const demoPatterns = [
+      {
+        id: 1,
+        pattern_name: 'Recurring Threat Detected Events',
+        pattern_type: 'recurring_event',
+        pattern_description: '3 occurrences of threat_detected events in the last 30 days',
+        confidence_score: 0.75,
+        severity: 'high',
+        occurrence_count: 3,
+        trend_direction: 'increasing',
+        trend_percentage: 25.0,
+        last_detected_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        first_detected_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 2,
+        pattern_name: 'Event Spike Detected on Production',
+        pattern_type: 'spike_detection',
+        pattern_description: '5 events detected on Nov 4 (2.5x average daily rate)',
+        confidence_score: 0.85,
+        severity: 'high',
+        occurrence_count: 5,
+        trend_direction: 'increasing',
+        trend_percentage: 150.0,
+        last_detected_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        first_detected_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 3,
+        pattern_name: 'Recurring Issues from Splunk Enterprise Security',
+        pattern_type: 'correlation_pattern',
+        pattern_description: '4 security events originated from Splunk Enterprise Security',
+        confidence_score: 0.70,
+        severity: 'medium',
+        occurrence_count: 4,
+        trend_direction: 'stable',
+        trend_percentage: 0.0,
+        last_detected_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+        first_detected_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      }
+    ];
+
+    // Demo pattern alerts
+    const demoPatternAlerts = [
+      {
+        id: 1,
+        pattern_id: 1,
+        alert_type: 'pattern_detected',
+        severity: 'high',
+        title: 'New Pattern Detected: Recurring Threat Detected Events',
+        description: '3 occurrences of threat_detected events in the last 30 days',
+        pattern_trend_data: {
+          trend_direction: 'increasing',
+          trend_percentage: 25.0,
+          confidence_score: 0.75
+        },
+        acknowledged: false,
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 2,
+        pattern_id: 2,
+        alert_type: 'pattern_spike',
+        severity: 'high',
+        title: 'New Pattern Detected: Event Spike Detected on Production',
+        description: '5 events detected on Nov 4 (2.5x average daily rate)',
+        pattern_trend_data: {
+          trend_direction: 'increasing',
+          trend_percentage: 150.0,
+          confidence_score: 0.85
+        },
+        acknowledged: false,
+        created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+      }
+    ];
+
+    // Demo pattern trends
+    const demoPatternTrends = {
+      pattern_statistics: [
+        {
+          pattern_type: 'recurring_event',
+          pattern_count: 2,
+          avg_confidence: 0.725,
+          avg_occurrences: 3.5,
+          increasing_trends: 2,
+          decreasing_trends: 0
+        },
+        {
+          pattern_type: 'spike_detection',
+          pattern_count: 1,
+          avg_confidence: 0.85,
+          avg_occurrences: 5.0,
+          increasing_trends: 1,
+          decreasing_trends: 0
+        },
+        {
+          pattern_type: 'correlation_pattern',
+          pattern_count: 1,
+          avg_confidence: 0.70,
+          avg_occurrences: 4.0,
+          increasing_trends: 0,
+          decreasing_trends: 0
+        }
+      ],
+      unacknowledged_alerts: 2,
+      lookback_days: 30
+    };
+
+    setSecurityEvents(demoEvents);
+    setComplianceScoreHistory(demoHistory);
+    setComplianceAlerts(demoAlerts);
+    setSecurityComplianceCorrelation(demoCorrelation);
+    setDetectedPatterns(demoPatterns);
+    setPatternAlerts(demoPatternAlerts);
+    setPatternTrends(demoPatternTrends);
+  };
+
+  const loadCSCAData = async () => {
+    if (!backendConnected || !currentUser.id) {
+      console.log('CSCA: Backend not connected or no user ID');
+      return;
+    }
+    
+    try {
+      console.log('CSCA: Loading data for user:', currentUser.id);
+      const [events, history, alerts, correlation, patterns, pAlerts, trends] = await Promise.all([
+        api.getSecurityEvents({ limit: 50 }, currentUser.id).catch((err) => {
+          console.error('CSCA: Error fetching events:', err);
+          return [];
+        }),
+        api.getComplianceScoreHistory(null, 30, currentUser.id).catch((err) => {
+          console.error('CSCA: Error fetching history:', err);
+          return [];
+        }),
+        api.getComplianceAlerts({ acknowledged: false, limit: 20 }, currentUser.id).catch((err) => {
+          console.error('CSCA: Error fetching alerts:', err);
+          return [];
+        }),
+        api.getSecurityComplianceCorrelation(30, currentUser.id).catch((err) => {
+          console.error('CSCA: Error fetching correlation:', err);
+          return null;
+        }),
+        api.getPatterns(currentUser.id, 'active').catch((err) => {
+          console.error('CSCA: Error fetching patterns:', err);
+          return [];
+        }),
+        api.getPatternAlerts(currentUser.id, { acknowledged: false, limit: 20 }).catch((err) => {
+          console.error('CSCA: Error fetching pattern alerts:', err);
+          return [];
+        }),
+        api.getPatternTrends(currentUser.id, 30).catch((err) => {
+          console.error('CSCA: Error fetching pattern trends:', err);
+          return null;
+        })
+      ]);
+      
+      console.log('CSCA: Data loaded', { 
+        events: events.length, 
+        history: history.length, 
+        alerts: alerts.length,
+        patterns: patterns.length,
+        patternAlerts: pAlerts.length
+      });
+      setSecurityEvents(events || []);
+      setComplianceScoreHistory(history || []);
+      setComplianceAlerts(alerts || []);
+      setSecurityComplianceCorrelation(correlation);
+      setDetectedPatterns(patterns || []);
+      setPatternAlerts(pAlerts || []);
+      setPatternTrends(trends);
+    } catch (error) {
+      console.error('CSCA: Error loading data:', error);
+      // Set empty arrays on error to ensure page renders
+      setSecurityEvents([]);
+      setComplianceScoreHistory([]);
+      setComplianceAlerts([]);
+      setSecurityComplianceCorrelation(null);
+      setDetectedPatterns([]);
+      setPatternAlerts([]);
+      setPatternTrends(null);
+    }
+  };
+
+  const runPatternDetection = async () => {
+    if (!backendConnected || !currentUser.id) {
+      alert('Backend not connected');
+      return;
+    }
+    
+    setPatternDetectionRunning(true);
+    try {
+      const result = await api.detectPatterns(currentUser.id, 30);
+      alert(`Pattern detection complete! Found ${result.patterns_detected} patterns.`);
+      await loadCSCAData(); // Reload to get new patterns
+    } catch (error) {
+      console.error('Error detecting patterns:', error);
+      alert('Error detecting patterns: ' + (error.message || error));
+    } finally {
+      setPatternDetectionRunning(false);
+    }
+  };
+
+  const loadIAMData = async () => {
+    if (!backendConnected || !currentUser.id) return;
+    try {
+      const permissions = await api.getUserPermissions(currentUser.id, currentUser.id);
+      setUserPermissions(permissions || []);
+      
+      const auditLog = await api.getAuditLog(currentUser.id);
+      setPermissionAuditLog(auditLog || []);
+    } catch (error) {
+      console.error('Error loading IAM data:', error);
+    }
+  };
 
   const loadAudits = async () => {
     if (!backendConnected || !currentUser.id) {
@@ -743,9 +1183,23 @@ const ComplianceMVP = () => {
           });
           
           setCurrentUser({ ...currentUser, id: user.id });
+          
+          // Bootstrap: Grant admin role to first user
+          try {
+            await api.bootstrapAdmin(user.id);
+          } catch (e) {
+            console.warn('Could not bootstrap admin role:', e);
+          }
         } catch (error) {
           console.warn('Could not create/get user, using demo mode:', error);
           setCurrentUser({ ...currentUser, id: 1 }); // Demo user ID
+          
+          // Try to bootstrap admin for demo user
+          try {
+            await api.bootstrapAdmin(1);
+          } catch (e) {
+            console.warn('Could not bootstrap admin for demo user:', e);
+          }
         }
       }
     } catch (error) {
@@ -4666,6 +5120,1096 @@ const ComplianceMVP = () => {
   };
   
   // ============================================================================
+  // IAM (Identity & Access Management) RENDER FUNCTIONS
+  // ============================================================================
+  
+  const renderIAM = () => {
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">IAM & Permissions</h2>
+              <p className="text-sm text-muted-foreground mt-1">Manage user permissions, vendor access, and audit trails</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPermissionGrant(true)}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Grant Permission
+              </button>
+              <button
+                onClick={() => setShowVendorProfile(true)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                Vendor Profile
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Active Permissions</div>
+            <div className="text-2xl font-bold text-foreground">{userPermissions.length}</div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Vendor Profiles</div>
+            <div className="text-2xl font-bold text-foreground">{vendorAccessProfiles.length}</div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Audit Log Entries</div>
+            <div className="text-2xl font-bold text-foreground">{permissionAuditLog.length}</div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Expiring Soon</div>
+            <div className="text-2xl font-bold text-yellow-500">
+              {userPermissions.filter(p => {
+                if (!p.expires_at) return false;
+                const expires = new Date(p.expires_at);
+                const daysUntilExpiry = (expires - new Date()) / (1000 * 60 * 60 * 24);
+                return daysUntilExpiry > 0 && daysUntilExpiry <= 30;
+              }).length}
+            </div>
+          </div>
+        </div>
+
+        {/* User Permissions Table */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <h3 className="text-lg font-semibold text-foreground">User Permissions</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/30">
+                <tr>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">User</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Resource</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Permission</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Granted By</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Expires</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {userPermissions.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="py-8 text-center text-muted-foreground">
+                      No permissions found. Grant permissions to get started.
+                    </td>
+                  </tr>
+                ) : (
+                  userPermissions.map((perm) => (
+                    <tr key={perm.id} className="border-b border-[hsl(var(--border))] hover:bg-muted/30">
+                      <td className="py-3 px-4 text-sm text-foreground">{perm.user_email || `User ${perm.user_id}`}</td>
+                      <td className="py-3 px-4 text-sm text-foreground">
+                        <span className="font-medium">{perm.resource_type}</span>
+                        {perm.resource_id && <span className="text-muted-foreground ml-1">({perm.resource_id})</span>}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          perm.permission_type === 'read' ? 'bg-blue-500/10 text-blue-500' :
+                          perm.permission_type === 'write' ? 'bg-green-500/10 text-green-500' :
+                          perm.permission_type === 'execute' ? 'bg-purple-500/10 text-purple-500' :
+                          'bg-red-500/10 text-red-500'
+                        }`}>
+                          {perm.permission_type}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-muted-foreground">{perm.granted_by_email || `User ${perm.granted_by}`}</td>
+                      <td className="py-3 px-4 text-sm text-foreground">
+                        {perm.expires_at ? (
+                          <span className={new Date(perm.expires_at) < new Date() ? 'text-red-500' : ''}>
+                            {new Date(perm.expires_at).toLocaleDateString()}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">Never</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <button
+                          onClick={async () => {
+                            if (confirm('Revoke this permission?')) {
+                              try {
+                                await api.revokePermission(currentUser.id, perm.id, 'Revoked by admin');
+                                await loadIAMData();
+                              } catch (error) {
+                                console.error('Permission revoke error:', error);
+                                const errorMsg = error.detail || error.message || (error instanceof Error ? error.message : String(error));
+                                alert('Error revoking permission: ' + errorMsg);
+                              }
+                            }
+                          }}
+                          className="text-red-500 hover:text-red-600 text-sm"
+                        >
+                          Revoke
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Audit Log */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <h3 className="text-lg font-semibold text-foreground">Permission Audit Log</h3>
+            <p className="text-sm text-muted-foreground mt-1">Immutable record of all permission changes</p>
+          </div>
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full">
+              <thead className="bg-muted/30 sticky top-0">
+                <tr>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Timestamp</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Event</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">User</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Resource</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Granted By</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">IP Address</th>
+                </tr>
+              </thead>
+              <tbody>
+                {permissionAuditLog.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="py-8 text-center text-muted-foreground">
+                      No audit log entries yet.
+                    </td>
+                  </tr>
+                ) : (
+                  permissionAuditLog.map((log) => (
+                    <tr key={log.id} className="border-b border-[hsl(var(--border))] hover:bg-muted/30">
+                      <td className="py-3 px-4 text-sm text-foreground">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          log.event_type === 'grant' ? 'bg-green-500/10 text-green-500' :
+                          log.event_type === 'revoke' ? 'bg-red-500/10 text-red-500' :
+                          'bg-blue-500/10 text-blue-500'
+                        }`}>
+                          {log.event_type}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm text-foreground">User {log.user_id}</td>
+                      <td className="py-3 px-4 text-sm text-foreground">
+                        {log.resource_type} {log.resource_id && `(${log.resource_id})`}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-muted-foreground">User {log.granted_by}</td>
+                      <td className="py-3 px-4 text-sm text-muted-foreground">{log.ip_address || 'N/A'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Modals */}
+        {showPermissionGrant && renderPermissionGrantModal()}
+        {showVendorProfile && renderVendorProfileModal()}
+      </div>
+    );
+  };
+
+  const renderCSCA = () => {
+    try {
+      const severityColors = {
+        critical: 'bg-red-500/10 text-red-500 border-red-500/20',
+        high: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
+        medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
+        low: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+        info: 'bg-gray-500/10 text-gray-500 border-gray-500/20'
+      };
+
+      const eventTypeIcons = {
+        threat_detected: Shield,
+        vulnerability_found: AlertTriangle,
+        incident: AlertCircle,
+        policy_violation: XCircle,
+        configuration_change: Settings
+      };
+
+      return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">Security-Compliance Alignment</h2>
+              <p className="text-sm text-muted-foreground mt-1">Real-time correlation between security events and compliance posture</p>
+            </div>
+            <div className="flex gap-2">
+              <Link2 className="w-5 h-5 text-primary" />
+            </div>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Security Events (30d)</div>
+            <div className="text-2xl font-bold text-foreground">{securityEvents.length}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {securityEvents.filter(e => e.status === 'open').length} open
+            </div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Compliance Alerts</div>
+            <div className="text-2xl font-bold text-yellow-500">
+              {complianceAlerts.filter(a => !a.acknowledged).length}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Unacknowledged</div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Critical Events</div>
+            <div className="text-2xl font-bold text-red-500">
+              {securityEvents.filter(e => e.severity === 'critical').length}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Last 30 days</div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Controls Affected</div>
+            <div className="text-2xl font-bold text-foreground">
+              {new Set(securityEvents.flatMap(e => e.compliance_mappings?.map(m => m.control_id) || [])).size}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">By security events</div>
+          </div>
+        </div>
+
+        {/* Security Events Table */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <h3 className="text-lg font-semibold text-foreground">Security Events & Compliance Impact</h3>
+            <p className="text-sm text-muted-foreground mt-1">Security events automatically mapped to compliance controls</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/30">
+                <tr>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Event</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Source</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Severity</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Status</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Controls Affected</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Detected</th>
+                  <th className="text-left py-3 px-4 text-sm font-semibold text-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {securityEvents.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="py-8 text-center text-muted-foreground">
+                      No security events yet. Security events will appear here when ingested from SIEM, EDR, or CSPM tools.
+                    </td>
+                  </tr>
+                ) : (
+                  securityEvents.map((event) => {
+                    const IconComponent = eventTypeIcons[event.event_type] || AlertCircle;
+                    return (
+                      <tr key={event.id} className="border-b border-[hsl(var(--border))] hover:bg-muted/30">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <IconComponent className="w-4 h-4 text-muted-foreground" />
+                            <div>
+                              <div className="text-sm font-medium text-foreground">{event.title}</div>
+                              {event.description && (
+                                <div className="text-xs text-muted-foreground mt-0.5">{event.description.substring(0, 60)}...</div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-foreground">
+                          <div>{event.source_tool || event.event_source}</div>
+                          <div className="text-xs text-muted-foreground">{event.event_type}</div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold border ${severityColors[event.severity] || severityColors.info}`}>
+                            {event.severity}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            event.status === 'resolved' ? 'bg-green-500/10 text-green-500' :
+                            event.status === 'investigating' ? 'bg-yellow-500/10 text-yellow-500' :
+                            'bg-red-500/10 text-red-500'
+                          }`}>
+                            {event.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm text-foreground">
+                          {event.compliance_mappings?.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {event.compliance_mappings.slice(0, 3).map((mapping, idx) => (
+                                <span key={idx} className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
+                                  {mapping.control_id}
+                                </span>
+                              ))}
+                              {event.compliance_mappings.length > 3 && (
+                                <span className="px-2 py-0.5 bg-muted text-muted-foreground rounded text-xs">
+                                  +{event.compliance_mappings.length - 3}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">None</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-muted-foreground">
+                          {new Date(event.detected_at).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 px-4">
+                          <button
+                            onClick={async () => {
+                              try {
+                                const impact = await api.getSecurityEventComplianceImpact(event.id, currentUser.id);
+                                setSelectedSecurityEvent({ ...event, impact });
+                                setShowSecurityEventModal(true);
+                              } catch (error) {
+                                console.error('Error fetching compliance impact:', error);
+                                alert('Error loading compliance impact');
+                              }
+                            }}
+                            className="text-primary hover:text-primary/80 text-sm"
+                          >
+                            View Impact
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Compliance Score Trends Chart */}
+        {complianceScoreHistory.length > 0 && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+            <div className="p-6 border-b border-[hsl(var(--border))]">
+              <h3 className="text-lg font-semibold text-foreground">Compliance Score Trends (30 Days)</h3>
+              <p className="text-sm text-muted-foreground mt-1">Track how security events impact compliance scores over time</p>
+            </div>
+            <div className="p-6">
+              {/* Group by framework */}
+              {['NIST_800-53', 'ISO27001', 'SOC2', 'CIS'].map((framework) => {
+                const frameworkHistory = complianceScoreHistory
+                  .filter(h => h.framework === framework)
+                  .sort((a, b) => new Date(a.calculated_at) - new Date(b.calculated_at))
+                  .slice(-30); // Last 30 data points
+                
+                if (frameworkHistory.length === 0) return null;
+                
+                const maxScore = 100;
+                const minScore = Math.min(...frameworkHistory.map(h => h.overall_score), 0);
+                const scoreRange = maxScore - minScore || 1;
+                const chartHeight = 200;
+                const chartWidth = 800;
+                
+                // Generate points for the line chart
+                const points = frameworkHistory.map((point, index) => {
+                  const x = (index / (frameworkHistory.length - 1 || 1)) * chartWidth;
+                  const y = chartHeight - ((point.overall_score - minScore) / scoreRange) * chartHeight;
+                  return `${x},${y}`;
+                }).join(' ');
+                
+                // Find security event impacts
+                const impactPoints = frameworkHistory
+                  .map((point, index) => {
+                    if (point.security_event_impact > 0) {
+                      const x = (index / (frameworkHistory.length - 1 || 1)) * chartWidth;
+                      const y = chartHeight - ((point.overall_score - minScore) / scoreRange) * chartHeight;
+                      return { x, y, impact: point.security_event_impact };
+                    }
+                    return null;
+                  })
+                  .filter(Boolean);
+                
+                return (
+                  <div key={framework} className="mb-6 last:mb-0">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-semibold text-foreground">{framework}</h4>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>Current: <span className="text-foreground font-semibold">{frameworkHistory[frameworkHistory.length - 1]?.overall_score || 0}%</span></span>
+                        {frameworkHistory.length > 1 && (
+                          <span>
+                            {frameworkHistory[frameworkHistory.length - 1].overall_score >= frameworkHistory[0].overall_score ? (
+                              <span className="text-green-500 flex items-center gap-1">
+                                <TrendingUp className="w-3 h-3" />
+                                +{frameworkHistory[frameworkHistory.length - 1].overall_score - frameworkHistory[0].overall_score}%
+                              </span>
+                            ) : (
+                              <span className="text-red-500 flex items-center gap-1">
+                                <TrendingDown className="w-3 h-3" />
+                                {frameworkHistory[frameworkHistory.length - 1].overall_score - frameworkHistory[0].overall_score}%
+                              </span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="relative h-[200px] border-l-2 border-b-2 border-[hsl(var(--border))] bg-muted/5 rounded">
+                      <svg className="w-full h-full" viewBox={`0 0 ${chartWidth} ${chartHeight}`} preserveAspectRatio="none">
+                        {/* Grid lines */}
+                        {[0, 25, 50, 75, 100].map((score) => {
+                          const y = chartHeight - ((score - minScore) / scoreRange) * chartHeight;
+                          return (
+                            <g key={score}>
+                              <line
+                                x1="0"
+                                y1={y}
+                                x2={chartWidth}
+                                y2={y}
+                                stroke="currentColor"
+                                strokeOpacity="0.1"
+                                strokeWidth="1"
+                              />
+                              <text
+                                x="-5"
+                                y={y + 4}
+                                fontSize="10"
+                                fill="currentColor"
+                                className="text-muted-foreground"
+                                textAnchor="end"
+                              >
+                                {score}
+                              </text>
+                            </g>
+                          );
+                        })}
+                        
+                        {/* Score line */}
+                        <polyline
+                          points={points}
+                          fill="none"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth="2"
+                          className="drop-shadow-sm"
+                        />
+                        
+                        {/* Area fill */}
+                        <polygon
+                          points={`0,${chartHeight} ${points} ${chartWidth},${chartHeight}`}
+                          fill="hsl(var(--primary))"
+                          fillOpacity="0.1"
+                        />
+                        
+                        {/* Security event impact markers */}
+                        {impactPoints.map((point, idx) => (
+                          <g key={idx}>
+                            <circle
+                              cx={point.x}
+                              cy={point.y}
+                              r="4"
+                              fill="#ef4444"
+                              stroke="white"
+                              strokeWidth="2"
+                            />
+                            <circle
+                              cx={point.x}
+                              cy={point.y}
+                              r="8"
+                              fill="#ef4444"
+                              fillOpacity="0.2"
+                            />
+                          </g>
+                        ))}
+                      </svg>
+                      
+                      {/* X-axis labels (dates) */}
+                      <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-muted-foreground px-2 -mb-5">
+                        <span>{new Date(frameworkHistory[0]?.calculated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <span>{new Date(frameworkHistory[Math.floor(frameworkHistory.length / 2)]?.calculated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <span>{new Date(frameworkHistory[frameworkHistory.length - 1]?.calculated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      </div>
+                    </div>
+                    <div className="mt-8 flex items-center gap-4 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-primary"></div>
+                        <span>Compliance Score</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                        <span>Security Event Impact</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Security-Compliance Correlation Graph */}
+        {securityComplianceCorrelation && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+            <div className="p-6 border-b border-[hsl(var(--border))]">
+              <h3 className="text-lg font-semibold text-foreground">Security-Compliance Correlation</h3>
+              <p className="text-sm text-muted-foreground mt-1">Visualize the relationship between security events and compliance scores</p>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Event Type Impact */}
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground mb-4">Event Type Impact</h4>
+                  <div className="space-y-3">
+                    {securityComplianceCorrelation.security_events?.map((event, idx) => {
+                      const maxImpact = Math.max(...(securityComplianceCorrelation.security_events?.map(e => Math.abs(e.avg_impact)) || [1]));
+                      const barWidth = Math.abs(event.avg_impact / maxImpact) * 100;
+                      const isNegative = event.avg_impact < 0;
+                      
+                      return (
+                        <div key={idx} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-foreground capitalize">{event.event_type.replace('_', ' ')}</span>
+                            <span className={`font-semibold ${isNegative ? 'text-red-500' : 'text-green-500'}`}>
+                              {isNegative ? '' : '+'}{event.avg_impact.toFixed(1)} pts
+                            </span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`h-full transition-all ${isNegative ? 'bg-red-500' : 'bg-green-500'}`}
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {event.event_count} events ({event.severity} severity)
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                
+                {/* Framework Trend Summary */}
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground mb-4">Framework Trends</h4>
+                  <div className="space-y-3">
+                    {['NIST_800-53', 'ISO27001', 'SOC2', 'CIS'].map((framework) => {
+                      const frameworkData = securityComplianceCorrelation.compliance_trends?.filter(t => t.framework === framework);
+                      if (!frameworkData || frameworkData.length === 0) return null;
+                      
+                      const firstScore = frameworkData[0]?.overall_score || 0;
+                      const lastScore = frameworkData[frameworkData.length - 1]?.overall_score || 0;
+                      const change = lastScore - firstScore;
+                      const totalImpact = frameworkData.reduce((sum, d) => sum + (d.security_event_impact || 0), 0);
+                      
+                      return (
+                        <div key={framework} className="p-3 bg-muted/30 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm font-medium text-foreground">{framework}</span>
+                            <span className={`text-sm font-semibold ${change >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                              {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>Score: {lastScore}%</span>
+                            {totalImpact > 0 && (
+                              <span className="text-red-500">• Security Impact: -{totalImpact} pts</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Compliance Alerts */}
+        {complianceAlerts.length > 0 && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+            <div className="p-6 border-b border-[hsl(var(--border))]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">Compliance Alerts</h3>
+                  <p className="text-sm text-muted-foreground mt-1">Alerts triggered by security events affecting compliance</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-3">
+              {complianceAlerts.filter(a => !a.acknowledged).slice(0, 10).map((alert) => (
+                <div key={alert.id} className={`p-4 rounded-lg border ${severityColors[alert.severity] || severityColors.info}`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <AlertTriangle className="w-4 h-4" />
+                        <h4 className="text-sm font-semibold text-foreground">{alert.title}</h4>
+                      </div>
+                      {alert.description && (
+                        <p className="text-xs text-muted-foreground mb-2">{alert.description}</p>
+                      )}
+                      {alert.compliance_score_before !== null && alert.compliance_score_after !== null && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-muted-foreground">Score:</span>
+                          <span className="text-foreground">{alert.compliance_score_before}</span>
+                          <TrendingDown className="w-3 h-3 text-red-500" />
+                          <span className="text-red-500">{alert.compliance_score_after}</span>
+                          {alert.framework && (
+                            <span className="text-muted-foreground ml-2">({alert.framework})</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await api.acknowledgeComplianceAlert(alert.id, currentUser.id);
+                          await loadCSCAData();
+                        } catch (error) {
+                          console.error('Error acknowledging alert:', error);
+                          alert('Error acknowledging alert');
+                        }
+                      }}
+                      className="px-3 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground hover:bg-muted"
+                    >
+                      Acknowledge
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pattern Detection & Trend Analysis */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Pattern Detection & Trend Analysis</h3>
+                <p className="text-sm text-muted-foreground mt-1">AI-powered pattern detection with 30-day lookback analysis</p>
+              </div>
+              <div className="flex gap-2">
+                {backendConnected && currentUser.id && (
+                  <>
+                    <button
+                      onClick={runPatternDetection}
+                      disabled={patternDetectionRunning}
+                      className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      <ActivitySquare className="w-4 h-4" />
+                      {patternDetectionRunning ? 'Detecting...' : 'Run Pattern Detection'}
+                    </button>
+                    <button
+                      onClick={() => loadDemoCSCAData()}
+                      className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors flex items-center gap-2"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Load Demo Data
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-6 space-y-6">
+            {/* Pattern Statistics */}
+            {patternTrends && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-muted/30 rounded-lg p-4">
+                  <div className="text-sm text-muted-foreground mb-1">Pattern Types</div>
+                  <div className="text-2xl font-bold text-foreground">
+                    {patternTrends.pattern_statistics?.length || 0}
+                  </div>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4">
+                  <div className="text-sm text-muted-foreground mb-1">Active Patterns</div>
+                  <div className="text-2xl font-bold text-foreground">{detectedPatterns.length}</div>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4">
+                  <div className="text-sm text-muted-foreground mb-1">Pattern Alerts</div>
+                  <div className="text-2xl font-bold text-yellow-500">
+                    {patternAlerts.filter(a => !a.acknowledged).length}
+                  </div>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-4">
+                  <div className="text-sm text-muted-foreground mb-1">30-Day Lookback</div>
+                  <div className="text-2xl font-bold text-foreground">{patternTrends.lookback_days || 30}d</div>
+                </div>
+              </div>
+            )}
+
+            {/* Detected Patterns */}
+            {detectedPatterns.length > 0 ? (
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-4">Detected Patterns</h4>
+                <div className="space-y-3">
+                  {detectedPatterns.map((pattern) => (
+                    <div key={pattern.id} className={`p-4 rounded-lg border ${severityColors[pattern.severity] || severityColors.info}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <ActivitySquare className="w-4 h-4" />
+                            <h5 className="text-sm font-semibold text-foreground">{pattern.pattern_name}</h5>
+                            <span className="px-2 py-0.5 bg-primary/10 text-primary rounded text-xs">
+                              {pattern.pattern_type.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">{pattern.pattern_description}</p>
+                          <div className="flex items-center gap-4 text-xs">
+                            <span className="text-muted-foreground">
+                              Occurrences: <span className="text-foreground font-semibold">{pattern.occurrence_count}</span>
+                            </span>
+                            <span className="text-muted-foreground">
+                              Confidence: <span className="text-foreground font-semibold">{(pattern.confidence_score * 100).toFixed(0)}%</span>
+                            </span>
+                            {pattern.trend_direction && (
+                              <span className={`flex items-center gap-1 ${
+                                pattern.trend_direction === 'increasing' ? 'text-red-500' :
+                                pattern.trend_direction === 'decreasing' ? 'text-green-500' :
+                                'text-muted-foreground'
+                              }`}>
+                                {pattern.trend_direction === 'increasing' ? <TrendingUp className="w-3 h-3" /> :
+                                 pattern.trend_direction === 'decreasing' ? <TrendingDown className="w-3 h-3" /> : null}
+                                {pattern.trend_direction}
+                                {pattern.trend_percentage !== 0 && ` (${pattern.trend_percentage > 0 ? '+' : ''}${pattern.trend_percentage.toFixed(1)}%)`}
+                              </span>
+                            )}
+                            <span className="text-muted-foreground">
+                              Last detected: {new Date(pattern.last_detected_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <ActivitySquare className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground mb-4">
+                  {backendConnected 
+                    ? 'No patterns detected yet. Click "Run Pattern Detection" to analyze security events.'
+                    : 'Connect backend and ingest security events to enable pattern detection.'}
+                </p>
+              </div>
+            )}
+
+            {/* Pattern Alerts */}
+            {patternAlerts.length > 0 && (
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-4">Pattern Alerts</h4>
+                <div className="space-y-2">
+                  {patternAlerts.filter(a => !a.acknowledged).map((alert) => (
+                    <div key={alert.id} className={`p-3 rounded-lg border ${severityColors[alert.severity] || severityColors.info}`}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <AlertTriangle className="w-4 h-4" />
+                            <h6 className="text-sm font-semibold text-foreground">{alert.title}</h6>
+                          </div>
+                          <p className="text-xs text-muted-foreground mb-2">{alert.description}</p>
+                          {alert.pattern_trend_data && (
+                            <div className="text-xs text-muted-foreground">
+                              Trend: {alert.pattern_trend_data.trend_direction} 
+                              {alert.pattern_trend_data.trend_percentage !== undefined && 
+                                ` (${alert.pattern_trend_data.trend_percentage > 0 ? '+' : ''}${alert.pattern_trend_data.trend_percentage.toFixed(1)}%)`}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await api.acknowledgePatternAlert(alert.id, currentUser.id);
+                              await loadCSCAData();
+                            } catch (error) {
+                              console.error('Error acknowledging pattern alert:', error);
+                              alert('Error acknowledging alert');
+                            }
+                          }}
+                          className="px-3 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground hover:bg-muted"
+                        >
+                          Acknowledge
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Demo Mode Notice */}
+        {!backendConnected && (
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-yellow-500" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Demo Mode</p>
+                <p className="text-xs text-muted-foreground">Connect backend to ingest real security events and see live compliance-impact correlation.</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      );
+    } catch (error) {
+      console.error('Error rendering CSCA:', error);
+      return (
+        <div className="space-y-6">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+            <h2 className="text-2xl font-bold text-foreground">Security-Compliance Alignment</h2>
+            <p className="text-red-500 mt-4">Error rendering page: {error.message}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-lg"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+  };
+
+  const renderPermissionGrantModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-foreground">Grant Permission</h3>
+            <button
+              onClick={() => setShowPermissionGrant(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">User ID</label>
+              <input
+                type="number"
+                value={permissionFormData.user_id || ''}
+                onChange={(e) => setPermissionFormData({...permissionFormData, user_id: parseInt(e.target.value)})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+                placeholder="Enter user ID"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Resource Type</label>
+              <select
+                value={permissionFormData.resource_type}
+                onChange={(e) => setPermissionFormData({...permissionFormData, resource_type: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+              >
+                <option value="control">Control</option>
+                <option value="audit">Audit</option>
+                <option value="report">Report</option>
+                <option value="evidence">Evidence</option>
+                <option value="all">All Resources</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Resource ID (optional)</label>
+              <input
+                type="text"
+                value={permissionFormData.resource_id}
+                onChange={(e) => setPermissionFormData({...permissionFormData, resource_id: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+                placeholder="Leave empty for all resources"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Permission Type</label>
+              <select
+                value={permissionFormData.permission_type}
+                onChange={(e) => setPermissionFormData({...permissionFormData, permission_type: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+              >
+                <option value="read">Read</option>
+                <option value="write">Write</option>
+                <option value="execute">Execute</option>
+                <option value="delete">Delete</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Expires At (optional)</label>
+              <input
+                type="datetime-local"
+                value={permissionFormData.expires_at}
+                onChange={(e) => setPermissionFormData({...permissionFormData, expires_at: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+              />
+            </div>
+            <div className="flex gap-2 pt-4">
+              <button
+                onClick={async () => {
+                  if (!permissionFormData.user_id) {
+                    alert('Please enter a user ID');
+                    return;
+                  }
+                  try {
+                    // Ensure user_id is a number
+                    const userId = parseInt(permissionFormData.user_id);
+                    if (isNaN(userId)) {
+                      alert('Please enter a valid user ID (number)');
+                      return;
+                    }
+                    
+                    const permissionPayload = {
+                      user_id: userId, // Ensure it's a number
+                      resource_type: permissionFormData.resource_type,
+                      permission_type: permissionFormData.permission_type
+                    };
+                    
+                    // Only include optional fields if they have values
+                    if (permissionFormData.resource_id && permissionFormData.resource_id.trim() !== '') {
+                      permissionPayload.resource_id = permissionFormData.resource_id;
+                    }
+                    
+                    if (permissionFormData.expires_at && permissionFormData.expires_at.trim() !== '') {
+                      permissionPayload.expires_at = permissionFormData.expires_at;
+                    }
+                    
+                    console.log('Sending permission payload:', permissionPayload);
+                    await api.grantPermission(currentUser.id, permissionPayload);
+                    await loadIAMData();
+                    setShowPermissionGrant(false);
+                    setPermissionFormData({
+                      user_id: null,
+                      resource_type: 'control',
+                      resource_id: '',
+                      permission_type: 'read',
+                      expires_at: '',
+                      metadata: {}
+                    });
+                  } catch (error) {
+                    console.error('Permission grant error:', error);
+                    const errorMsg = error.detail || error.message || (error instanceof Error ? error.message : String(error));
+                    alert('Error granting permission: ' + errorMsg);
+                  }
+                }}
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+              >
+                Grant Permission
+              </button>
+              <button
+                onClick={() => setShowPermissionGrant(false)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVendorProfileModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-foreground">Create Vendor Access Profile</h3>
+            <button
+              onClick={() => setShowVendorProfile(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Vendor Name</label>
+              <input
+                type="text"
+                value={vendorProfileFormData.vendor_name}
+                onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, vendor_name: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+                placeholder="e.g., SOC Provider, MDR Vendor"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Profile Name</label>
+              <input
+                type="text"
+                value={vendorProfileFormData.profile_name}
+                onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, profile_name: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+                placeholder="e.g., SOC Team Read-Only"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Access Expires At (optional)</label>
+              <input
+                type="datetime-local"
+                value={vendorProfileFormData.access_expires_at}
+                onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, access_expires_at: e.target.value})}
+                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={vendorProfileFormData.auto_renew}
+                onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, auto_renew: e.target.checked})}
+                className="w-4 h-4"
+              />
+              <label className="text-sm text-foreground">Auto-renew access</label>
+            </div>
+            <div className="pt-4 border-t border-[hsl(var(--border))]">
+              <p className="text-sm text-muted-foreground mb-2">Note: Scope and permissions configuration will be added in a future update.</p>
+            </div>
+            <div className="flex gap-2 pt-4">
+              <button
+                onClick={async () => {
+                  if (!vendorProfileFormData.vendor_name || !vendorProfileFormData.profile_name) {
+                    alert('Please fill in vendor name and profile name');
+                    return;
+                  }
+                  try {
+                    await api.createVendorAccessProfile(currentUser.id, vendorProfileFormData);
+                    await loadIAMData();
+                    setShowVendorProfile(false);
+                    setVendorProfileFormData({
+                      vendor_name: '',
+                      profile_name: '',
+                      scope: { controls: [], frameworks: [], audits: [] },
+                      permissions: { controls: ['read'], audits: ['read'], evidence: ['read'] },
+                      access_expires_at: '',
+                      auto_renew: false
+                    });
+                    alert('Vendor access profile created successfully');
+                  } catch (error) {
+                    console.error('Vendor profile error:', error);
+                    const errorMsg = error.detail || error.message || (error instanceof Error ? error.message : String(error));
+                    alert('Error creating vendor profile: ' + errorMsg);
+                  }
+                }}
+                className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90"
+              >
+                Create Profile
+              </button>
+              <button
+                onClick={() => setShowVendorProfile(false)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============================================================================
   // AUDIT MANAGEMENT RENDER FUNCTIONS
   // ============================================================================
   
@@ -5963,7 +7507,9 @@ const ComplianceMVP = () => {
       'vendors': 'Vendors',
       'rbac': 'Roles & Permissions',
       'timeline': 'Timeline',
-      'responsibility': 'Responsibility Matrix'
+      'responsibility': 'Responsibility Matrix',
+      'audits': 'Audits & Certifications',
+      'iam': 'IAM & Permissions'
     };
     return viewNames[view] || 'Controls';
   };
@@ -5979,7 +7525,9 @@ const ComplianceMVP = () => {
       'vendors': Users,
       'rbac': Shield,
       'timeline': TrendingUp,
-      'responsibility': Database
+      'responsibility': Database,
+      'audits': ClipboardList,
+      'iam': UserCheck
     };
     const IconComponent = icons[view] || Shield;
     return <IconComponent className="w-4 h-4" />;
@@ -6073,6 +7621,28 @@ const ComplianceMVP = () => {
                 >
                   <FileCheck className="w-4 h-4" />
                   {!sidebarCollapsed && <span>Audits & Certifications</span>}
+                </button>
+                <button
+                  onClick={() => setActiveView('iam')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'iam'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>IAM & Permissions</span>}
+                </button>
+                <button
+                  onClick={() => setActiveView('csca')}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'csca'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <Link2 className="w-4 h-4" />
+                  {!sidebarCollapsed && <span>Security-Compliance Alignment</span>}
                 </button>
                 <button
                   onClick={() => setActiveView('tco')}
@@ -6213,6 +7783,8 @@ const ComplianceMVP = () => {
 
               {activeView === 'dashboard' ? renderDashboard() : 
                activeView === 'audits' ? renderAudits() :
+               activeView === 'iam' ? renderIAM() :
+               activeView === 'csca' ? renderCSCA() :
                activeView === 'tco' ? renderTCOCalculator() : 
                activeView === 'automation' ? renderAutomationPlan() :
                activeView === 'import' ? renderDataImport() :
