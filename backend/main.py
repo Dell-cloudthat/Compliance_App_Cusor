@@ -2044,6 +2044,69 @@ async def get_pattern_trends_endpoint(user_id: int = Header(..., alias="X-User-I
     trends = get_pattern_trends(user_id, lookback_days)
     return trends
 
+# ============================================================================
+# Real-Time Compliance & Unified Data Flow Endpoints
+# ============================================================================
+
+@app.get("/api/compliance/realtime/{framework}")
+async def get_realtime_compliance_score(framework: str, user_id: int = Header(..., alias="X-User-Id")):
+    """Get real-time compliance score for a framework"""
+    from services.realtime_compliance_engine import calculate_realtime_compliance_score
+    
+    try:
+        score_data = calculate_realtime_compliance_score(user_id, framework)
+        return score_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to calculate compliance score: {str(e)}")
+
+@app.get("/api/compliance/framework-growth/{framework}")
+async def get_framework_growth_metrics(framework: str, user_id: int = Header(..., alias="X-User-Id"), 
+                                       period_days: int = 30):
+    """Get framework growth metrics for dashboard"""
+    from services.realtime_compliance_engine import get_framework_growth_metrics
+    
+    try:
+        metrics = get_framework_growth_metrics(user_id, framework, period_days)
+        return metrics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get growth metrics: {str(e)}")
+
+@app.get("/api/compliance/all-frameworks-growth")
+async def get_all_frameworks_growth(user_id: int = Header(..., alias="X-User-Id"), period_days: int = 30):
+    """Get growth metrics for all frameworks"""
+    from services.realtime_compliance_engine import get_all_frameworks_growth
+    
+    try:
+        all_metrics = get_all_frameworks_growth(user_id, period_days)
+        return all_metrics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get all frameworks growth: {str(e)}")
+
+@app.post("/api/alerts/check-drift")
+async def check_compliance_drift(user_id: int = Header(..., alias="X-User-Id")):
+    """Check all frameworks for compliance drift and generate alerts"""
+    from services.alert_service import check_and_generate_alerts
+    
+    try:
+        alerts = check_and_generate_alerts(user_id)
+        return {
+            "alerts_generated": len(alerts),
+            "alerts": alerts
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check drift: {str(e)}")
+
+@app.get("/api/alerts/actionable")
+async def get_actionable_alerts_endpoint(user_id: int = Header(..., alias="X-User-Id"), limit: int = 50):
+    """Get all actionable alerts with remediation guidance"""
+    from services.alert_service import get_actionable_alerts
+    
+    try:
+        alerts = get_actionable_alerts(user_id, limit)
+        return alerts
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get actionable alerts: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -491,6 +491,51 @@ class ComplianceAPI {
     });
   }
 
+  // ============================================================================
+  // Real-Time Compliance & Unified Data Flow APIs
+  // ============================================================================
+
+  async getRealtimeComplianceScore(userId, framework) {
+    return this.request(`/api/compliance/realtime/${framework}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getFrameworkGrowthMetrics(userId, framework, periodDays = 30) {
+    return this.request(`/api/compliance/framework-growth/${framework}?period_days=${periodDays}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getAllFrameworksGrowth(userId, periodDays = 30) {
+    return this.request(`/api/compliance/all-frameworks-growth?period_days=${periodDays}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async checkComplianceDrift(userId) {
+    return this.request('/api/alerts/check-drift', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getActionableAlerts(userId, limit = 50) {
+    return this.request(`/api/alerts/actionable?limit=${limit}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
   // Simulate API Data Ingestion
   async simulateAPIIngestion(userId, apiData) {
     /**

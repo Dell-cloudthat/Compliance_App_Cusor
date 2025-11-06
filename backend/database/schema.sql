@@ -496,7 +496,7 @@ CREATE TABLE IF NOT EXISTS security_compliance_correlation (
 CREATE TABLE IF NOT EXISTS compliance_alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
-  alert_type TEXT NOT NULL, -- 'compliance_degradation', 'gap_created', 'evidence_expired', 'control_failed'
+  alert_type TEXT NOT NULL, -- 'compliance_degradation', 'gap_created', 'evidence_expired', 'control_failed', 'compliance_drift'
   severity TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
@@ -505,6 +505,7 @@ CREATE TABLE IF NOT EXISTS compliance_alerts (
   framework TEXT,
   compliance_score_before INTEGER,
   compliance_score_after INTEGER,
+  remediation_guidance TEXT, -- JSON string with remediation steps
   acknowledged BOOLEAN DEFAULT 0,
   acknowledged_at TIMESTAMP,
   acknowledged_by TEXT,

@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
+import { CIS_CONTROLS } from './frameworks/cis-controls';
+import { HIPAA_CONTROLS } from './frameworks/hipaa-controls';
+import { PCI_DSS_CONTROLS } from './frameworks/pci-dss-controls';
+import { SOC2_CONTROLS } from './frameworks/soc2-controls';
+import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
+import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
 import api from './services/api';
 import {
   DropdownMenu,
@@ -18,17 +24,14 @@ import {
 // Extended framework library with NIST 800-171
 
 const FRAMEWORK_LIBRARY = {
-
   "NIST_800-53": { name: "NIST 800-53", version: "Rev 5" },
-
   "NIST_800-171": { name: "NIST 800-171", version: "Rev 2" },
-
-  "ISO27001": { name: "ISO 27001", version: "2013" },
-
-  "SOC2": { name: "SOC 2", version: "2017" },
-
-  "CIS": { name: "CIS Controls", version: "v8" }
-
+  "ISO27001": { name: "ISO 27001", version: "2022" },
+  "SOC2": { name: "SOC 2", version: "Type II" },
+  "CIS": { name: "CIS Controls", version: "v8" },
+  "HIPAA": { name: "HIPAA", version: "Security Rule" },
+  "PCI_DSS": { name: "PCI DSS", version: "v4.0" },
+  "FedRAMP": { name: "FedRAMP", version: "High Baseline" }
 };
 
 
@@ -445,7 +448,7 @@ const segmentApiData = (apiData, controls, apiIntegrations) => {
 };
 
 const ComplianceMVP = () => {
-  const [activeView, setActiveView] = useState('controls');
+  const [activeView, setActiveView] = useState('dashboard');
   const [controls, setControls] = useState([]);
   const [assets, setAssets] = useState([]);
   const [users, setUsers] = useState([]);
@@ -485,6 +488,8 @@ const ComplianceMVP = () => {
   const [matrixFilterCategory, setMatrixFilterCategory] = useState("ALL");
   const [matrixFilterCoverageType, setMatrixFilterCoverageType] = useState("ALL");
   const [matrixFilterOwnership, setMatrixFilterOwnership] = useState("ALL");
+  const [expandedFrameworks, setExpandedFrameworks] = useState(new Set());
+  const [expandedSections, setExpandedSections] = useState(new Set());
   
   // Control detail view
   const [selectedControl, setSelectedControl] = useState(null);
@@ -517,6 +522,7 @@ const ComplianceMVP = () => {
   const [costPlan, setCostPlan] = useState(null);
   const [showCostPlan, setShowCostPlan] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   // Audit Management
   const [audits, setAudits] = useState([]);
@@ -593,6 +599,11 @@ const ComplianceMVP = () => {
   const [patternAlerts, setPatternAlerts] = useState([]);
   const [patternTrends, setPatternTrends] = useState(null);
   const [patternDetectionRunning, setPatternDetectionRunning] = useState(false);
+  
+  // Unified Data Flow: Framework Growth & Actionable Alerts
+  const [frameworkGrowth, setFrameworkGrowth] = useState({});
+  const [actionableAlerts, setActionableAlerts] = useState([]);
+  const [realtimeScores, setRealtimeScores] = useState({});
   
   // Partner Growth Tracking for QBR
   const [partnerGrowthHistory, setPartnerGrowthHistory] = useState([
@@ -1053,6 +1064,165 @@ const ComplianceMVP = () => {
     }
   };
 
+  // Load framework growth metrics for dashboard
+  const loadFrameworkGrowth = async () => {
+    if (!backendConnected || !currentUser.id) {
+      // Demo data
+      const demoGrowth = {
+        'NIST_800-53': {
+          framework: 'NIST_800-53',
+          current_score: 82.5,
+          risk_adjusted_score: 80.2,
+          growth_rate: 12.5,
+          score_velocity: 0.8,
+          trend_direction: 'improving',
+          controls_implemented: 65,
+          controls_total: 80,
+          gaps_count: 15,
+          control_coverage: 81.3,
+          evidence_coverage: 75.0,
+          drift_detected: false,
+          drift_percentage: 0,
+          trend_data: []
+        },
+        'ISO27001': {
+          framework: 'ISO27001',
+          current_score: 78.2,
+          risk_adjusted_score: 76.5,
+          growth_rate: 8.3,
+          score_velocity: 0.5,
+          trend_direction: 'improving',
+          controls_implemented: 58,
+          controls_total: 75,
+          gaps_count: 17,
+          control_coverage: 77.3,
+          evidence_coverage: 70.0,
+          drift_detected: false,
+          drift_percentage: 0,
+          trend_data: []
+        },
+        'SOC2': {
+          framework: 'SOC2',
+          current_score: 85.0,
+          risk_adjusted_score: 83.5,
+          growth_rate: 15.2,
+          score_velocity: 1.2,
+          trend_direction: 'improving',
+          controls_implemented: 68,
+          controls_total: 80,
+          gaps_count: 12,
+          control_coverage: 85.0,
+          evidence_coverage: 80.0,
+          drift_detected: false,
+          drift_percentage: 0,
+          trend_data: []
+        },
+        'CIS': {
+          framework: 'CIS',
+          current_score: 75.5,
+          risk_adjusted_score: 73.8,
+          growth_rate: 5.8,
+          score_velocity: 0.3,
+          trend_direction: 'stable',
+          controls_implemented: 45,
+          controls_total: 60,
+          gaps_count: 15,
+          control_coverage: 75.0,
+          evidence_coverage: 68.0,
+          drift_detected: false,
+          drift_percentage: 0,
+          trend_data: []
+        },
+        'NIST_800-171': {
+          framework: 'NIST_800-171',
+          current_score: 70.0,
+          risk_adjusted_score: 68.5,
+          growth_rate: 2.5,
+          score_velocity: 0.2,
+          trend_direction: 'stable',
+          controls_implemented: 42,
+          controls_total: 60,
+          gaps_count: 18,
+          control_coverage: 70.0,
+          evidence_coverage: 65.0,
+          drift_detected: false,
+          drift_percentage: 0,
+          trend_data: []
+        }
+      };
+      setFrameworkGrowth(demoGrowth);
+      return;
+    }
+
+    try {
+      const growthData = await api.getAllFrameworksGrowth(currentUser.id, 30);
+      setFrameworkGrowth(growthData || {});
+    } catch (error) {
+      console.error('Error loading framework growth:', error);
+    }
+  };
+
+  // Load actionable alerts
+  const loadActionableAlerts = async () => {
+    if (!backendConnected || !currentUser.id) {
+      // Demo data
+      const demoAlerts = [
+        {
+          id: 1,
+          alert_type: 'compliance_drift',
+          severity: 'high',
+          title: 'Compliance Drift Detected: NIST_800-53 Score decreased',
+          description: 'Compliance score for NIST_800-53 has decreased by 8.2% (from 85.0 to 78.0). 12 controls require attention.',
+          framework: 'NIST_800-53',
+          compliance_score_before: 85.0,
+          compliance_score_after: 78.0,
+          acknowledged: false,
+          created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+          remediation_guidance: [
+            {
+              control_id: 'AC-001',
+              control_name: 'Access Control Policy',
+              category: 'Access Control',
+              priority: 'Critical',
+              status: 'Non-Compliant',
+              remediation_steps: [
+                { step: 1, action: 'Assess Current State', estimated_time: '30 minutes' },
+                { step: 2, action: 'Identify Gaps', estimated_time: '1 hour' },
+                { step: 3, action: 'Implement Remediation', estimated_time: '4-8 hours' },
+                { step: 4, action: 'Validate & Document', estimated_time: '1 hour' }
+              ]
+            }
+          ]
+        }
+      ];
+      setActionableAlerts(demoAlerts);
+      return;
+    }
+
+    try {
+      const alerts = await api.getActionableAlerts(currentUser.id, 10);
+      setActionableAlerts(alerts || []);
+    } catch (error) {
+      console.error('Error loading actionable alerts:', error);
+    }
+  };
+
+  // Load framework growth and alerts when dashboard is active
+  useEffect(() => {
+    if (activeView === 'dashboard') {
+      loadFrameworkGrowth();
+      loadActionableAlerts();
+      
+      // Real-time polling every 5 seconds
+      const interval = setInterval(() => {
+        loadFrameworkGrowth();
+        loadActionableAlerts();
+      }, 5000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [activeView, backendConnected, currentUser.id]);
+
   const loadIAMData = async () => {
     if (!backendConnected || !currentUser.id) return;
     try {
@@ -1298,9 +1468,9 @@ const ComplianceMVP = () => {
   };
 
   const loadData = () => {
-    // Convert NIST 800-53 controls to our format
+    // Convert all framework controls to our format
     const nistControls = NIST_800_53_CONTROLS.map(ctrl => ({
-      id: ctrl.id,
+      id: `NIST-${ctrl.id}`,
       control_name: ctrl.name,
       description: `NIST 800-53 ${ctrl.id}: ${ctrl.name}`,
       frameworks: [`NIST_800-53:${ctrl.id}`],
@@ -1312,9 +1482,8 @@ const ComplianceMVP = () => {
       control_family: getControlFamily(ctrl.id)
     }));
     
-    // Convert ISO 27001 controls to our format
     const isoControls = ISO_27001_CONTROLS.map(ctrl => ({
-      id: ctrl.id.replace(/\./g, '-'),
+      id: `ISO-${ctrl.id.replace(/\./g, '-')}`,
       control_name: ctrl.name,
       description: `ISO 27001:2022 ${ctrl.id}: ${ctrl.name}`,
       frameworks: [`ISO27001:${ctrl.id}`],
@@ -1325,13 +1494,91 @@ const ComplianceMVP = () => {
       iso_id: ctrl.id,
       control_category: ctrl.category
     }));
+
+    const cisControls = CIS_CONTROLS.map(ctrl => ({
+      id: `CIS-${ctrl.id}`,
+      control_name: ctrl.name,
+      description: `CIS Controls v8 ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`CIS:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      cis_id: ctrl.id
+    }));
+
+    const hipaaControls = HIPAA_CONTROLS.map(ctrl => ({
+      id: `HIPAA-${ctrl.id.replace(/\./g, '-').replace(/\//g, '-')}`,
+      control_name: ctrl.name,
+      description: `HIPAA ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`HIPAA:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      hipaa_id: ctrl.id
+    }));
+
+    const pciControls = PCI_DSS_CONTROLS.map(ctrl => ({
+      id: `PCI-${ctrl.id.replace(/\./g, '-')}`,
+      control_name: ctrl.name,
+      description: `PCI DSS v4.0 ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`PCI_DSS:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      pci_id: ctrl.id
+    }));
+
+    const soc2Controls = SOC2_CONTROLS.map(ctrl => ({
+      id: `SOC2-${ctrl.id.replace(/\./g, '-')}`,
+      control_name: ctrl.name,
+      description: `SOC 2 Type II ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`SOC2:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      soc2_id: ctrl.id
+    }));
+
+    const fedrampControls = FEDRAMP_CONTROLS.map(ctrl => ({
+      id: `FEDRAMP-${ctrl.id.replace(/\./g, '-')}`,
+      control_name: ctrl.name,
+      description: `FedRAMP High Baseline ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`FedRAMP:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      fedramp_id: ctrl.id
+    }));
+
+    const nist171Controls = NIST_800_171_CONTROLS.map(ctrl => ({
+      id: `NIST171-${ctrl.id.replace(/\./g, '-')}`,
+      control_name: ctrl.name,
+      description: `NIST 800-171 Rev 2 ${ctrl.id}: ${ctrl.name}`,
+      frameworks: [`NIST_800-171:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      nist171_id: ctrl.id
+    }));
     
-    // Merge all controls: existing core + NIST + ISO (avoid duplicates)
+    // Merge all controls: existing core + all framework controls (avoid duplicates by checking id)
     const existingIds = new Set(CORE_CONTROLS.map(c => c.id));
     const allControls = [
       ...CORE_CONTROLS,
       ...nistControls.filter(c => !existingIds.has(c.id)),
-      ...isoControls.filter(c => !existingIds.has(c.id))
+      ...isoControls.filter(c => !existingIds.has(c.id)),
+      ...cisControls.filter(c => !existingIds.has(c.id)),
+      ...hipaaControls.filter(c => !existingIds.has(c.id)),
+      ...pciControls.filter(c => !existingIds.has(c.id)),
+      ...soc2Controls.filter(c => !existingIds.has(c.id)),
+      ...fedrampControls.filter(c => !existingIds.has(c.id)),
+      ...nist171Controls.filter(c => !existingIds.has(c.id))
     ];
     
     // Initialize with all controls
@@ -3799,6 +4046,193 @@ const ComplianceMVP = () => {
             </div>
           </div>
         </div>
+
+        {/* Framework Growth Metrics */}
+        <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Framework Growth Metrics</h3>
+              <p className="text-sm text-muted-foreground mt-1">Real-time compliance tracking across all frameworks</p>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              Live
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Object.entries(FRAMEWORK_LIBRARY).map(([frameworkKey, framework]) => {
+              const growth = frameworkGrowth[frameworkKey];
+              if (!growth) return null;
+              
+              const trendIcon = growth.trend_direction === 'improving' ? 
+                <ArrowUpRight className="w-4 h-4 text-green-500" /> :
+                growth.trend_direction === 'declining' ?
+                <ArrowDownRight className="w-4 h-4 text-red-500" /> :
+                <TrendingUp className="w-4 h-4 text-muted-foreground" />;
+              
+              return (
+                <div key={frameworkKey} className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4 hover:shadow-md transition-shadow">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-semibold text-foreground">{framework.name}</h4>
+                    {growth.drift_detected && (
+                      <div className="px-2 py-1 bg-red-500/10 text-red-500 rounded text-xs font-medium">
+                        Drift
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-2xl font-bold text-foreground">{growth.current_score.toFixed(1)}%</span>
+                      <div className="flex items-center gap-1">
+                        {trendIcon}
+                        <span className={`text-xs font-medium ${
+                          growth.growth_rate >= 0 ? 'text-green-500' : 'text-red-500'
+                        }`}>
+                          {growth.growth_rate >= 0 ? '+' : ''}{growth.growth_rate.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div className="flex justify-between">
+                        <span>Controls:</span>
+                        <span className="text-foreground">{growth.controls_implemented}/{growth.controls_total}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Coverage:</span>
+                        <span className="text-foreground">{growth.control_coverage.toFixed(1)}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Gaps:</span>
+                        <span className="text-red-500">{growth.gaps_count}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Velocity:</span>
+                        <span className={`${growth.score_velocity >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          {growth.score_velocity >= 0 ? '+' : ''}{growth.score_velocity.toFixed(2)} pts/day
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Actionable Alerts */}
+        {actionableAlerts.length > 0 && (
+          <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Actionable Alerts</h3>
+                <p className="text-sm text-muted-foreground mt-1">Items requiring immediate attention</p>
+              </div>
+              <button
+                onClick={async () => {
+                  if (backendConnected && currentUser.id) {
+                    try {
+                      await api.checkComplianceDrift(currentUser.id);
+                      await loadActionableAlerts();
+                    } catch (error) {
+                      console.error('Error checking drift:', error);
+                    }
+                  }
+                }}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium"
+              >
+                Check for Drift
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              {actionableAlerts.slice(0, 5).map((alert) => {
+                const severityColors = {
+                  critical: 'bg-red-500/10 border-red-500/20',
+                  high: 'bg-orange-500/10 border-orange-500/20',
+                  medium: 'bg-yellow-500/10 border-yellow-500/20',
+                  low: 'bg-blue-500/10 border-blue-500/20'
+                };
+                
+                return (
+                  <div key={alert.id} className={`border rounded-lg p-4 ${severityColors[alert.severity] || severityColors.medium}`}>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle className="w-4 h-4" />
+                          <h4 className="text-sm font-semibold text-foreground">{alert.title}</h4>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            alert.severity === 'critical' ? 'bg-red-500 text-white' :
+                            alert.severity === 'high' ? 'bg-orange-500 text-white' :
+                            alert.severity === 'medium' ? 'bg-yellow-500 text-black' :
+                            'bg-blue-500 text-white'
+                          }`}>
+                            {alert.severity.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-2">{alert.description}</p>
+                        
+                        {alert.compliance_score_before !== null && alert.compliance_score_after !== null && (
+                          <div className="flex items-center gap-2 text-xs mb-2">
+                            <span className="text-muted-foreground">Score:</span>
+                            <span className="text-foreground">{alert.compliance_score_before}</span>
+                            <TrendingDown className="w-3 h-3 text-red-500" />
+                            <span className="text-red-500">{alert.compliance_score_after}</span>
+                            {alert.framework && (
+                              <span className="text-muted-foreground ml-2">({alert.framework})</span>
+                            )}
+                          </div>
+                        )}
+                        
+                        {alert.remediation_guidance && Array.isArray(alert.remediation_guidance) && alert.remediation_guidance.length > 0 && (
+                          <div className="mt-3 p-2 bg-muted/50 rounded text-xs">
+                            <div className="font-medium text-foreground mb-1">Top Priority Control:</div>
+                            <div className="text-muted-foreground">
+                              {alert.remediation_guidance[0].control_name} ({alert.remediation_guidance[0].priority})
+                            </div>
+                            {alert.remediation_guidance[0].remediation_steps && alert.remediation_guidance[0].remediation_steps.length > 0 && (
+                              <div className="mt-2 text-muted-foreground">
+                                Next: {alert.remediation_guidance[0].remediation_steps[0].action}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (backendConnected && currentUser.id) {
+                            try {
+                              await api.acknowledgeComplianceAlert(alert.id, currentUser.id);
+                              await loadActionableAlerts();
+                            } catch (error) {
+                              console.error('Error acknowledging alert:', error);
+                            }
+                          }
+                        }}
+                        className="px-3 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground hover:bg-muted ml-2"
+                      >
+                        Acknowledge
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {actionableAlerts.length > 5 && (
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => setActiveView('csca')}
+                  className="text-sm text-primary hover:underline"
+                >
+                  View all {actionableAlerts.length} alerts →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         
         {/* Historical Trend Chart */}
         <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
@@ -4483,10 +4917,12 @@ const ComplianceMVP = () => {
         <select
           value={selectedFramework}
           onChange={(e) => setSelectedFramework(e.target.value)}
-          className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500"
+          className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
         >
           {frameworks.map(f => (
-            <option key={f} value={f}>{f}</option>
+            <option key={f} value={f}>
+              {f === "ALL" ? "All Frameworks" : FRAMEWORK_LIBRARY[f]?.name || f}
+            </option>
           ))}
         </select>
 
@@ -4507,15 +4943,43 @@ const ComplianceMVP = () => {
         </button>
       </div>
 
+      {/* Framework Summary */}
+      <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold text-foreground">Framework Coverage</h3>
+          <div className="text-sm text-muted-foreground">
+            Total Controls: <span className="font-bold text-foreground">{filteredControls.length}</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+          {Object.entries(FRAMEWORK_LIBRARY).map(([key, framework]) => {
+            const frameworkControls = filteredControls.filter(c => 
+              c.frameworks.some(f => f.startsWith(key))
+            );
+            const frameworkCount = frameworkControls.length;
+            return (
+              <div key={key} className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground mb-1">{framework.name}</div>
+                <div className="text-xl font-bold text-foreground">{frameworkCount}</div>
+                <div className="text-xs text-muted-foreground">controls</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Control</th>
+              <th className="text-left py-3 px-4 font-semibold text-foreground">Control ID</th>
+              <th className="text-left py-3 px-4 font-semibold text-foreground">Control Name</th>
               <th className="text-left py-3 px-4 font-semibold text-foreground">Description</th>
               <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
               <th className="text-left py-3 px-4 font-semibold text-foreground">Owner</th>
               <th className="text-left py-3 px-4 font-semibold text-foreground">Frameworks</th>
+              <th className="text-left py-3 px-4 font-semibold text-foreground">Category</th>
+              <th className="text-left py-3 px-4 font-semibold text-foreground">Priority</th>
             </tr>
           </thead>
           <tbody>
@@ -4529,13 +4993,10 @@ const ComplianceMVP = () => {
                 }}
               >
                 <td className="py-3 px-4">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <div className="font-medium text-foreground">{control.id}</div>
-                      <div className="text-sm text-muted-foreground">{control.control_name}</div>
-                    </div>
-                    <Info className="w-4 h-4 text-muted-foreground hover:text-foreground" />
-                  </div>
+                  <div className="font-medium text-foreground text-sm">{control.id}</div>
+                </td>
+                <td className="py-3 px-4">
+                  <div className="font-medium text-foreground">{control.control_name}</div>
                 </td>
                 <td className="py-3 px-4 text-sm text-muted-foreground max-w-xs">{control.description}</td>
                 <td className="py-3 px-4">
@@ -4562,18 +5023,49 @@ const ComplianceMVP = () => {
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex flex-wrap gap-1">
-                    {control.frameworks.map((fw, idx) => (
-                      <span key={idx} className="text-xs bg-muted text-foreground px-2 py-1 rounded">
-                        {fw.split(':')[0]}
-                      </span>
-                    ))}
+                    {control.frameworks.map((fw, idx) => {
+                      const frameworkKey = fw.split(':')[0];
+                      const frameworkName = FRAMEWORK_LIBRARY[frameworkKey]?.name || frameworkKey;
+                      return (
+                        <span key={idx} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded font-medium">
+                          {frameworkName}
+                        </span>
+                      );
+                    })}
                   </div>
+                </td>
+                <td className="py-3 px-4">
+                  <span className="text-xs bg-muted text-foreground px-2 py-1 rounded">
+                    {control.category}
+                  </span>
+                </td>
+                <td className="py-3 px-4">
+                  <span className={`text-xs px-2 py-1 rounded font-medium ${
+                    control.priority === 'Critical' ? 'bg-red-500/10 text-red-500' :
+                    control.priority === 'High' ? 'bg-orange-500/10 text-orange-500' :
+                    control.priority === 'Medium' ? 'bg-yellow-500/10 text-yellow-500' :
+                    'bg-blue-500/10 text-blue-500'
+                  }`}>
+                    {control.priority}
+                  </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      
+      {filteredControls.length === 0 && (
+        <div className="text-center py-12 bg-card rounded-lg border border-[hsl(var(--border))] mt-6">
+          <Shield className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+          <h3 className="text-lg font-semibold text-foreground mb-2">No Controls Found</h3>
+          <p className="text-sm text-muted-foreground">
+            {selectedFramework !== "ALL" 
+              ? `No controls found for ${FRAMEWORK_LIBRARY[selectedFramework]?.name || selectedFramework}. Try selecting "ALL" or adjusting your search.`
+              : "Try adjusting your search term."}
+          </p>
+        </div>
+      )}
 
       {/* Control Detail Modal */}
       {showControlDetail && selectedControl && (
@@ -4793,6 +5285,75 @@ const ComplianceMVP = () => {
       ...responsibilityMatrix.flatMap(m => m.secondary_owners)
     ].filter(Boolean))].sort();
 
+    // Group matrix by framework, then by category
+    const groupedMatrix = {};
+    filteredMatrix.forEach(matrix => {
+      matrix.frameworks.forEach(fw => {
+        const frameworkKey = fw.split(':')[0];
+        const frameworkName = FRAMEWORK_LIBRARY[frameworkKey]?.name || frameworkKey;
+        
+        if (!groupedMatrix[frameworkName]) {
+          groupedMatrix[frameworkName] = {};
+        }
+        
+        if (!groupedMatrix[frameworkName][matrix.category]) {
+          groupedMatrix[frameworkName][matrix.category] = [];
+        }
+        
+        groupedMatrix[frameworkName][matrix.category].push({
+          ...matrix,
+          frameworkKey
+        });
+      });
+    });
+
+    // Toggle framework expansion
+    const toggleFramework = (frameworkName) => {
+      const newExpanded = new Set(expandedFrameworks);
+      if (newExpanded.has(frameworkName)) {
+        newExpanded.delete(frameworkName);
+        // Also collapse all sections in this framework
+        const newExpandedSections = new Set(expandedSections);
+        Object.keys(groupedMatrix[frameworkName] || {}).forEach(section => {
+          newExpandedSections.delete(`${frameworkName}-${section}`);
+        });
+        setExpandedSections(newExpandedSections);
+      } else {
+        newExpanded.add(frameworkName);
+      }
+      setExpandedFrameworks(newExpanded);
+    };
+
+    // Toggle section expansion
+    const toggleSection = (frameworkName, sectionName) => {
+      const sectionKey = `${frameworkName}-${sectionName}`;
+      const newExpanded = new Set(expandedSections);
+      if (newExpanded.has(sectionKey)) {
+        newExpanded.delete(sectionKey);
+      } else {
+        newExpanded.add(sectionKey);
+      }
+      setExpandedSections(newExpanded);
+    };
+
+    // Expand/Collapse all
+    const expandAll = () => {
+      const allFrameworks = new Set(Object.keys(groupedMatrix));
+      setExpandedFrameworks(allFrameworks);
+      const allSections = new Set();
+      Object.entries(groupedMatrix).forEach(([fw, sections]) => {
+        Object.keys(sections).forEach(section => {
+          allSections.add(`${fw}-${section}`);
+        });
+      });
+      setExpandedSections(allSections);
+    };
+
+    const collapseAll = () => {
+      setExpandedFrameworks(new Set());
+      setExpandedSections(new Set());
+    };
+
     return (
       <div className="space-y-6">
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
@@ -4885,116 +5446,211 @@ const ComplianceMVP = () => {
           </div>
         </div>
 
-        {/* Responsibility Matrix Table */}
+        {/* Responsibility Matrix - Collapsible Framework/Section View */}
         <div className="bg-card rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4">Responsibility Matrix ({filteredMatrix.length} controls)</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Control ID</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Control Name</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Category</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Primary Owner</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Shared</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Secondary Owners</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Data Sources</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Coverage Type</th>
-                  <th className="text-left py-3 px-4 font-semibold text-foreground">Evidence Attribution</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMatrix.map((matrix, idx) => (
-                  <tr key={idx} className={`border-b border-[hsl(var(--border))] hover:bg-muted/50 transition-colors ${
-                    matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10" :
-                    matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10" :
-                    matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10" :
-                    "bg-card"
-                  }`}>
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-foreground">{matrix.control_id}</div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="text-sm text-foreground">{matrix.control_name}</div>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {matrix.frameworks.slice(0, 2).map((fw, fIdx) => (
-                          <span key={fIdx} className="text-xs bg-muted text-foreground px-2 py-1 rounded">
-                            {fw.split(':')[0]}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-xs bg-muted text-foreground px-2 py-1 rounded">{matrix.category}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-full text-xs font-semibold">
-                        {matrix.ownership}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      {matrix.shared_responsibility ? (
-                        <span className="px-2 py-1 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded-full text-xs font-semibold">
-                          ✓ Yes
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex flex-wrap gap-1">
-                        {matrix.secondary_owners.map((owner, oIdx) => (
-                          <span key={oIdx} className="text-xs bg-green-500/20 text-green-500 border border-green-500/30 px-2 py-1 rounded">
-                            {owner}
-                          </span>
-                        ))}
-                        {matrix.secondary_owners.length === 0 && (
-                          <span className="text-xs text-muted-foreground">None</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="space-y-1">
-                        {matrix.data_sources.map((ds, dsIdx) => (
-                          <div key={dsIdx} className="text-xs">
-                            <div className="font-medium text-purple-500">{ds.integration}</div>
-                            <div className="text-muted-foreground">{ds.vendor} • {ds.type}</div>
-                            <div className="text-muted-foreground">Last: {new Date(ds.last_sync).toLocaleDateString()}</div>
-                          </div>
-                        ))}
-                        {matrix.data_sources.length === 0 && (
-                          <span className="text-xs text-muted-foreground">No API integrations</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${
-                        matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
-                        matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10 text-green-500 border-green-500/20" :
-                        matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10 text-purple-500 border-purple-500/20" :
-                        "bg-muted text-foreground border-[hsl(var(--border))]"
-                      }`}>
-                        {matrix.coverage_type}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 max-w-xs">
-                      <div className="text-xs text-muted-foreground space-y-1">
-                        {matrix.evidence_sources.map((source, eIdx) => (
-                          <div key={eIdx} className="flex items-start gap-1">
-                            <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0 mt-0.5" />
-                            <span>{source}</span>
-                          </div>
-                        ))}
-                        {matrix.evidence_sources.length === 0 && (
-                          <span className="text-muted-foreground">No evidence sources</span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Responsibility Matrix ({filteredMatrix.length} controls)</h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={expandAll}
+                className="px-3 py-1.5 text-xs bg-primary/10 text-primary border border-primary/20 rounded-lg hover:bg-primary/20 font-medium transition-colors"
+              >
+                Expand All
+              </button>
+              <button
+                onClick={collapseAll}
+                className="px-3 py-1.5 text-xs bg-muted text-foreground border border-[hsl(var(--border))] rounded-lg hover:bg-muted/80 font-medium transition-colors"
+              >
+                Collapse All
+              </button>
+            </div>
           </div>
+
+          <div className="space-y-2">
+            {Object.entries(groupedMatrix).map(([frameworkName, sections]) => {
+              const isFrameworkExpanded = expandedFrameworks.has(frameworkName);
+              const frameworkControlsCount = Object.values(sections).reduce((sum, controls) => sum + controls.length, 0);
+              
+              return (
+                <div key={frameworkName} className="border border-[hsl(var(--border))] rounded-lg overflow-hidden">
+                  {/* Framework Header */}
+                  <button
+                    onClick={() => toggleFramework(frameworkName)}
+                    className="w-full flex items-center justify-between p-4 bg-muted/30 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      {isFrameworkExpanded ? (
+                        <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                      )}
+                      <Shield className="w-5 h-5 text-primary" />
+                      <div className="text-left">
+                        <div className="font-semibold text-foreground">{frameworkName}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {frameworkControlsCount} controls • {Object.keys(sections).length} sections
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
+                        {Object.keys(sections).length} sections
+                      </span>
+                    </div>
+                  </button>
+
+                  {/* Sections within Framework */}
+                  {isFrameworkExpanded && (
+                    <div className="bg-card border-t border-[hsl(var(--border))]">
+                      {Object.entries(sections).map(([sectionName, controls]) => {
+                        const sectionKey = `${frameworkName}-${sectionName}`;
+                        const isSectionExpanded = expandedSections.has(sectionKey);
+                        
+                        return (
+                          <div key={sectionKey} className="border-b border-[hsl(var(--border))] last:border-b-0">
+                            {/* Section Header */}
+                            <button
+                              onClick={() => toggleSection(frameworkName, sectionName)}
+                              className="w-full flex items-center justify-between p-3 pl-12 bg-card hover:bg-muted/30 transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                {isSectionExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                                )}
+                                <span className="font-medium text-foreground">{sectionName}</span>
+                                <span className="text-xs text-muted-foreground">({controls.length} controls)</span>
+                              </div>
+                            </button>
+
+                            {/* Controls within Section */}
+                            {isSectionExpanded && (
+                              <div className="bg-muted/20">
+                                <div className="overflow-x-auto">
+                                  <table className="w-full">
+                                    <thead>
+                                      <tr className="border-b border-[hsl(var(--border))] bg-muted/30">
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Control ID</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Control Name</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Primary Owner</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Shared</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Secondary Owners</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Data Sources</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Coverage Type</th>
+                                        <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Evidence</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {controls.map((matrix, idx) => (
+                                        <tr key={idx} className={`border-b border-[hsl(var(--border))] hover:bg-muted/50 transition-colors ${
+                                          matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10" :
+                                          matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10" :
+                                          matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10" :
+                                          "bg-card"
+                                        }`}>
+                                          <td className="py-2 px-4">
+                                            <div className="font-medium text-sm text-foreground">{matrix.control_id}</div>
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            <div className="text-sm text-foreground max-w-xs">{matrix.control_name}</div>
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            <span className="px-2 py-1 bg-primary/10 text-primary border border-primary/20 rounded text-xs font-semibold">
+                                              {matrix.ownership}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            {matrix.shared_responsibility ? (
+                                              <span className="px-2 py-1 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded text-xs font-semibold">
+                                                ✓ Yes
+                                              </span>
+                                            ) : (
+                                              <span className="text-xs text-muted-foreground">No</span>
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            <div className="flex flex-wrap gap-1">
+                                              {matrix.secondary_owners.slice(0, 2).map((owner, oIdx) => (
+                                                <span key={oIdx} className="text-xs bg-green-500/20 text-green-500 border border-green-500/30 px-2 py-0.5 rounded">
+                                                  {owner}
+                                                </span>
+                                              ))}
+                                              {matrix.secondary_owners.length > 2 && (
+                                                <span className="text-xs text-muted-foreground">
+                                                  +{matrix.secondary_owners.length - 2}
+                                                </span>
+                                              )}
+                                              {matrix.secondary_owners.length === 0 && (
+                                                <span className="text-xs text-muted-foreground">None</span>
+                                              )}
+                                            </div>
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            {matrix.data_sources.length > 0 ? (
+                                              <div className="text-xs space-y-0.5">
+                                                {matrix.data_sources.slice(0, 1).map((ds, dsIdx) => (
+                                                  <div key={dsIdx}>
+                                                    <div className="font-medium text-purple-500">{ds.integration}</div>
+                                                    <div className="text-muted-foreground">{ds.vendor}</div>
+                                                  </div>
+                                                ))}
+                                                {matrix.data_sources.length > 1 && (
+                                                  <span className="text-muted-foreground">+{matrix.data_sources.length - 1} more</span>
+                                                )}
+                                              </div>
+                                            ) : (
+                                              <span className="text-xs text-muted-foreground">None</span>
+                                            )}
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-semibold border ${
+                                              matrix.coverage_type === "MDR/SOC Managed" ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                                              matrix.coverage_type === "Vendor Inherited" ? "bg-green-500/10 text-green-500 border-green-500/20" :
+                                              matrix.coverage_type === "API Data Attribution" ? "bg-purple-500/10 text-purple-500 border-purple-500/20" :
+                                              "bg-muted text-foreground border-[hsl(var(--border))]"
+                                            }`}>
+                                              {matrix.coverage_type}
+                                            </span>
+                                          </td>
+                                          <td className="py-2 px-4">
+                                            <div className="text-xs text-muted-foreground">
+                                              {matrix.evidence_sources.length > 0 ? (
+                                                <div className="flex items-center gap-1">
+                                                  <CheckCircle className="w-3 h-3 text-green-500" />
+                                                  <span>{matrix.evidence_sources.length} source{matrix.evidence_sources.length !== 1 ? 's' : ''}</span>
+                                                </div>
+                                              ) : (
+                                                <span>None</span>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {Object.keys(groupedMatrix).length === 0 && (
+            <div className="text-center py-12 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
+              <Shield className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">No Controls Found</h3>
+              <p className="text-sm text-muted-foreground">
+                Adjust your filters to see responsibility matrix controls.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* API Integrations Section */}
@@ -7535,221 +8191,316 @@ const ComplianceMVP = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="flex h-screen overflow-hidden">
-        {/* Sidebar Navigation - shadcn dashboard style */}
-        <aside className={`${sidebarCollapsed ? 'w-16' : 'w-64'} border-r border-[hsl(var(--border))] bg-card transition-all duration-300 flex flex-col`}>
-          {/* Sidebar Header */}
-          <div className="p-6 border-b border-[hsl(var(--border))]">
-            <div className="flex items-center justify-between">
-              {!sidebarCollapsed && (
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">Compliance</h2>
-                  <p className="text-xs text-muted-foreground">Automation Platform</p>
+      <div className="flex flex-col h-screen overflow-hidden">
+        {/* Top Navigation Bar with Dropdown Menus */}
+        <header className="border-b border-[hsl(var(--border))] bg-card">
+          <div className="flex items-center justify-between px-4 md:px-6 h-16">
+            {/* Logo and Brand */}
+            <div className="flex items-center gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Compliance Platform</h2>
+              </div>
+              
+              {/* Mobile Menu Button */}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden p-2 hover:bg-muted rounded-lg transition-colors"
+              >
+                <Menu className="w-5 h-5 text-foreground" />
+              </button>
+
+              {/* Main Navigation - Desktop */}
+              <nav className="hidden md:flex items-center gap-1 ml-8">
+                {/* Dashboard - Always Visible */}
+                <button
+                  onClick={() => setActiveView('dashboard')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    activeView === 'dashboard'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  <Home className="w-4 h-4" />
+                  <span>Dashboard</span>
+                </button>
+
+                {/* Compliance & Controls Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    ['controls', 'responsibility', 'audits'].includes(activeView)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}>
+                    <Shield className="w-4 h-4" />
+                    <span>Compliance</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>Compliance & Controls</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('controls')}>
+                      <Shield className="w-4 h-4 mr-2" />
+                      <span>Controls</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('responsibility')}>
+                      <Database className="w-4 h-4 mr-2" />
+                      <span>Responsibility Matrix</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { setActiveView('audits'); setSelectedAudit(null); }}>
+                      <FileCheck className="w-4 h-4 mr-2" />
+                      <span>Audits & Certifications</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {/* Security & Access Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    ['iam', 'csca'].includes(activeView)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}>
+                    <UserCheck className="w-4 h-4" />
+                    <span>Security</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>Security & Access</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('iam')}>
+                      <UserCheck className="w-4 h-4 mr-2" />
+                      <span>IAM & Permissions</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('csca')}>
+                      <Link2 className="w-4 h-4 mr-2" />
+                      <span>Security-Compliance Alignment</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {/* Planning & Analysis Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    ['tco', 'timeline', 'automation'].includes(activeView)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}>
+                    <BarChart3 className="w-4 h-4" />
+                    <span>Planning</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>Planning & Analysis</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('tco')}>
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      <span>TCO Calculator</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('timeline')}>
+                      <TrendingUp className="w-4 h-4 mr-2" />
+                      <span>Timeline</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('automation')}>
+                      <Award className="w-4 h-4 mr-2" />
+                      <span>Automation Plan</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {/* Management Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    ['vendors', 'import'].includes(activeView)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}>
+                    <Users className="w-4 h-4" />
+                    <span>Management</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>Management</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('vendors')}>
+                      <Users className="w-4 h-4 mr-2" />
+                      <span>Vendors</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('import')}>
+                      <FileText className="w-4 h-4 mr-2" />
+                      <span>Data Import</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </nav>
+            </div>
+
+            {/* Right Side - User Info and Status */}
+            <div className="flex items-center gap-4">
+              {backendConnected && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <span className="text-xs text-green-500 hidden md:inline">API Connected</span>
                 </div>
               )}
-              <button
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
-              >
-                <Menu className="w-4 h-4 text-foreground" />
-              </button>
+              {apiError && (
+                <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-1.5 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-yellow-500" />
+                  <span className="text-xs text-yellow-500 hidden md:inline">{apiError}</span>
+                </div>
+              )}
+              
+              {/* Settings Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden md:inline">Settings</span>
+                  <ChevronDown className="w-4 h-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Settings</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setActiveView('rbac')}>
+                    <Shield className="w-4 h-4 mr-2" />
+                    <span>Roles & Permissions</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* User Info */}
+              <div className="hidden md:flex flex-col items-end border-l border-[hsl(var(--border))] pl-4">
+                <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
+                <div className="text-xs text-muted-foreground">{currentUser.email}</div>
+              </div>
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-            {/* Home Section */}
-            <div className="mb-6">
-              {!sidebarCollapsed && (
-                <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Home
-                </div>
-              )}
+          {/* Mobile Menu */}
+          {mobileMenuOpen && (
+            <div className="md:hidden border-t border-[hsl(var(--border))] bg-card p-4 space-y-2">
               <button
-                onClick={() => setActiveView('dashboard')}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                onClick={() => { setActiveView('dashboard'); setMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeView === 'dashboard'
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
                 <Home className="w-4 h-4" />
-                {!sidebarCollapsed && <span>Dashboard</span>}
+                <span>Dashboard</span>
+              </button>
+              
+              <DropdownMenu>
+                <DropdownMenuTrigger className="w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <div className="flex items-center gap-3">
+                    <Shield className="w-4 h-4" />
+                    <span>Compliance</span>
+                  </div>
+                  <ChevronDown className="w-4 h-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-full">
+                  <DropdownMenuItem onClick={() => { setActiveView('controls'); setMobileMenuOpen(false); }}>
+                    <Shield className="w-4 h-4 mr-2" />
+                    <span>Controls</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('responsibility'); setMobileMenuOpen(false); }}>
+                    <Database className="w-4 h-4 mr-2" />
+                    <span>Responsibility Matrix</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('audits'); setSelectedAudit(null); setMobileMenuOpen(false); }}>
+                    <FileCheck className="w-4 h-4 mr-2" />
+                    <span>Audits & Certifications</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger className="w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <div className="flex items-center gap-3">
+                    <UserCheck className="w-4 h-4" />
+                    <span>Security</span>
+                  </div>
+                  <ChevronDown className="w-4 h-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-full">
+                  <DropdownMenuItem onClick={() => { setActiveView('iam'); setMobileMenuOpen(false); }}>
+                    <UserCheck className="w-4 h-4 mr-2" />
+                    <span>IAM & Permissions</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('csca'); setMobileMenuOpen(false); }}>
+                    <Link2 className="w-4 h-4 mr-2" />
+                    <span>Security-Compliance Alignment</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger className="w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <div className="flex items-center gap-3">
+                    <BarChart3 className="w-4 h-4" />
+                    <span>Planning</span>
+                  </div>
+                  <ChevronDown className="w-4 h-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-full">
+                  <DropdownMenuItem onClick={() => { setActiveView('tco'); setMobileMenuOpen(false); }}>
+                    <BarChart3 className="w-4 h-4 mr-2" />
+                    <span>TCO Calculator</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('timeline'); setMobileMenuOpen(false); }}>
+                    <TrendingUp className="w-4 h-4 mr-2" />
+                    <span>Timeline</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('automation'); setMobileMenuOpen(false); }}>
+                    <Award className="w-4 h-4 mr-2" />
+                    <span>Automation Plan</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger className="w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
+                  <div className="flex items-center gap-3">
+                    <Users className="w-4 h-4" />
+                    <span>Management</span>
+                  </div>
+                  <ChevronDown className="w-4 h-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-full">
+                  <DropdownMenuItem onClick={() => { setActiveView('vendors'); setMobileMenuOpen(false); }}>
+                    <Users className="w-4 h-4 mr-2" />
+                    <span>Vendors</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('import'); setMobileMenuOpen(false); }}>
+                    <FileText className="w-4 h-4 mr-2" />
+                    <span>Data Import</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <button
+                onClick={() => { setActiveView('rbac'); setMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeView === 'rbac'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Settings</span>
               </button>
             </div>
-
-            {/* Documents Section */}
-            <div className="mb-6">
-              {!sidebarCollapsed && (
-                <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Documents
-                </div>
-              )}
-              <div className="space-y-1">
-                <button
-                  onClick={() => setActiveView('controls')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'controls'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Shield className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Controls</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('responsibility')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'responsibility'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Database className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Responsibility Matrix</span>}
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveView('audits');
-                    setSelectedAudit(null);
-                  }}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'audits'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <FileCheck className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Audits & Certifications</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('iam')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'iam'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>IAM & Permissions</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('csca')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'csca'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Link2 className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Security-Compliance Alignment</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('tco')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'tco'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>TCO Calculator</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('timeline')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'timeline'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <TrendingUp className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Timeline</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('automation')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'automation'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Award className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Automation Plan</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('vendors')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'vendors'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Users className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Vendors</span>}
-                </button>
-                <button
-                  onClick={() => setActiveView('import')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'import'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <FileText className="w-4 h-4" />
-                  {!sidebarCollapsed && <span>Data Import</span>}
-                </button>
-              </div>
-            </div>
-
-            {/* Settings Section */}
-            {!sidebarCollapsed && (
-              <div className="mt-auto pt-4 border-t border-[hsl(var(--border))]">
-                <button
-                  onClick={() => setActiveView('rbac')}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeView === 'rbac'
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Settings className="w-4 h-4" />
-                  <span>Settings</span>
-                </button>
-              </div>
-            )}
-          </nav>
-        </aside>
+          )}
+        </header>
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Top Header */}
-          <header className="border-b border-[hsl(var(--border))] bg-card p-4 md:p-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-              <div className="space-y-1">
-                <h1 className="text-2xl md:text-3xl font-bold text-foreground">{getViewName(activeView)}</h1>
-                <p className="text-sm text-muted-foreground">Compliance Automation Platform</p>
-              </div>
-              <div className="flex items-center gap-4">
-                {backendConnected && (
-                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <span className="text-xs text-green-500">API Connected</span>
-                  </div>
-                )}
-                {apiError && (
-                  <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-3 py-1.5 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-yellow-500" />
-                    <span className="text-xs text-yellow-500">{apiError}</span>
-                  </div>
-                )}
-                <div className="flex flex-col items-end">
-                  <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
-                  <div className="text-xs text-muted-foreground">{currentUser.email}</div>
-                </div>
-              </div>
+          {/* Page Header */}
+          <div className="border-b border-[hsl(var(--border))] bg-card p-4 md:p-6">
+            <div className="max-w-7xl mx-auto">
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground">{getViewName(activeView)}</h1>
+              <p className="text-sm text-muted-foreground mt-1">Compliance Automation Platform</p>
             </div>
-          </header>
+          </div>
 
           {/* Scrollable Content */}
           <main className="flex-1 overflow-y-auto p-4 md:p-8">
