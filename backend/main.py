@@ -3,7 +3,9 @@ FastAPI Backend for Compliance Automation Platform
 Handles data segmentation, metadata tagging, PII/CUI filtering, and cost tracking
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Request
+import asyncio
+
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
@@ -19,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from services.iam_service import check_permission, create_audit_log, get_user_permissions
 from services.csca_engine import map_security_event_to_compliance, calculate_compliance_impact, update_compliance_scores_from_security_event, get_security_compliance_correlation
+from services import alert_service
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -38,11 +41,94 @@ app.add_middleware(
 # Security
 security = HTTPBearer()
 
+
+class AlertWebSocketManager:
+    def __init__(self):
+        self.connections: Dict[int, List[WebSocket]] = {}
+        self.lock = asyncio.Lock()
+
+    async def connect(self, user_id: int, websocket: WebSocket):
+        await websocket.accept()
+        async with self.lock:
+            self.connections.setdefault(user_id, []).append(websocket)
+
+    async def disconnect(self, user_id: int, websocket: WebSocket):
+        async with self.lock:
+            conns = self.connections.get(user_id, [])
+            if websocket in conns:
+                conns.remove(websocket)
+            if not conns and user_id in self.connections:
+                del self.connections[user_id]
+
+    async def send_to_user(self, user_id: int, message: Dict[str, Any]):
+        async with self.lock:
+            conns = list(self.connections.get(user_id, []))
+        stale_connections = []
+        for ws in conns:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                stale_connections.append(ws)
+        for ws in stale_connections:
+            await self.disconnect(user_id, ws)
+
+    async def broadcast_alert(self, alert: Dict[str, Any], event_type: str):
+        user_id = alert.get('user_id')
+        if user_id is not None:
+            await self.send_to_user(user_id, {
+                'type': event_type,
+                'payload': alert
+            })
+
+    async def send_initial_snapshot(self, user_id: int):
+        alerts = alert_service.get_actionable_alerts(user_id, limit=50)
+        if alerts:
+            await self.send_to_user(user_id, {
+                'type': 'alert.snapshot',
+                'payload': alerts
+            })
+
+
+alert_ws_manager = AlertWebSocketManager()
+
+
+@app.websocket("/ws/alerts")
+async def alerts_websocket(websocket: WebSocket, user_id: int = Query(..., alias="user_id")):
+    try:
+        await alert_ws_manager.connect(user_id, websocket)
+        await websocket.send_json({"type": "connection_ack"})
+        await alert_ws_manager.send_initial_snapshot(user_id)
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await alert_ws_manager.disconnect(user_id, websocket)
+    except Exception:
+        await alert_ws_manager.disconnect(user_id, websocket)
+
+
 # Helper: Get database connection
 def get_db():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+class AlertControlUpdate(BaseModel):
+    control_id: str
+    status: Optional[str] = None
+    responsible_party: Optional[str] = None
+    coverage_type: Optional[str] = None
+    secondary_owners: Optional[List[str]] = None
+    data_sources: Optional[List[str]] = None
+    evidence_link: Optional[str] = None
+
+
+class AlertRemediationUpdate(BaseModel):
+    status: str = Field(..., regex="^(open|in_progress|resolved)$")
+    notes: Optional[str] = None
+    actions_taken: Optional[List[str]] = None
+    evidence_links: Optional[List[str]] = None
+    control_updates: Optional[List[AlertControlUpdate]] = None
 
 # Helper: Initialize database
 def init_db():
@@ -1926,7 +2012,124 @@ async def acknowledge_compliance_alert(alert_id: int, user_id: int = Header(...,
     
     conn.commit()
     conn.close()
+    updated_alert = alert_service.get_alert(alert_id)
+    if updated_alert:
+        await alert_ws_manager.broadcast_alert(updated_alert, 'alert.updated')
     return {"message": "Alert acknowledged"}
+
+
+@app.post("/api/alerts/{alert_id}/remediation")
+async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdate, user_id: int = Header(..., alias="X-User-Id")):
+    """Update remediation workflow for an alert and optionally modify related controls"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM compliance_alerts WHERE id = ? AND user_id = ?", (alert_id, user_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    if payload.control_updates:
+        for update in payload.control_updates:
+            cursor.execute("SELECT id FROM controls WHERE id = ? AND user_id = ?", (update.control_id, user_id))
+            if not cursor.fetchone():
+                conn.rollback()
+                conn.close()
+                raise HTTPException(status_code=404, detail=f"Control {update.control_id} not found")
+
+            control_updates = []
+            control_params: List[Any] = []
+
+            if update.status:
+                control_updates.append("status = ?")
+                control_params.append(update.status)
+            if update.responsible_party:
+                control_updates.append("responsible_party = ?")
+                control_params.append(update.responsible_party)
+            if update.evidence_link:
+                control_updates.append("evidence_link = ?")
+                control_params.append(update.evidence_link)
+
+            if control_updates:
+                control_updates.append("last_updated = CURRENT_TIMESTAMP")
+                sql = f"UPDATE controls SET {', '.join(control_updates)} WHERE id = ? AND user_id = ?"
+                control_params.extend([update.control_id, user_id])
+                cursor.execute(sql, control_params)
+
+            if any([
+                update.coverage_type is not None,
+                update.secondary_owners is not None,
+                update.data_sources is not None,
+                update.responsible_party is not None
+            ]):
+                cursor.execute("SELECT id FROM responsibility_matrix WHERE control_id = ? AND user_id = ?", (update.control_id, user_id))
+                resp_entry = cursor.fetchone()
+                shared_flag = 1 if update.secondary_owners and len(update.secondary_owners) > 0 else 0
+
+                if resp_entry:
+                    rm_updates = []
+                    rm_params: List[Any] = []
+                    if update.coverage_type is not None:
+                        rm_updates.append("coverage_type = ?")
+                        rm_params.append(update.coverage_type)
+                    if update.secondary_owners is not None:
+                        rm_updates.append("secondary_owners = ?")
+                        rm_params.append(json.dumps(update.secondary_owners))
+                        rm_updates.append("shared_responsibility = ?")
+                        rm_params.append(shared_flag)
+                    if update.data_sources is not None:
+                        rm_updates.append("data_sources = ?")
+                        rm_params.append(json.dumps(update.data_sources))
+                    if update.responsible_party:
+                        rm_updates.append("primary_owner = ?")
+                        rm_params.append(update.responsible_party)
+                    if rm_updates:
+                        rm_updates.append("last_computed = CURRENT_TIMESTAMP")
+                        sql = f"UPDATE responsibility_matrix SET {', '.join(rm_updates)} WHERE id = ?"
+                        rm_params.append(resp_entry['id'])
+                        cursor.execute(sql, rm_params)
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO responsibility_matrix
+                        (user_id, control_id, primary_owner, shared_responsibility, secondary_owners, data_sources, coverage_type, last_computed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        (
+                            user_id,
+                            update.control_id,
+                            update.responsible_party,
+                            shared_flag,
+                            json.dumps(update.secondary_owners or []),
+                            json.dumps(update.data_sources or []),
+                            update.coverage_type
+                        )
+                    )
+
+    conn.commit()
+    conn.close()
+
+    metadata_patch: Dict[str, Any] = {}
+    if payload.actions_taken is not None:
+        metadata_patch['actions_taken'] = payload.actions_taken
+    if payload.evidence_links is not None:
+        metadata_patch['evidence_links'] = payload.evidence_links
+    if payload.control_updates is not None:
+        metadata_patch['control_updates'] = [update.dict(exclude_none=True) for update in payload.control_updates]
+
+    updated_alert = alert_service.update_alert_status(
+        alert_id,
+        payload.status,
+        metadata_patch=metadata_patch if metadata_patch else None,
+        resolved_by=str(user_id) if payload.status == 'resolved' else None,
+        notes=payload.notes
+    )
+
+    if not updated_alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    await alert_ws_manager.broadcast_alert(updated_alert, 'alert.updated')
+    return updated_alert
 
 @app.get("/api/security-compliance-correlation")
 async def get_security_compliance_correlation_endpoint(user_id: int = Header(..., alias="X-User-Id"), days: int = 30):
@@ -2085,10 +2288,12 @@ async def get_all_frameworks_growth(user_id: int = Header(..., alias="X-User-Id"
 @app.post("/api/alerts/check-drift")
 async def check_compliance_drift(user_id: int = Header(..., alias="X-User-Id")):
     """Check all frameworks for compliance drift and generate alerts"""
-    from services.alert_service import check_and_generate_alerts
-    
     try:
-        alerts = check_and_generate_alerts(user_id)
+        alerts = alert_service.check_and_generate_alerts(user_id)
+        for alert_info in alerts:
+            alert_payload = alert_info.get('alert')
+            if alert_payload:
+                await alert_ws_manager.broadcast_alert(alert_payload, 'alert.created')
         return {
             "alerts_generated": len(alerts),
             "alerts": alerts
@@ -2099,10 +2304,8 @@ async def check_compliance_drift(user_id: int = Header(..., alias="X-User-Id")):
 @app.get("/api/alerts/actionable")
 async def get_actionable_alerts_endpoint(user_id: int = Header(..., alias="X-User-Id"), limit: int = 50):
     """Get all actionable alerts with remediation guidance"""
-    from services.alert_service import get_actionable_alerts
-    
     try:
-        alerts = get_actionable_alerts(user_id, limit)
+        alerts = alert_service.get_actionable_alerts(user_id, limit)
         return alerts
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get actionable alerts: {str(e)}")

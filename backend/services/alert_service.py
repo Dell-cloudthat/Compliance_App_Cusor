@@ -20,6 +20,38 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+def ensure_alert_columns():
+    """Ensure newer alert columns exist for remediation workflow"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(compliance_alerts)")
+    columns = {row[1] if not hasattr(row, 'keys') else row['name'] for row in cursor.fetchall()}
+
+    alterations = []
+    if 'status' not in columns:
+        alterations.append("ALTER TABLE compliance_alerts ADD COLUMN status TEXT DEFAULT 'open'")
+    if 'drift_payload' not in columns:
+        alterations.append("ALTER TABLE compliance_alerts ADD COLUMN drift_payload TEXT")
+    if 'resolution_metadata' not in columns:
+        alterations.append("ALTER TABLE compliance_alerts ADD COLUMN resolution_metadata TEXT")
+    if 'resolution_notes' not in columns:
+        alterations.append("ALTER TABLE compliance_alerts ADD COLUMN resolution_notes TEXT")
+    if 'resolved_at' not in columns:
+        alterations.append("ALTER TABLE compliance_alerts ADD COLUMN resolved_at TIMESTAMP")
+    if 'resolved_by' not in columns:
+        alterations.append("ALTER TABLE compliance_alerts ADD COLUMN resolved_by TEXT")
+
+    for statement in alterations:
+        try:
+            cursor.execute(statement)
+        except sqlite3.OperationalError:
+            # Column may already exist due to race; ignore
+            pass
+
+    if alterations:
+        conn.commit()
+    conn.close()
+
 def calculate_alert_priority(alert_type: str, compliance_impact: float, framework_coverage: float, 
                              time_since_update: int, evidence_freshness: float) -> Dict[str, Any]:
     """
@@ -70,7 +102,8 @@ def generate_remendiation_guidance(control_id: str, control_status: str, framewo
     
     # Get control details
     cursor.execute("""
-        SELECT control_name, description, category, priority, mapped_fields, status
+        SELECT control_name, description, category, priority, mapped_fields, status,
+               frameworks, responsible_party, default_owner
         FROM controls
         WHERE id = ?
     """, (control_id,))
@@ -152,12 +185,21 @@ def generate_remendiation_guidance(control_id: str, control_status: str, framewo
     
     conn.close()
     
+    frameworks_list = frameworks or []
+    if control_dict.get('frameworks'):
+        try:
+            frameworks_list = json.loads(control_dict['frameworks'])
+        except json.JSONDecodeError:
+            frameworks_list = frameworks or []
+
     return {
         'control_id': control_id,
         'control_name': control_dict['control_name'],
         'category': control_dict['category'],
         'priority': control_dict['priority'],
         'status': control_dict['status'],
+        'recommended_owner': control_dict.get('responsible_party') or control_dict.get('default_owner'),
+        'frameworks': frameworks_list,
         'remediation_steps': steps,
         'estimated_total_time': sum(int(s['estimated_time'].split()[0]) for s in steps if 'hour' in s['estimated_time']),
         'framework_links': framework_links,
@@ -213,68 +255,159 @@ def generate_one_click_actions(control: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     return actions
 
-def create_compliance_drift_alert(user_id: int, drift_data: Dict[str, Any]) -> int:
-    """Create a compliance drift alert"""
+def create_compliance_drift_alert(user_id: int, drift_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Create a compliance drift alert and return the full alert payload"""
+    ensure_alert_columns()
     conn = get_db()
     cursor = conn.cursor()
-    
-    # Calculate priority
+
     priority_data = calculate_alert_priority(
         alert_type='compliance_drift',
         compliance_impact=abs(drift_data['drift_percentage']),
-        framework_coverage=100.0,  # Framework-wide impact
-        time_since_update=1,  # Just detected
-        evidence_freshness=50.0  # Default
+        framework_coverage=100.0,
+        time_since_update=1,
+        evidence_freshness=50.0
     )
-    
-    # Generate alert title and description
+
     direction = 'decreased' if drift_data['drift_direction'] == 'negative' else 'increased'
     title = f"Compliance Drift Detected: {drift_data['framework']} Score {direction}"
-    description = f"Compliance score for {drift_data['framework']} has {direction} by {abs(drift_data['drift_percentage']):.1f}% "
-    description += f"(from {drift_data['baseline_score']:.1f} to {drift_data['current_score']:.1f}). "
-    description += f"{drift_data['gaps_count']} controls require attention."
-    
-    # Generate remediation guidance for top affected controls
+    description = (
+        f"Compliance score for {drift_data['framework']} has {direction} by "
+        f"{abs(drift_data['drift_percentage']):.1f}% (from {drift_data['baseline_score']:.1f} "
+        f"to {drift_data['current_score']:.1f}). {drift_data['gaps_count']} controls require attention."
+    )
+
     remediation_guidance = []
-    for control in drift_data['affected_controls'][:3]:  # Top 3
+    for control in drift_data['affected_controls'][:3]:
         guidance = generate_remendiation_guidance(
             control['id'],
-            control['status'],
-            []  # Will be populated from control data
+            control.get('status', ''),
+            control.get('frameworks', [])
         )
         if guidance:
+            if control.get('responsible_party'):
+                guidance['current_owner'] = control.get('responsible_party')
             remediation_guidance.append(guidance)
-    
-    # Insert alert
+
+    primary_control_id = drift_data['affected_controls'][0]['id'] if drift_data['affected_controls'] else None
+    drift_payload = json.dumps(drift_data)
+    status_history = [{
+        'status': 'open',
+        'timestamp': datetime.utcnow().isoformat()
+    }]
+    resolution_metadata = json.dumps({
+        'status_history': status_history,
+        'risk_score': priority_data['risk_score'],
+        'factors': priority_data['factors']
+    })
+
     cursor.execute("""
         INSERT INTO compliance_alerts
-        (user_id, alert_type, severity, title, description, framework,
-         compliance_score_before, compliance_score_after, acknowledged)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        (user_id, alert_type, severity, title, description, security_event_id, control_id, framework,
+         compliance_score_before, compliance_score_after, status, drift_payload, resolution_metadata, acknowledged)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     """, (
         user_id,
         'compliance_drift',
         priority_data['severity'],
         title,
         description,
+        None,
+        primary_control_id,
         drift_data['framework'],
         drift_data['baseline_score'],
-        drift_data['current_score']
+        drift_data['current_score'],
+        'open',
+        drift_payload,
+        resolution_metadata
     ))
-    
+
     alert_id = cursor.lastrowid
-    
-    # Store remediation guidance as JSON
+
     cursor.execute("""
         UPDATE compliance_alerts
         SET remediation_guidance = ?
         WHERE id = ?
     """, (json.dumps(remediation_guidance), alert_id))
-    
+
     conn.commit()
     conn.close()
-    
-    return alert_id
+
+    return get_alert(alert_id)
+
+def _parse_alert_row(row: sqlite3.Row) -> Dict[str, Any]:
+    alert = dict(row)
+    for field in ('remediation_guidance', 'drift_payload', 'resolution_metadata'):
+        if alert.get(field):
+            try:
+                alert[field] = json.loads(alert[field])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    alert['acknowledged'] = bool(alert.get('acknowledged', 0))
+    return alert
+
+def get_alert(alert_id: int) -> Optional[Dict[str, Any]]:
+    ensure_alert_columns()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM compliance_alerts WHERE id = ?", (alert_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return _parse_alert_row(row)
+
+def update_alert_status(alert_id: int, status: str, metadata_patch: Optional[Dict[str, Any]] = None,
+                        resolved_by: Optional[str] = None, notes: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    ensure_alert_columns()
+    existing_alert = get_alert(alert_id)
+    if not existing_alert:
+        return None
+
+    metadata = existing_alert.get('resolution_metadata') or {}
+    if metadata_patch:
+        metadata.update(metadata_patch)
+
+    history = metadata.get('status_history', [])
+    history.append({
+        'status': status,
+        'timestamp': datetime.utcnow().isoformat()
+    })
+    metadata['status_history'] = history
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    updates = ["status = ?", "resolution_metadata = ?"]
+    params = [status, json.dumps(metadata)]
+
+    if notes is not None:
+        updates.append("resolution_notes = ?")
+        params.append(notes)
+
+    if status == 'resolved':
+        updates.append("resolved_at = datetime('now')")
+    else:
+        updates.append("resolved_at = NULL")
+
+    if resolved_by is not None:
+        updates.append("resolved_by = ?")
+        params.append(resolved_by)
+    elif status != 'resolved':
+        updates.append("resolved_by = NULL")
+
+    sql = f"UPDATE compliance_alerts SET {', '.join(updates)} WHERE id = ?"
+    params.append(alert_id)
+    cursor.execute(sql, params)
+
+    if cursor.rowcount == 0:
+        conn.close()
+        return None
+
+    conn.commit()
+    conn.close()
+
+    return get_alert(alert_id)
 
 def check_and_generate_alerts(user_id: int) -> List[Dict[str, Any]]:
     """
@@ -287,9 +420,10 @@ def check_and_generate_alerts(user_id: int) -> List[Dict[str, Any]]:
     for framework in frameworks:
         drift_data = detect_compliance_drift(user_id, framework, threshold=5.0)
         if drift_data:
-            alert_id = create_compliance_drift_alert(user_id, drift_data)
+            alert_record = create_compliance_drift_alert(user_id, drift_data)
             alerts_generated.append({
-                'alert_id': alert_id,
+                'alert_id': alert_record['id'] if alert_record else None,
+                'alert': alert_record,
                 'framework': framework,
                 'type': 'compliance_drift',
                 'drift_percentage': drift_data['drift_percentage']
@@ -299,6 +433,7 @@ def check_and_generate_alerts(user_id: int) -> List[Dict[str, Any]]:
 
 def get_actionable_alerts(user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
     """Get all actionable alerts with remediation guidance"""
+    ensure_alert_columns()
     conn = get_db()
     cursor = conn.cursor()
     
@@ -316,19 +451,7 @@ def get_actionable_alerts(user_id: int, limit: int = 50) -> List[Dict[str, Any]]
         LIMIT ?
     """, (user_id, limit))
     
-    alerts = []
-    for row in cursor.fetchall():
-        alert = dict(row)
-        
-        # Parse remediation guidance if present
-        if alert.get('remediation_guidance'):
-            try:
-                alert['remediation_guidance'] = json.loads(alert['remediation_guidance'])
-            except:
-                alert['remediation_guidance'] = []
-        
-        alerts.append(alert)
-    
+    alerts = [_parse_alert_row(row) for row in cursor.fetchall()]
     conn.close()
     return alerts
 

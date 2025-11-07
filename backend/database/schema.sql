@@ -506,6 +506,12 @@ CREATE TABLE IF NOT EXISTS compliance_alerts (
   compliance_score_before INTEGER,
   compliance_score_after INTEGER,
   remediation_guidance TEXT, -- JSON string with remediation steps
+  status TEXT DEFAULT 'open', -- 'open', 'in_progress', 'resolved'
+  drift_payload TEXT, -- JSON payload with drift detection details
+  resolution_metadata TEXT, -- JSON object capturing remediation actions/evidence
+  resolution_notes TEXT,
+  resolved_at TIMESTAMP,
+  resolved_by TEXT,
   acknowledged BOOLEAN DEFAULT 0,
   acknowledged_at TIMESTAMP,
   acknowledged_by TEXT,

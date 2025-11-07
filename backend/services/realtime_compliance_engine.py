@@ -311,7 +311,7 @@ def detect_compliance_drift(user_id: int, framework: str, threshold: float = 5.0
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT id, control_name, status, priority, category
+        SELECT id, control_name, status, priority, category, frameworks, responsible_party, default_owner
         FROM controls
         WHERE user_id = ? AND frameworks LIKE ?
         AND status IN ('Non-Compliant', 'Partial')
@@ -324,8 +324,57 @@ def detect_compliance_drift(user_id: int, framework: str, threshold: float = 5.0
             END
         LIMIT 10
     """, (user_id, f'%{framework}%'))
-    
-    affected_controls = [dict(row) for row in cursor.fetchall()]
+
+    control_rows = cursor.fetchall()
+    control_ids = [row['id'] for row in control_rows]
+    responsibility_map: Dict[str, Dict[str, Any]] = {}
+
+    if control_ids:
+        placeholders = ','.join('?' for _ in control_ids)
+        cursor.execute(f"""
+            SELECT control_id, primary_owner, shared_responsibility, secondary_owners, data_sources, coverage_type
+            FROM responsibility_matrix
+            WHERE user_id = ? AND control_id IN ({placeholders})
+        """, (user_id, *control_ids))
+
+        for entry in cursor.fetchall():
+            responsibility_map[entry['control_id']] = dict(entry)
+
+    affected_controls = []
+    for row in control_rows:
+        control = dict(row)
+        frameworks_list = []
+        if control.get('frameworks'):
+            try:
+                frameworks_list = json.loads(control['frameworks'])
+            except json.JSONDecodeError:
+                frameworks_list = [control['frameworks']]
+        control['frameworks'] = frameworks_list
+
+        responsibility = responsibility_map.get(control['id'])
+        if responsibility:
+            control['responsible_party'] = control.get('responsible_party') or responsibility.get('primary_owner')
+            control['shared_responsibility'] = bool(responsibility.get('shared_responsibility'))
+            secondary = responsibility.get('secondary_owners')
+            data_sources = responsibility.get('data_sources')
+            try:
+                control['secondary_owners'] = json.loads(secondary) if secondary else []
+            except json.JSONDecodeError:
+                control['secondary_owners'] = []
+            try:
+                control['data_sources'] = json.loads(data_sources) if data_sources else []
+            except json.JSONDecodeError:
+                control['data_sources'] = []
+            control['coverage_type'] = responsibility.get('coverage_type')
+        else:
+            control['responsible_party'] = control.get('responsible_party') or control.get('default_owner')
+            control['shared_responsibility'] = False
+            control['secondary_owners'] = []
+            control['data_sources'] = []
+            control['coverage_type'] = None
+
+        control.pop('default_owner', None)
+        affected_controls.append(control)
     conn.close()
     
     return {

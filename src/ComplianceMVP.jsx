@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
@@ -8,7 +8,7 @@ import { PCI_DSS_CONTROLS } from './frameworks/pci-dss-controls';
 import { SOC2_CONTROLS } from './frameworks/soc2-controls';
 import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
-import api from './services/api';
+import api, { API_BASE_URL } from './services/api';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -608,7 +608,29 @@ const ComplianceMVP = () => {
   const [frameworkGrowth, setFrameworkGrowth] = useState({});
   const [actionableAlerts, setActionableAlerts] = useState([]);
   const [realtimeScores, setRealtimeScores] = useState({});
+  const alertsSocketRef = useRef(null);
+  const [alertsSocketConnected, setAlertsSocketConnected] = useState(false);
+  const [selectedAlert, setSelectedAlert] = useState(null);
+  const [showAlertRemediation, setShowAlertRemediation] = useState(false);
+  const [alertRemediationForm, setAlertRemediationForm] = useState({
+    status: 'in_progress',
+    notes: '',
+    actionsTaken: '',
+    evidenceLinks: '',
+    controlUpdates: {}
+  });
+  const [alertSaving, setAlertSaving] = useState(false);
+  const selectedAlertRef = useRef(null);
+  const showAlertRemediationRef = useRef(false);
   
+  useEffect(() => {
+    selectedAlertRef.current = selectedAlert;
+  }, [selectedAlert]);
+
+  useEffect(() => {
+    showAlertRemediationRef.current = showAlertRemediation;
+  }, [showAlertRemediation]);
+
   // Partner Growth Tracking for QBR
   const [partnerGrowthHistory, setPartnerGrowthHistory] = useState([
     {
@@ -1206,8 +1228,384 @@ const ComplianceMVP = () => {
     try {
       const alerts = await api.getActionableAlerts(currentUser.id, 10);
       setActionableAlerts(alerts || []);
+      if (selectedAlert) {
+        const updatedSelected = (alerts || []).find((alert) => alert.id === selectedAlert.id);
+        if (updatedSelected) {
+          setSelectedAlert(updatedSelected);
+        } else if (showAlertRemediation) {
+          setShowAlertRemediation(false);
+          setSelectedAlert(null);
+        }
+      }
     } catch (error) {
       console.error('Error loading actionable alerts:', error);
+    }
+  };
+
+  const upsertActionableAlert = useCallback((incomingAlert) => {
+    if (!incomingAlert || !incomingAlert.id) return;
+
+    setActionableAlerts((prevAlerts) => {
+      const shouldRemove = incomingAlert.acknowledged || incomingAlert.status === 'resolved';
+      if (shouldRemove) {
+        return prevAlerts.filter((alert) => alert.id !== incomingAlert.id);
+      }
+
+      const existingIndex = prevAlerts.findIndex((alert) => alert.id === incomingAlert.id);
+      if (existingIndex >= 0) {
+        const nextAlerts = [...prevAlerts];
+        nextAlerts[existingIndex] = { ...nextAlerts[existingIndex], ...incomingAlert };
+        return nextAlerts;
+      }
+
+      return [incomingAlert, ...prevAlerts].slice(0, 20);
+    });
+
+    let shouldClosePanel = false;
+    setSelectedAlert((prevSelected) => {
+      if (!prevSelected || prevSelected.id !== incomingAlert.id) {
+        return prevSelected;
+      }
+
+      if (incomingAlert.acknowledged || incomingAlert.status === 'resolved') {
+        shouldClosePanel = true;
+        return null;
+      }
+
+      return { ...prevSelected, ...incomingAlert };
+    });
+
+    if (shouldClosePanel) {
+      setShowAlertRemediation(false);
+    }
+  }, [setShowAlertRemediation]);
+
+  const closeAlertRemediation = useCallback(() => {
+    setShowAlertRemediation(false);
+    setSelectedAlert(null);
+    setAlertRemediationForm({
+      status: 'in_progress',
+      notes: '',
+      actionsTaken: '',
+      evidenceLinks: '',
+      controlUpdates: {}
+    });
+  }, []);
+
+  const openAlertRemediation = useCallback((alert) => {
+    if (!alert) return;
+
+    const controlUpdates = {};
+    (alert.remediation_guidance || []).forEach((guidance) => {
+      controlUpdates[guidance.control_id] = {
+        status: 'Implemented',
+        responsible_party: guidance.recommended_owner || guidance.current_owner || alert.responsible_party || '',
+        evidence_link: ''
+      };
+    });
+
+    setAlertRemediationForm({
+      status: alert.status === 'resolved' ? 'resolved' : 'in_progress',
+      notes: '',
+      actionsTaken: '',
+      evidenceLinks: '',
+      controlUpdates
+    });
+    setSelectedAlert(alert);
+    setShowAlertRemediation(true);
+  }, []);
+
+  const handleRemediationFieldChange = (field, value) => {
+    setAlertRemediationForm((prev) => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleControlUpdateChange = (controlId, field, value) => {
+    setAlertRemediationForm((prev) => ({
+      ...prev,
+      controlUpdates: {
+        ...prev.controlUpdates,
+        [controlId]: {
+          ...(prev.controlUpdates?.[controlId] || {}),
+          [field]: value
+        }
+      }
+    }));
+  };
+
+  const applyControlUpdates = useCallback((controlUpdatesPayload) => {
+    if (!controlUpdatesPayload || controlUpdatesPayload.length === 0) {
+      return;
+    }
+
+    const updatesMap = controlUpdatesPayload.reduce((map, update) => {
+      if (update.control_id) {
+        map[update.control_id] = update;
+      }
+      return map;
+    }, {});
+
+    if (Object.keys(updatesMap).length === 0) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+
+    setControls((prevControls) => {
+      if (!Array.isArray(prevControls) || prevControls.length === 0) {
+        return prevControls;
+      }
+      return prevControls.map((control) => {
+        const update = updatesMap[control.id];
+        if (!update) {
+          return control;
+        }
+        return {
+          ...control,
+          status: update.status || control.status,
+          responsible_party: update.responsible_party ?? control.responsible_party,
+          evidence_link: update.evidence_link ?? control.evidence_link,
+          last_updated: timestamp
+        };
+      });
+    });
+
+    setResponsibilityMatrix((prevMatrix) => {
+      if (!Array.isArray(prevMatrix) || prevMatrix.length === 0) {
+        return prevMatrix;
+      }
+      return prevMatrix.map((entry) => {
+        const update = updatesMap[entry.control_id];
+        if (!update) {
+          return entry;
+        }
+
+        const updatedEntry = { ...entry };
+
+        if (update.responsible_party) {
+          updatedEntry.ownership = update.responsible_party;
+          updatedEntry.primary_owner = update.responsible_party;
+        }
+
+        if (update.evidence_link) {
+          const existingEvidence = Array.isArray(entry.evidence_sources)
+            ? entry.evidence_sources
+            : entry.evidence_sources
+              ? [entry.evidence_sources]
+              : [];
+
+          if (!existingEvidence.includes(update.evidence_link)) {
+            updatedEntry.evidence_sources = [...existingEvidence, update.evidence_link];
+          } else {
+            updatedEntry.evidence_sources = existingEvidence;
+          }
+        }
+
+        updatedEntry.last_computed = timestamp;
+        return updatedEntry;
+      });
+    });
+  }, []);
+
+  const recordRemediationProgress = useCallback((alert, controlUpdatesPayload, status) => {
+    const updates = Array.isArray(controlUpdatesPayload) ? controlUpdatesPayload : [];
+    const controlsTouched = updates.length;
+    const implementedCount = updates.filter((u) => (u.status || '').toLowerCase() === 'implemented').length;
+    const now = new Date();
+    const isoDate = now.toISOString().split('T')[0];
+    const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
+
+    setProjectTimeline((prev) => {
+      const milestone = {
+        name: status === 'resolved' ? `Resolved Drift: ${alert.framework}` : `Remediation Update: ${alert.framework}`,
+        type: 'remediation',
+        status: status === 'resolved' ? 'completed' : 'in-progress',
+        description: `${alert.framework} • ${controlsTouched || 1} control${controlsTouched === 1 ? '' : 's'} updated (${alert.severity || 'high'} severity)`,
+        date: isoDate,
+        cost: 0,
+        vendorCost: 0,
+        controls: controlsTouched || null,
+        impact: alert.severity || 'high',
+        updatedControls: updates,
+        vendors: []
+      };
+
+      const baseTimeline = prev || {
+        milestones: [],
+        timelineData: [],
+        vendorRecommendations: [],
+        summary: {
+          totalDuration: 90,
+          totalMilestones: 0,
+          totalControls: 0,
+          totalBudget: 0,
+          totalVendorCost: 0
+        }
+      };
+
+      const milestones = baseTimeline.milestones.filter(
+        (m) => !(m.type === 'remediation' && m.date === isoDate && m.name === milestone.name)
+      );
+      milestones.push(milestone);
+      milestones.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      const firstDate = milestones.length > 0 ? new Date(milestones[0].date) : now;
+      const dayOffset = Math.max(0, Math.floor((now - firstDate) / (1000 * 60 * 60 * 24)));
+
+      const timelineData = [...baseTimeline.timelineData];
+      const complianceBoost = status === 'resolved' ? Math.min(6, Math.max(1, implementedCount * 2)) : Math.max(0, controlsTouched);
+
+      const existingIndex = timelineData.findIndex((point) => point.date === isoDate);
+      const referencePoint = existingIndex >= 0
+        ? timelineData[existingIndex]
+        : timelineData.length > 0
+          ? timelineData[timelineData.length - 1]
+          : {
+              day: dayOffset,
+              date: isoDate,
+              cumulativeCost: 0,
+              vendorCost: 0,
+              implementationCost: 0,
+              complianceScore: 72
+            };
+
+      const nextPoint = {
+        ...referencePoint,
+        day: dayOffset,
+        date: isoDate,
+        complianceScore: Math.min(100, (referencePoint.complianceScore || 72) + complianceBoost)
+      };
+
+      if (existingIndex >= 0) {
+        timelineData[existingIndex] = nextPoint;
+      } else {
+        timelineData.push(nextPoint);
+      }
+
+      timelineData.sort((a, b) => a.day - b.day);
+
+      const summary = {
+        ...baseTimeline.summary,
+        totalMilestones: milestones.length,
+        totalControls: (baseTimeline.summary?.totalControls || 0) + implementedCount
+      };
+
+      return {
+        ...baseTimeline,
+        milestones,
+        timelineData,
+        summary
+      };
+    });
+
+    if (status === 'resolved') {
+      setPartnerGrowthHistory((prevHistory) => {
+        if (!Array.isArray(prevHistory) || prevHistory.length === 0) {
+          return prevHistory;
+        }
+
+        const lastEntry = prevHistory[prevHistory.length - 1];
+        const improvement = Math.max(1, implementedCount * 2 || updates.length);
+        const newEntry = {
+          date: isoDate,
+          quarter,
+          overallScore: Math.min(100, (lastEntry?.overallScore || 72) + improvement),
+          complianceCoverage: Math.min(100, (lastEntry?.complianceCoverage || 68) + improvement),
+          controlsImplemented: (lastEntry?.controlsImplemented || 0) + implementedCount,
+          gapsClosed: (lastEntry?.gapsClosed || 0) + (updates.length || 1),
+          frameworksCovered: lastEntry?.frameworksCovered || 5,
+          automationProgress: Math.min(100, (lastEntry?.automationProgress || 60) + improvement)
+        };
+
+        if (lastEntry && lastEntry.date === isoDate) {
+          const updatedHistory = [...prevHistory];
+          updatedHistory[updatedHistory.length - 1] = {
+            ...lastEntry,
+            ...newEntry
+          };
+          return updatedHistory;
+        }
+
+        return [...prevHistory.slice(-11), newEntry];
+      });
+    }
+  }, []);
+
+  const handleRemediationSubmit = async () => {
+    if (!selectedAlert) return;
+
+    setAlertSaving(true);
+    const normalizeList = (input) =>
+      (input || '')
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    try {
+      const controlUpdatesEntries = Object.entries(alertRemediationForm.controlUpdates || {});
+      const controlUpdatesPayload = controlUpdatesEntries
+        .map(([controlId, updates]) => {
+          const payload = { control_id: controlId };
+          if (updates.status) {
+            payload.status = updates.status;
+          }
+          if (updates.responsible_party) {
+            payload.responsible_party = updates.responsible_party;
+          }
+          if (updates.evidence_link) {
+            payload.evidence_link = updates.evidence_link;
+          }
+          return payload;
+        })
+        .filter((payload) => Object.keys(payload).length > 1);
+
+      const payload = {
+        status: alertRemediationForm.status,
+      };
+
+      const notes = (alertRemediationForm.notes || '').trim();
+      if (notes) {
+        payload.notes = notes;
+      }
+
+      const actions = normalizeList(alertRemediationForm.actionsTaken);
+      if (actions.length) {
+        payload.actions_taken = actions;
+      }
+
+      const evidenceLinks = normalizeList(alertRemediationForm.evidenceLinks);
+      if (evidenceLinks.length) {
+        payload.evidence_links = evidenceLinks;
+      }
+
+      if (controlUpdatesPayload.length) {
+        payload.control_updates = controlUpdatesPayload;
+      }
+
+      const alertContext = selectedAlertRef.current || selectedAlert;
+      const statusSnapshot = alertRemediationForm.status;
+
+      await api.updateAlertRemediation(selectedAlert.id, currentUser.id, payload);
+
+      if (controlUpdatesPayload.length) {
+        applyControlUpdates(controlUpdatesPayload);
+      }
+
+      if (alertContext) {
+        recordRemediationProgress(alertContext, controlUpdatesPayload, statusSnapshot);
+      }
+
+      await loadActionableAlerts();
+      if (statusSnapshot === 'resolved') {
+        loadFrameworkGrowth();
+      }
+      closeAlertRemediation();
+    } catch (error) {
+      console.error('Error updating alert remediation:', error);
+    } finally {
+      setAlertSaving(false);
     }
   };
 
@@ -1216,16 +1614,94 @@ const ComplianceMVP = () => {
     if (activeView === 'dashboard') {
       loadFrameworkGrowth();
       loadActionableAlerts();
-      
-      // Real-time polling every 5 seconds
+
       const interval = setInterval(() => {
         loadFrameworkGrowth();
-        loadActionableAlerts();
+        if (!alertsSocketConnected) {
+          loadActionableAlerts();
+        }
       }, 5000);
-      
+
       return () => clearInterval(interval);
     }
-  }, [activeView, backendConnected, currentUser.id]);
+  }, [activeView, backendConnected, currentUser.id, alertsSocketConnected]);
+
+  useEffect(() => {
+    if (!backendConnected || !currentUser.id) {
+      if (alertsSocketRef.current) {
+        alertsSocketRef.current.close();
+        alertsSocketRef.current = null;
+      }
+      setAlertsSocketConnected(false);
+      return;
+    }
+
+    try {
+      const wsUrl = new URL('/ws/alerts', API_BASE_URL);
+      wsUrl.protocol = wsUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl.searchParams.set('user_id', currentUser.id);
+
+      const socket = new WebSocket(wsUrl.toString());
+      alertsSocketRef.current = socket;
+
+      socket.onopen = () => {
+        setAlertsSocketConnected(true);
+      };
+
+      socket.onclose = () => {
+        if (alertsSocketRef.current === socket) {
+          alertsSocketRef.current = null;
+          setAlertsSocketConnected(false);
+        }
+      };
+
+      socket.onerror = () => {
+        if (alertsSocketRef.current === socket) {
+          setAlertsSocketConnected(false);
+        }
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (!data || !data.type) return;
+
+          if (data.type === 'connection_ack') {
+            return;
+          }
+
+          if (data.type === 'alert.snapshot' && Array.isArray(data.payload)) {
+            setActionableAlerts(data.payload);
+            const existingSelected = selectedAlertRef.current;
+            if (existingSelected) {
+              const updatedSelected = data.payload.find((alert) => alert.id === existingSelected.id);
+              if (updatedSelected) {
+                setSelectedAlert(updatedSelected);
+              } else if (showAlertRemediationRef.current) {
+                setShowAlertRemediation(false);
+                setSelectedAlert(null);
+              }
+            }
+          } else if ((data.type === 'alert.created' || data.type === 'alert.updated') && data.payload) {
+            upsertActionableAlert(data.payload);
+          }
+        } catch (error) {
+          console.error('Error processing alert message:', error);
+        }
+      };
+
+      return () => {
+        if (alertsSocketRef.current === socket) {
+          alertsSocketRef.current = null;
+        }
+        socket.close();
+        setAlertsSocketConnected(false);
+      };
+    } catch (error) {
+      console.error('Error initializing alert WebSocket:', error);
+      setAlertsSocketConnected(false);
+    }
+  }, [backendConnected, currentUser.id, upsertActionableAlert]);
 
   const loadIAMData = async () => {
     if (!backendConnected || !currentUser.id) return;
@@ -4331,6 +4807,15 @@ const ComplianceMVP = () => {
                   medium: 'bg-yellow-500/10 border-yellow-500/20',
                   low: 'bg-blue-500/10 border-blue-500/20'
                 };
+                const statusColors = {
+                  resolved: 'bg-green-500/10 border-green-500/20 text-green-500',
+                  in_progress: 'bg-yellow-500/10 border-yellow-500/20 text-yellow-500',
+                  open: 'bg-blue-500/10 border-blue-500/20 text-blue-500'
+                };
+                const alertStatus = (alert.status || 'open');
+                const statusBadgeClass = statusColors[alertStatus] || statusColors.open;
+                const isResolved = alertStatus === 'resolved';
+                const isAcknowledged = Boolean(alert.acknowledged);
                 
                 return (
                   <div key={alert.id} className={`border rounded-lg p-4 ${severityColors[alert.severity] || severityColors.medium}`}>
@@ -4347,6 +4832,9 @@ const ComplianceMVP = () => {
                           }`}>
                             {alert.severity.toUpperCase()}
                           </span>
+                          <span className={`px-2 py-1 rounded text-xs font-medium border ${statusBadgeClass}`}>
+                            {alertStatus.replace('_', ' ').toUpperCase()}
+                          </span>
                         </div>
                         <p className="text-xs text-muted-foreground mb-2">{alert.description}</p>
                         
@@ -4359,6 +4847,23 @@ const ComplianceMVP = () => {
                             {alert.framework && (
                               <span className="text-muted-foreground ml-2">({alert.framework})</span>
                             )}
+                          </div>
+                        )}
+
+                        {alert.drift_payload && (
+                          <div className="mt-2 grid grid-cols-2 gap-y-1 text-xs bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-2 text-muted-foreground">
+                            <span>Drift</span>
+                            <span className="text-red-500 font-medium">
+                              {alert.drift_payload.drift_percentage?.toFixed?.(1) ?? alert.drift_payload.drift_percentage}%
+                            </span>
+                            <span>Baseline</span>
+                            <span className="text-foreground">
+                              {alert.drift_payload.baseline_score?.toFixed?.(1) ?? alert.compliance_score_before}
+                            </span>
+                            <span>Current</span>
+                            <span className="text-foreground">
+                              {alert.drift_payload.current_score?.toFixed?.(1) ?? alert.compliance_score_after}
+                            </span>
                           </div>
                         )}
                         
@@ -4376,21 +4881,40 @@ const ComplianceMVP = () => {
                           </div>
                         )}
                       </div>
-                      <button
-                        onClick={async () => {
-                          if (backendConnected && currentUser.id) {
-                            try {
-                              await api.acknowledgeComplianceAlert(alert.id, currentUser.id);
-                              await loadActionableAlerts();
-                            } catch (error) {
-                              console.error('Error acknowledging alert:', error);
+                      <div className="flex flex-col items-end gap-2 ml-4">
+                        <button
+                          onClick={() => openAlertRemediation(alert)}
+                          disabled={isResolved}
+                          className={`px-3 py-1 rounded text-xs font-medium border border-primary/40 transition-colors ${
+                            isResolved
+                              ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                              : 'bg-primary/10 text-primary hover:bg-primary/20'
+                          }`}
+                        >
+                          Remediate
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (backendConnected && currentUser.id) {
+                              try {
+                                await api.acknowledgeComplianceAlert(alert.id, currentUser.id);
+                                if (selectedAlertRef.current?.id === alert.id) {
+                                  closeAlertRemediation();
+                                }
+                                await loadActionableAlerts();
+                              } catch (error) {
+                                console.error('Error acknowledging alert:', error);
+                              }
                             }
-                          }
-                        }}
-                        className="px-3 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground hover:bg-muted ml-2"
-                      >
-                        Acknowledge
-                      </button>
+                          }}
+                          disabled={isAcknowledged || isResolved}
+                          className={`px-3 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground hover:bg-muted transition-colors ${
+                            isAcknowledged || isResolved ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                        >
+                          {isAcknowledged ? 'Acknowledged' : 'Acknowledge'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -5824,6 +6348,211 @@ const ComplianceMVP = () => {
                     </a>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showAlertRemediation && selectedAlert && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60" onClick={closeAlertRemediation} />
+            <div className="relative bg-card border border-[hsl(var(--border))] rounded-lg shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col">
+              <div className="border-b border-[hsl(var(--border))] px-6 py-4 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-foreground">{selectedAlert.title}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">{selectedAlert.description}</p>
+                </div>
+                <button
+                  onClick={closeAlertRemediation}
+                  className="p-2 rounded-lg hover:bg-muted transition-colors"
+                >
+                  <X className="w-5 h-5 text-foreground" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Severity</div>
+                    <div className="text-sm font-semibold text-foreground mt-1">{selectedAlert.severity?.toUpperCase()}</div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Status</div>
+                    <div className="text-sm font-semibold text-foreground mt-1">{(selectedAlert.status || 'open').replace('_', ' ').toUpperCase()}</div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Framework</div>
+                    <div className="text-sm font-semibold text-foreground mt-1">{selectedAlert.framework}</div>
+                  </div>
+                </div>
+
+                {selectedAlert.drift_payload && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-amber-500 mb-3">
+                      <TrendingDown className="w-4 h-4" />
+                      <span className="text-sm font-semibold">Detected Drift Details</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-muted-foreground">
+                      <div>
+                        <div className="text-xs uppercase">Drift</div>
+                        <div className="text-foreground font-semibold">{selectedAlert.drift_payload.drift_percentage?.toFixed?.(1) ?? selectedAlert.drift_payload.drift_percentage}%</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase">Baseline Score</div>
+                        <div className="text-foreground font-semibold">{selectedAlert.drift_payload.baseline_score?.toFixed?.(1) ?? selectedAlert.compliance_score_before}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase">Current Score</div>
+                        <div className="text-foreground font-semibold">{selectedAlert.drift_payload.current_score?.toFixed?.(1) ?? selectedAlert.compliance_score_after}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase">Gaps</div>
+                        <div className="text-red-500 font-semibold">{selectedAlert.drift_payload.gaps_count}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Alert Status</label>
+                    <select
+                      value={alertRemediationForm.status}
+                      onChange={(e) => handleRemediationFieldChange('status', e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                    >
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Remediation Notes</label>
+                    <textarea
+                      value={alertRemediationForm.notes}
+                      onChange={(e) => handleRemediationFieldChange('notes', e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                      placeholder="Document key findings, blockers, or context"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Actions Taken</label>
+                    <textarea
+                      value={alertRemediationForm.actionsTaken}
+                      onChange={(e) => handleRemediationFieldChange('actionsTaken', e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                      placeholder="List actions (comma or newline separated)"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence Links</label>
+                    <textarea
+                      value={alertRemediationForm.evidenceLinks}
+                      onChange={(e) => handleRemediationFieldChange('evidenceLinks', e.target.value)}
+                      rows={3}
+                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                      placeholder="Paste evidence URLs or references"
+                    />
+                  </div>
+                </div>
+
+                {(selectedAlert.remediation_guidance || []).length > 0 && (
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-foreground">Priority Controls</h4>
+                    {(selectedAlert.remediation_guidance || []).map((guidance) => {
+                      const controlForm = alertRemediationForm.controlUpdates[guidance.control_id] || {};
+                      return (
+                        <div key={guidance.control_id} className="border border-[hsl(var(--border))] rounded-lg bg-muted/20 p-4 space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{guidance.control_name}</div>
+                              <div className="text-xs text-muted-foreground">{guidance.control_id} • {guidance.priority}</div>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="px-2 py-1 rounded bg-card border border-[hsl(var(--border))]">Current: {guidance.status}</span>
+                              {guidance.recommended_owner && (
+                                <span className="px-2 py-1 rounded bg-card border border-[hsl(var(--border))]">Recommended Owner: {guidance.recommended_owner}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {guidance.remediation_steps && guidance.remediation_steps.length > 0 && (
+                            <div className="bg-card border border-dashed border-[hsl(var(--border))] rounded-lg p-3 text-xs text-muted-foreground">
+                              <div className="font-medium text-foreground mb-2">Guided Steps</div>
+                              <ol className="list-decimal pl-4 space-y-1">
+                                {guidance.remediation_steps.map((step) => (
+                                  <li key={step.step}>
+                                    <span className="font-medium text-foreground">{step.action}</span>
+                                    {step.estimated_time && <span className="ml-2">({step.estimated_time})</span>}
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-muted-foreground mb-1">Updated Status</label>
+                              <select
+                                value={controlForm.status || ''}
+                                onChange={(e) => handleControlUpdateChange(guidance.control_id, 'status', e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                              >
+                                <option value="">-- Select --</option>
+                                <option value="Implemented">Implemented</option>
+                                <option value="Partial">Partial</option>
+                                <option value="Non-Compliant">Non-Compliant</option>
+                                <option value="Vendor Managed">Vendor Managed</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-muted-foreground mb-1">Primary Owner</label>
+                              <input
+                                type="text"
+                                value={controlForm.responsible_party || ''}
+                                onChange={(e) => handleControlUpdateChange(guidance.control_id, 'responsible_party', e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                                placeholder="Assign owner"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence Link</label>
+                              <input
+                                type="text"
+                                value={controlForm.evidence_link || ''}
+                                onChange={(e) => handleControlUpdateChange(guidance.control_id, 'evidence_link', e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                                placeholder="URL or reference"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-[hsl(var(--border))] px-6 py-4 flex justify-end gap-3">
+                <button
+                  onClick={closeAlertRemediation}
+                  className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+                  disabled={alertSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRemediationSubmit}
+                  disabled={alertSaving}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+                >
+                  {alertSaving ? 'Saving...' : alertRemediationForm.status === 'resolved' ? 'Mark as Resolved' : 'Save Progress'}
+                </button>
               </div>
             </div>
           </div>
@@ -8467,7 +9196,7 @@ const ComplianceMVP = () => {
     }
 
     const timeline = projectTimeline;
-    const maxCost = Math.max(...timeline.timelineData.map(d => d.cumulativeCost));
+    const maxCost = Math.max(...timeline.timelineData.map(d => d.cumulativeCost), 1);
     const maxScore = 100;
 
     // Filter milestones based on selected filters
@@ -8667,6 +9396,11 @@ const ComplianceMVP = () => {
                   {milestone.type === 'start' && <CheckCircle className={`w-6 h-6 ${milestone.status === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />}
                   {milestone.type === 'phase' && <Server className={`w-6 h-6 ${milestone.status === 'in-progress' ? 'text-yellow-500' : 'text-muted-foreground'}`} />}
                   {milestone.type === 'milestone' && <Award className={`w-6 h-6 ${milestone.status === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />}
+                  {milestone.type === 'remediation' && (
+                    milestone.status === 'completed' ?
+                      <CheckCircle className="w-6 h-6 text-green-500" /> :
+                      <AlertTriangle className="w-6 h-6 text-yellow-500" />
+                  )}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
@@ -8712,6 +9446,32 @@ const ComplianceMVP = () => {
                           Total Vendor Cost: ${milestone.vendorCost.toLocaleString()}/month
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {milestone.updatedControls && milestone.updatedControls.length > 0 && (
+                    <div className="mt-3 p-3 bg-muted/30 border border-dashed border-[hsl(var(--border))] rounded-lg">
+                      <div className="text-sm font-semibold text-foreground mb-2">Controls Updated</div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {milestone.updatedControls.map((ctrl, idx) => (
+                          <div key={idx} className="bg-card border border-[hsl(var(--border))] rounded-lg p-2 text-xs text-muted-foreground">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-foreground">{ctrl.control_id}</span>
+                              {ctrl.status && (
+                                <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                                  {ctrl.status}
+                                </span>
+                              )}
+                            </div>
+                            {ctrl.responsible_party && (
+                              <div>Owner: <span className="text-foreground">{ctrl.responsible_party}</span></div>
+                            )}
+                            {ctrl.evidence_link && (
+                              <div className="truncate">Evidence: <span className="text-foreground">{ctrl.evidence_link}</span></div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

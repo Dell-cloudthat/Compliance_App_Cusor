@@ -3,7 +3,7 @@
  * Handles data segmentation, metadata tagging, and cost predictions
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 class ComplianceAPI {
   constructor(baseURL = API_BASE_URL) {
@@ -533,6 +533,16 @@ class ComplianceAPI {
       headers: {
         'X-User-Id': userId.toString(),
       }
+    });
+  }
+
+  async updateAlertRemediation(alertId, userId, payload) {
+    return this.request(`/api/alerts/${alertId}/remediation`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(payload),
     });
   }
 
