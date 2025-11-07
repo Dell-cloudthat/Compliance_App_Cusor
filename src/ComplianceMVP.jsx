@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
@@ -446,7 +446,6 @@ const segmentApiData = (apiData, controls, apiIntegrations) => {
   
   return { segmentedData, updatedControls: controls };
 };
-
 const ComplianceMVP = () => {
   const [activeView, setActiveView] = useState('dashboard');
   const [controls, setControls] = useState([]);
@@ -485,6 +484,11 @@ const ComplianceMVP = () => {
   const [selectedEntity, setSelectedEntity] = useState(null);
   const [apiIntegrations, setApiIntegrations] = useState([]);
   const [mdrProviders, setMdrProviders] = useState([]);
+  const [controlOwnerFilter, setControlOwnerFilter] = useState("ALL");
+  const [controlSharedFilter, setControlSharedFilter] = useState("ALL");
+  const [controlDataSourceFilter, setControlDataSourceFilter] = useState("ALL");
+  const [controlCoverageFilter, setControlCoverageFilter] = useState("ALL");
+  const [controlStatusFilter, setControlStatusFilter] = useState("ALL");
   const [matrixFilterCategory, setMatrixFilterCategory] = useState("ALL");
   const [matrixFilterCoverageType, setMatrixFilterCoverageType] = useState("ALL");
   const [matrixFilterOwnership, setMatrixFilterOwnership] = useState("ALL");
@@ -1235,7 +1239,6 @@ const ComplianceMVP = () => {
       console.error('Error loading IAM data:', error);
     }
   };
-
   const loadAudits = async () => {
     if (!backendConnected || !currentUser.id) {
       // Demo mode - set empty array
@@ -2012,7 +2015,6 @@ const ComplianceMVP = () => {
     
     setComplianceScores(scores);
   };
-
   const generateRecommendations = () => {
     const recs = [];
     
@@ -2606,13 +2608,190 @@ const ComplianceMVP = () => {
     "Vendor Managed": "bg-blue-500/10 text-blue-500 border-blue-500/20"
   };
 
-  const filteredControls = controls.filter(control => {
-    const matchesFramework = selectedFramework === "ALL" || 
-      control.frameworks.some(f => f.startsWith(selectedFramework));
-    const matchesSearch = control.control_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      control.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      control.id.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFramework && matchesSearch;
+  const matrixEntriesById = useMemo(() => {
+    const map = new Map();
+    responsibilityMatrix.forEach(entry => {
+      map.set(entry.control_id, entry);
+    });
+    return map;
+  }, [responsibilityMatrix]);
+
+  const controlsWithResponsibility = useMemo(() => {
+    return controls.map(control => {
+      const matrixEntry = matrixEntriesById.get(control.id);
+      const fallbackEntry = {
+        control_id: control.id,
+        control_name: control.control_name,
+        category: control.category,
+        priority: control.priority,
+        frameworks: control.frameworks || [],
+        status: control.status,
+        ownership: control.responsible_party || "Unassigned",
+        shared_responsibility: false,
+        secondary_owners: [],
+        data_sources: [],
+        evidence_sources: [],
+        coverage_type: "Internal"
+      };
+      return {
+        ...control,
+        responsibility: matrixEntry || fallbackEntry
+      };
+    });
+  }, [controls, matrixEntriesById]);
+
+  const ownerOptions = useMemo(() => {
+    const owners = new Set();
+    controls.forEach(control => {
+      if (control.responsible_party) {
+        owners.add(control.responsible_party);
+      }
+    });
+    responsibilityMatrix.forEach(entry => {
+      if (entry.ownership) {
+        owners.add(entry.ownership);
+      }
+      (entry.secondary_owners || []).forEach(owner => {
+        if (owner) {
+          owners.add(owner);
+        }
+      });
+    });
+    return Array.from(owners).sort((a, b) => a.localeCompare(b));
+  }, [controls, responsibilityMatrix]);
+
+  const dataSourceOptions = useMemo(() => {
+    const sources = new Set();
+    responsibilityMatrix.forEach(entry => {
+      (entry.data_sources || []).forEach(ds => {
+        if (ds.integration) {
+          sources.add(ds.integration);
+        }
+      });
+    });
+    return Array.from(sources).sort((a, b) => a.localeCompare(b));
+  }, [responsibilityMatrix]);
+
+  const statusOptions = useMemo(() => {
+    const statuses = new Set();
+    controlsWithResponsibility.forEach(control => {
+      const normalizedStatus = control.status || "Not Set";
+      statuses.add(normalizedStatus);
+    });
+    return Array.from(statuses).sort((a, b) => a.localeCompare(b));
+  }, [controlsWithResponsibility]);
+
+  const totalControls = controlsWithResponsibility.length;
+  const sharedControlsCount = controlsWithResponsibility.filter(control => control.responsibility.shared_responsibility).length;
+  const apiAttributedCount = controlsWithResponsibility.filter(control => control.responsibility.data_sources.length > 0).length;
+  const vendorInheritedCount = controlsWithResponsibility.filter(control => control.responsibility.coverage_type === "Vendor Inherited").length;
+  const mdrManagedCount = controlsWithResponsibility.filter(control => control.responsibility.coverage_type === "MDR/SOC Managed").length;
+  const apiCoverageCount = controlsWithResponsibility.filter(control => control.responsibility.coverage_type === "API Data Attribution").length;
+  const internalCoverageCount = controlsWithResponsibility.filter(control => control.responsibility.coverage_type === "Internal").length;
+  const soloControlsCount = Math.max(totalControls - sharedControlsCount, 0);
+  const noApiControlsCount = Math.max(totalControls - apiAttributedCount, 0);
+  const unassignedControlsCount = controlsWithResponsibility.filter(control => {
+    const owner = control.responsible_party || control.responsibility.ownership;
+    return !owner || owner === "Unassigned";
+  }).length;
+
+  const coverageSegments = [
+    { key: "Internal", label: "Internal", count: internalCoverageCount, color: "#4C51BF" },
+    { key: "Vendor Inherited", label: "Vendor Inherited", count: vendorInheritedCount, color: "#0EA5E9" },
+    { key: "MDR/SOC Managed", label: "MDR / SOC", count: mdrManagedCount, color: "#F97316" },
+    { key: "API Data Attribution", label: "API Data", count: apiCoverageCount, color: "#8B5CF6" }
+  ].filter(segment => segment.count > 0);
+
+  const coverageTotal = coverageSegments.reduce((sum, segment) => sum + segment.count, 0);
+  const ownershipSegments = [
+    { key: "SHARED", label: "Shared Ownership", count: sharedControlsCount, color: "#F97316" },
+    { key: "SOLO", label: "Single Owner", count: soloControlsCount, color: "#22C55E" }
+  ].filter(segment => segment.count > 0);
+  const ownershipTotal = ownershipSegments.reduce((sum, segment) => sum + segment.count, 0);
+  let coverageGradient = "";
+  if (coverageTotal > 0) {
+    let currentAngle = 0;
+    coverageGradient = coverageSegments
+      .map((segment) => {
+        const startAngle = currentAngle;
+        const angle = (segment.count / coverageTotal) * 360;
+        currentAngle += angle;
+        return `${segment.color} ${startAngle}deg ${currentAngle}deg`;
+      })
+      .join(", ");
+  }
+
+  const coveragePieStyle =
+    coverageTotal > 0
+      ? { background: `conic-gradient(${coverageGradient})` }
+      : {
+          background:
+            "radial-gradient(circle at center, rgba(99,102,241,0.35) 0%, rgba(99,102,241,0.15) 65%, transparent 70%)"
+        };
+
+  let ownershipGradient = "";
+  if (ownershipTotal > 0) {
+    let currentAngle = 0;
+    ownershipGradient = ownershipSegments
+      .map((segment) => {
+        const startAngle = currentAngle;
+        const angle = (segment.count / ownershipTotal) * 360;
+        currentAngle += angle;
+        return `${segment.color} ${startAngle}deg ${currentAngle}deg`;
+      })
+      .join(", ");
+  }
+
+  const ownershipPieStyle =
+    ownershipTotal > 0
+      ? { background: `conic-gradient(${ownershipGradient})` }
+      : {
+          background:
+            "radial-gradient(circle at center, rgba(34,197,94,0.35) 0%, rgba(34,197,94,0.15) 65%, transparent 70%)"
+        };
+
+  const sharedPercent = totalControls > 0 ? Math.round((sharedControlsCount / totalControls) * 100) : 0;
+  const externalCoverageCount = vendorInheritedCount + mdrManagedCount;
+  const coveragePercent = totalControls > 0 ? Math.round((coverageTotal / totalControls) * 100) : 0;
+  const filtersAreDefault =
+    controlOwnerFilter === "ALL" &&
+    controlSharedFilter === "ALL" &&
+    controlDataSourceFilter === "ALL" &&
+    controlCoverageFilter === "ALL" &&
+    controlStatusFilter === "ALL" &&
+    selectedFramework === "ALL" &&
+    !searchTerm;
+  // quickStats defined within renderControls to access filtering handlers
+ 
+  const filteredControls = controlsWithResponsibility.filter(control => {
+    const matrix = control.responsibility;
+    const matchesFramework = selectedFramework === "ALL" ||
+      (control.frameworks || []).some(f => f.startsWith(selectedFramework));
+    const lowerSearch = searchTerm.toLowerCase();
+    const matchesSearch = !lowerSearch ||
+      control.control_name.toLowerCase().includes(lowerSearch) ||
+      (control.description || "").toLowerCase().includes(lowerSearch) ||
+      control.id.toLowerCase().includes(lowerSearch);
+    const matchesOwner = controlOwnerFilter === "ALL" ||
+      (matrix.ownership && matrix.ownership === controlOwnerFilter) ||
+      (control.responsible_party && control.responsible_party === controlOwnerFilter) ||
+      (matrix.secondary_owners || []).includes(controlOwnerFilter);
+    const matchesShared = controlSharedFilter === "ALL" ||
+      (controlSharedFilter === "SHARED" && matrix.shared_responsibility) ||
+      (controlSharedFilter === "NOT_SHARED" && !matrix.shared_responsibility);
+    const matchesDataSource = controlDataSourceFilter === "ALL" ||
+      (controlDataSourceFilter === "HAS" && matrix.data_sources.length > 0) ||
+      (controlDataSourceFilter === "NONE" && matrix.data_sources.length === 0) ||
+      matrix.data_sources.some(ds => ds.integration === controlDataSourceFilter);
+    const matchesCoverage =
+      controlCoverageFilter === "ALL" ||
+      matrix.coverage_type === controlCoverageFilter ||
+      (controlCoverageFilter === "EXTERNAL" &&
+        (matrix.coverage_type === "Vendor Inherited" || matrix.coverage_type === "MDR/SOC Managed"));
+    const normalizedStatus = control.status || "Not Set";
+    const matchesStatus = controlStatusFilter === "ALL" || normalizedStatus === controlStatusFilter;
+
+    return matchesFramework && matchesSearch && matchesOwner && matchesShared && matchesDataSource && matchesCoverage && matchesStatus;
   });
 
   const updateControl = (id, field, value) => {
@@ -2620,7 +2799,6 @@ const ComplianceMVP = () => {
       c.id === id ? { ...c, [field]: value, last_updated: new Date().toISOString().split('T')[0] } : c
     ));
   };
-
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -2710,7 +2888,6 @@ const ComplianceMVP = () => {
     }
     setShowUpload(false);
   };
-
   const autoMapToolData = (toolData) => {
     const updatedControls = [...controls];
     const newApiIntegrations = [...apiIntegrations];
@@ -3407,7 +3584,6 @@ const ComplianceMVP = () => {
     planWindow.document.write(planHTML);
     planWindow.document.close();
   };
-
   const generateProjectTimeline = () => {
     const today = new Date();
     const milestones = [];
@@ -4517,7 +4693,6 @@ const ComplianceMVP = () => {
     </div>
     );
   };
-
   const generateCostPlan = () => {
     if (!tcoResults) {
       calculateTCO();
@@ -4897,312 +5072,765 @@ const ComplianceMVP = () => {
       )}
     </div>
   );
+  const renderControls = () => {
+    const handleResetFilters = () => {
+      setControlOwnerFilter("ALL");
+      setControlSharedFilter("ALL");
+      setControlDataSourceFilter("ALL");
+      setControlCoverageFilter("ALL");
+      setControlStatusFilter("ALL");
+      setSelectedFramework("ALL");
+      setSearchTerm("");
+    };
 
-  const renderControls = () => (
-    <div className="bg-card rounded-lg shadow-lg p-6">
-      <div className="flex flex-wrap gap-4 mb-6">
-        <div className="flex-1 min-w-64">
-          <div className="relative">
-            <Search className="absolute left-3 top-3 w-5 h-5 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search controls..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-            />
-          </div>
-        </div>
-        
-        <select
-          value={selectedFramework}
-          onChange={(e) => setSelectedFramework(e.target.value)}
-          className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
-        >
-          {frameworks.map(f => (
-            <option key={f} value={f}>
-              {f === "ALL" ? "All Frameworks" : FRAMEWORK_LIBRARY[f]?.name || f}
-            </option>
-          ))}
-        </select>
+    const toggleSharedFilter = () => {
+      setControlSharedFilter((prev) => (prev === "SHARED" ? "ALL" : "SHARED"));
+    };
 
-        <button
-          onClick={() => setShowUpload(!showUpload)}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-        >
-          <Upload className="w-4 h-4" />
-          Import Data
-        </button>
+    const toggleApiFilter = () => {
+      setControlDataSourceFilter((prev) => (prev === "HAS" ? "ALL" : "HAS"));
+    };
 
-        <button
-          onClick={generateReport}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-        >
-          <Download className="w-4 h-4" />
-          Generate Report
-        </button>
-      </div>
+    const toggleExternalCoverageFilter = () => {
+      setControlCoverageFilter((prev) => (prev === "EXTERNAL" ? "ALL" : "EXTERNAL"));
+    };
 
-      {/* Framework Summary */}
-      <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-lg font-semibold text-foreground">Framework Coverage</h3>
-          <div className="text-sm text-muted-foreground">
-            Total Controls: <span className="font-bold text-foreground">{filteredControls.length}</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
-          {Object.entries(FRAMEWORK_LIBRARY).map(([key, framework]) => {
-            const frameworkControls = filteredControls.filter(c => 
-              c.frameworks.some(f => f.startsWith(key))
-            );
-            const frameworkCount = frameworkControls.length;
-            return (
-              <div key={key} className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
-                <div className="text-xs text-muted-foreground mb-1">{framework.name}</div>
-                <div className="text-xl font-bold text-foreground">{frameworkCount}</div>
-                <div className="text-xs text-muted-foreground">controls</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    const handleCoverageSegmentClick = (segmentKey) => {
+      setControlCoverageFilter((prev) => (prev === segmentKey ? "ALL" : segmentKey));
+    };
 
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Control ID</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Control Name</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Description</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Owner</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Frameworks</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Category</th>
-              <th className="text-left py-3 px-4 font-semibold text-foreground">Priority</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredControls.map((control) => (
-              <tr 
-                key={control.id} 
-                className="border-b border-[hsl(var(--border))] hover:bg-muted/50 cursor-pointer transition-colors"
-                onClick={() => {
-                  setSelectedControl(control);
-                  setShowControlDetail(true);
-                }}
-              >
-                <td className="py-3 px-4">
-                  <div className="font-medium text-foreground text-sm">{control.id}</div>
-                </td>
-                <td className="py-3 px-4">
-                  <div className="font-medium text-foreground">{control.control_name}</div>
-                </td>
-                <td className="py-3 px-4 text-sm text-muted-foreground max-w-xs">{control.description}</td>
-                <td className="py-3 px-4">
-                  <select
-                    value={control.status}
-                    onChange={(e) => updateControl(control.id, 'status', e.target.value)}
-                    className={`px-3 py-1 rounded-full text-sm font-medium border ${statusColors[control.status]}`}
-                  >
-                    <option>Partial</option>
-                    <option>Implemented</option>
-                    <option>Compliant</option>
-                    <option>Non-Compliant</option>
-                    <option>Vendor Managed</option>
-                  </select>
-                </td>
-                <td className="py-3 px-4">
-                  <input
-                    type="text"
-                    value={control.responsible_party}
-                    onChange={(e) => updateControl(control.id, 'responsible_party', e.target.value)}
-                    placeholder="Owner name"
-                    className="w-full px-2 py-1 text-sm bg-card border border-[hsl(var(--border))] rounded text-foreground"
-                  />
-                </td>
-                <td className="py-3 px-4">
-                  <div className="flex flex-wrap gap-1">
-                    {control.frameworks.map((fw, idx) => {
-                      const frameworkKey = fw.split(':')[0];
-                      const frameworkName = FRAMEWORK_LIBRARY[frameworkKey]?.name || frameworkKey;
-                      return (
-                        <span key={idx} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded font-medium">
-                          {frameworkName}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </td>
-                <td className="py-3 px-4">
-                  <span className="text-xs bg-muted text-foreground px-2 py-1 rounded">
-                    {control.category}
-                  </span>
-                </td>
-                <td className="py-3 px-4">
-                  <span className={`text-xs px-2 py-1 rounded font-medium ${
-                    control.priority === 'Critical' ? 'bg-red-500/10 text-red-500' :
-                    control.priority === 'High' ? 'bg-orange-500/10 text-orange-500' :
-                    control.priority === 'Medium' ? 'bg-yellow-500/10 text-yellow-500' :
-                    'bg-blue-500/10 text-blue-500'
-                  }`}>
-                    {control.priority}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      
-      {filteredControls.length === 0 && (
-        <div className="text-center py-12 bg-card rounded-lg border border-[hsl(var(--border))] mt-6">
-          <Shield className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-lg font-semibold text-foreground mb-2">No Controls Found</h3>
-          <p className="text-sm text-muted-foreground">
-            {selectedFramework !== "ALL" 
-              ? `No controls found for ${FRAMEWORK_LIBRARY[selectedFramework]?.name || selectedFramework}. Try selecting "ALL" or adjusting your search.`
-              : "Try adjusting your search term."}
-          </p>
-        </div>
-      )}
+    const toggleUnassignedFilter = () => {
+      setControlOwnerFilter((prev) => (prev === "Unassigned" ? "ALL" : "Unassigned"));
+    };
 
-      {/* Control Detail Modal */}
-      {showControlDetail && selectedControl && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowControlDetail(false)}>
-          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-card border-b border-[hsl(var(--border))] p-6 flex items-center justify-between">
+    const handleOwnershipSegmentClick = (segmentKey) => {
+      if (segmentKey === "SHARED") {
+        setControlSharedFilter((prev) => (prev === "SHARED" ? "ALL" : "SHARED"));
+      } else {
+        setControlSharedFilter((prev) => (prev === "NOT_SHARED" ? "ALL" : "NOT_SHARED"));
+      }
+    };
+
+    const applyDataSourceFilter = (value) => {
+      setControlDataSourceFilter((prev) => (prev === value ? "ALL" : value));
+    };
+
+    const quickStats = [
+      {
+        key: "TOTAL",
+        label: "Total Controls",
+        value: totalControls,
+        description: "Reset all filters",
+        color: "#6366F1",
+        onClick: handleResetFilters,
+        active: filtersAreDefault,
+        disabled: totalControls === 0
+      },
+      {
+        key: "SHARED",
+        label: "Shared Controls",
+        value: sharedControlsCount,
+        description: "Controls with multiple owners",
+        color: "#F97316",
+        onClick: toggleSharedFilter,
+        active: controlSharedFilter === "SHARED",
+        disabled: sharedControlsCount === 0
+      },
+      {
+        key: "SOLO",
+        label: "Single Owner",
+        value: soloControlsCount,
+        description: "Controls owned by one team",
+        color: "#22C55E",
+        onClick: () => handleOwnershipSegmentClick("SOLO"),
+        active: controlSharedFilter === "NOT_SHARED",
+        disabled: soloControlsCount === 0
+      },
+      {
+        key: "API",
+        label: "API Data Sources",
+        value: apiAttributedCount,
+        description: "Controls with live integrations",
+        color: "#6366F1",
+        onClick: toggleApiFilter,
+        active: controlDataSourceFilter === "HAS",
+        disabled: apiAttributedCount === 0
+      },
+      {
+        key: "NO_API",
+        label: "No API Data",
+        value: noApiControlsCount,
+        description: "Controls without integrations",
+        color: "#38BDF8",
+        onClick: () => applyDataSourceFilter("NONE"),
+        active: controlDataSourceFilter === "NONE",
+        disabled: noApiControlsCount === 0
+      },
+      {
+        key: "EXTERNAL",
+        label: "External Coverage",
+        value: externalCoverageCount,
+        description: "Vendor & MDR managed controls",
+        color: "#8B5CF6",
+        onClick: toggleExternalCoverageFilter,
+        active: controlCoverageFilter === "EXTERNAL",
+        disabled: externalCoverageCount === 0
+      },
+      {
+        key: "UNASSIGNED",
+        label: "Unassigned Owners",
+        value: unassignedControlsCount,
+        description: "Controls needing assignment",
+        color: "#EF4444",
+        onClick: toggleUnassignedFilter,
+        active: controlOwnerFilter === "Unassigned",
+        disabled: unassignedControlsCount === 0
+      }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="grid gap-6 xl:grid-cols-3">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-2xl font-bold text-foreground">{selectedControl.id}: {selectedControl.control_name}</h2>
-                <p className="text-sm text-muted-foreground mt-1">{selectedControl.category} • Priority: {selectedControl.priority}</p>
+                <h3 className="text-lg font-semibold text-foreground">Control Overview</h3>
+                <p className="text-xs text-muted-foreground">Click a metric to filter the table</p>
               </div>
-              <button
-                onClick={() => setShowControlDetail(false)}
-                className="p-2 hover:bg-muted rounded-lg transition-colors"
+              <div className="text-right">
+                <div className="text-3xl font-bold text-foreground">{totalControls.toLocaleString()}</div>
+                <div className="text-xs text-muted-foreground">Total controls</div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {quickStats.map((stat) => {
+                const isActive = stat.active && !stat.disabled;
+                const baseClasses = isActive
+                  ? "bg-primary/10 border-primary/30 text-primary"
+                  : "bg-muted/30 border-transparent hover:bg-muted/50 text-foreground";
+                const disabledClasses = stat.disabled ? "opacity-50 cursor-not-allowed" : "";
+                return (
+                  <button
+                    key={stat.key}
+                    type="button"
+                    disabled={stat.disabled}
+                    onClick={!stat.disabled ? stat.onClick : undefined}
+                    className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition-colors ${baseClasses} ${disabledClasses}`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stat.color }}></span>
+                      <span className="text-left">
+                        <span className="block font-medium">{stat.label}</span>
+                        <span className="text-xs text-muted-foreground">{stat.description}</span>
+                      </span>
+                    </span>
+                    <span className="text-base font-semibold">{stat.value.toLocaleString()}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-foreground">Ownership Breakdown</h3>
+              {controlSharedFilter !== "ALL" && (
+                <button
+                  type="button"
+                  onClick={() => setControlSharedFilter("ALL")}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row">
+              <div className="relative w-32 h-32">
+                <div className="absolute inset-0 rounded-full" style={ownershipPieStyle}></div>
+                <div className="absolute inset-6 rounded-full bg-card border border-[hsl(var(--border))] flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-xl font-bold text-foreground">{sharedPercent}%</div>
+                    <div className="text-xs text-muted-foreground">Shared</div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 w-full space-y-2">
+                {ownershipSegments.length > 0 ? (
+                  ownershipSegments.map((segment) => {
+                    const isActive =
+                      (segment.key === "SHARED" && controlSharedFilter === "SHARED") ||
+                      (segment.key === "SOLO" && controlSharedFilter === "NOT_SHARED");
+                    return (
+                      <button
+                        type="button"
+                        key={segment.key}
+                        onClick={() => handleOwnershipSegmentClick(segment.key)}
+                        className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                          isActive ? "bg-primary/10 text-primary" : "bg-muted/30 hover:bg-muted/50 text-foreground"
+                        }`}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full" style={{ backgroundColor: segment.color }}></span>
+                          {segment.label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{segment.count.toLocaleString()}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Ownership data will appear as responsibilities are assigned.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-foreground">Coverage Breakdown</h3>
+              {controlCoverageFilter !== "ALL" && (
+                <button
+                  type="button"
+                  onClick={() => setControlCoverageFilter("ALL")}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row">
+              <div className="relative w-32 h-32">
+                <div className="absolute inset-0 rounded-full" style={coveragePieStyle}></div>
+                <div className="absolute inset-6 rounded-full bg-card border border-[hsl(var(--border))] flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="text-xl font-bold text-foreground">{coveragePercent}%</div>
+                    <div className="text-xs text-muted-foreground">Mapped Coverage</div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1 w-full space-y-2">
+                {coverageSegments.length > 0 ? (
+                  coverageSegments.map((segment) => (
+                    <button
+                      type="button"
+                      key={segment.key}
+                      onClick={() => handleCoverageSegmentClick(segment.key)}
+                      className={`w-full flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                        controlCoverageFilter === segment.key
+                          ? "bg-primary/10 text-primary"
+                          : "bg-muted/30 hover:bg-muted/50 text-foreground"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full" style={{ backgroundColor: segment.color }}></span>
+                        {segment.label}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{segment.count.toLocaleString()}</span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No coverage data yet. Connect integrations to attribute evidence automatically.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4 space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-1 flex-wrap gap-3">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-3 w-5 h-5 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search by control, ID, or description..."
+                  className="w-full pl-10 pr-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary focus:border-transparent"
+                />
+              </div>
+              <select
+                value={selectedFramework}
+                onChange={(e) => setSelectedFramework(e.target.value)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
               >
-                <X className="w-5 h-5 text-foreground" />
+                {frameworks.map((f) => (
+                  <option key={f} value={f}>
+                    {f === "ALL" ? "All Frameworks" : FRAMEWORK_LIBRARY[f]?.name || f}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={controlOwnerFilter}
+                onChange={(e) => setControlOwnerFilter(e.target.value)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">All Owners</option>
+                {ownerOptions.map((owner) => (
+                  <option key={owner} value={owner}>{owner}</option>
+                ))}
+              </select>
+              <select
+                value={controlSharedFilter}
+                onChange={(e) => setControlSharedFilter(e.target.value)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">Shared & Non-Shared</option>
+                <option value="SHARED">Shared Responsibility</option>
+                <option value="NOT_SHARED">Not Shared</option>
+              </select>
+              <select
+                value={controlDataSourceFilter}
+                onChange={(e) => setControlDataSourceFilter(e.target.value)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">All Data Sources</option>
+                <option value="HAS">Has API Data</option>
+                <option value="NONE">No API Data</option>
+                {dataSourceOptions.map((source) => (
+                  <option key={source} value={source}>Integration: {source}</option>
+                ))}
+              </select>
+              <select
+                value={controlStatusFilter}
+                onChange={(e) => setControlStatusFilter(e.target.value)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">All Statuses</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+              <select
+                value={controlCoverageFilter}
+                onChange={(e) => setControlCoverageFilter(e.target.value)}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+              >
+                <option value="ALL">All Coverage Types</option>
+                <option value="Internal">Internal</option>
+                <option value="Vendor Inherited">Vendor Inherited</option>
+                <option value="MDR/SOC Managed">MDR / SOC Managed</option>
+                <option value="API Data Attribution">API Data Attribution</option>
+                <option value="EXTERNAL">External (Vendor & MDR)</option>
+              </select>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-primary transition-colors"
+              >
+                Reset Filters
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUpload(!showUpload)}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+              >
+                <Upload className="w-4 h-4" />
+                Import Data
+              </button>
+              <button
+                type="button"
+                onClick={generateReport}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium"
+              >
+                <Download className="w-4 h-4" />
+                Generate Report
+              </button>
+              <button
+                type="button"
+                onClick={exportResponsibilityMatrix}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium"
+              >
+                <Database className="w-4 h-4" />
+                Export Matrix
               </button>
             </div>
-            
-            <div className="p-6 space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-2">Description</h3>
-                <p className="text-muted-foreground">{selectedControl.description}</p>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-foreground mb-2">Status</h4>
-                  <select
-                    value={selectedControl.status}
-                    onChange={(e) => {
-                      updateControl(selectedControl.id, 'status', e.target.value);
-                      setSelectedControl({...selectedControl, status: e.target.value});
-                    }}
-                    className={`w-full px-3 py-2 rounded-lg text-sm font-medium border ${statusColors[selectedControl.status]}`}
-                  >
-                    <option>Partial</option>
-                    <option>Implemented</option>
-                    <option>Compliant</option>
-                    <option>Non-Compliant</option>
-                    <option>Vendor Managed</option>
-                  </select>
-                </div>
-                
-                <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
-                  <h4 className="text-sm font-semibold text-foreground mb-2">Responsible Party</h4>
-                  <input
-                    type="text"
-                    value={selectedControl.responsible_party}
-                    onChange={(e) => {
-                      updateControl(selectedControl.id, 'responsible_party', e.target.value);
-                      setSelectedControl({...selectedControl, responsible_party: e.target.value});
-                    }}
-                    className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg bg-card text-foreground"
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-3">Frameworks</h3>
-                <div className="flex flex-wrap gap-2">
-                  {selectedControl.frameworks.map((fw, idx) => (
-                    <span key={idx} className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-full text-sm font-medium">
-                      {fw}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              {selectedControl.mapped_fields && selectedControl.mapped_fields.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">API Data Mapping</h3>
-                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
-                    <p className="text-sm text-muted-foreground mb-2">These fields can be auto-mapped from API integrations:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedControl.mapped_fields.map((field, idx) => (
-                        <span key={idx} className="px-2 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground">
-                          {field}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* API Data Segments - Fetch from backend if connected */}
-              <ControlDataSegments 
-                control={selectedControl}
-                backendConnected={backendConnected}
-                fetchControlSegments={fetchControlSegments}
-              />
-              
-              {selectedControl.nist_id && (
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-5 h-5 text-blue-500" />
-                    <h4 className="font-semibold text-foreground">NIST 800-53 Control</h4>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Control Family: {selectedControl.control_family || 'Unknown'}
-                  </p>
-                  <a 
-                    href={`https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-500 hover:underline flex items-center gap-1 mt-2"
-                  >
-                    View NIST 800-53 Documentation <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-              
-              {selectedControl.iso_id && (
-                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-5 h-5 text-green-500" />
-                    <h4 className="font-semibold text-foreground">ISO 27001:2022 Control</h4>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Category: {selectedControl.control_category || 'Unknown'}
-                  </p>
-                  <a 
-                    href={`https://hightable.io/iso-27001-annex-a-controls-list/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-green-500 hover:underline flex items-center gap-1 mt-2"
-                  >
-                    View ISO 27001 Documentation <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-            </div>
           </div>
         </div>
-      )}
-    </div>
-  );
 
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg">
+          <div className="flex items-center justify-between px-4 pt-4">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Controls & Ownership Matrix</h3>
+              <p className="text-sm text-muted-foreground">
+                Showing {filteredControls.length} of {totalControls} controls · {sharedControlsCount} shared · {apiAttributedCount} with API data
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto mt-4">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Control</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Frameworks</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Primary Owner</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Shared</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Secondary Owners</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Data Sources</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Coverage</th>
+                  <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredControls.map((control) => {
+                  const matrix = control.responsibility;
+                  const secondaryOwners = matrix.secondary_owners || [];
+                  const dataSources = matrix.data_sources || [];
+
+                  return (
+                    <tr
+                      key={control.id}
+                      className="border-b border-[hsl(var(--border))] hover:bg-muted/40 transition-colors cursor-pointer"
+                      onClick={() => {
+                        setSelectedControl(control);
+                        setShowControlDetail(true);
+                      }}
+                    >
+                      <td className="py-3 px-4 align-top">
+                        <div className="font-medium text-foreground">{control.id}</div>
+                        <div className="text-sm text-foreground mt-1">{control.control_name}</div>
+                        {control.description && (
+                          <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{control.description}</div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        <div className="flex flex-wrap gap-1">
+                          {(control.frameworks || []).map((fw, idx) => {
+                            const frameworkKey = fw.split(":")[0];
+                            const frameworkName = FRAMEWORK_LIBRARY[frameworkKey]?.name || frameworkKey;
+                            return (
+                              <span key={`${control.id}-framework-${idx}`} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded font-medium">
+                                {frameworkName}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        <input
+                          type="text"
+                          value={control.responsible_party ?? ""}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            updateControl(control.id, "responsible_party", e.target.value);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          placeholder="Owner name"
+                          className="w-full px-2 py-1 text-sm bg-card border border-[hsl(var(--border))] rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        {matrix.shared_responsibility ? (
+                          <span className="px-2 py-1 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded-full text-xs font-semibold">
+                            Shared
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-muted text-muted-foreground border border-[hsl(var(--border))] rounded-full text-xs font-semibold">
+                            Solo
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        <div className="flex flex-wrap gap-1">
+                          {secondaryOwners.length > 0 ? (
+                            secondaryOwners.slice(0, 2).map((owner) => (
+                              <span key={`${control.id}-${owner}`} className="text-xs bg-green-500/20 text-green-500 border border-green-500/30 px-2 py-1 rounded">
+                                {owner}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">None</span>
+                          )}
+                          {secondaryOwners.length > 2 && (
+                            <span className="text-xs text-muted-foreground">+{secondaryOwners.length - 2} more</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        {dataSources.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {dataSources.slice(0, 2).map((ds, idx) => (
+                              <span key={`${control.id}-ds-${idx}`} className="text-xs bg-purple-500/15 text-purple-500 border border-purple-500/20 px-2 py-1 rounded">
+                                {ds.integration}
+                              </span>
+                            ))}
+                            {dataSources.length > 2 && (
+                              <span className="text-xs text-muted-foreground">+{dataSources.length - 2} more</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">None</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold border ${
+                          matrix.coverage_type === "MDR/SOC Managed"
+                            ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
+                            : matrix.coverage_type === "Vendor Inherited"
+                              ? "bg-green-500/10 text-green-500 border-green-500/20"
+                              : matrix.coverage_type === "API Data Attribution"
+                                ? "bg-purple-500/10 text-purple-500 border-purple-500/20"
+                                : "bg-muted text-foreground border-[hsl(var(--border))]"
+                        }`}>
+                          {matrix.coverage_type}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 align-top">
+                        <select
+                          value={control.status}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            updateControl(control.id, "status", e.target.value);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border ${statusColors[control.status]}`}
+                        >
+                          <option>Partial</option>
+                          <option>Implemented</option>
+                          <option>Compliant</option>
+                          <option>Non-Compliant</option>
+                          <option>Vendor Managed</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {filteredControls.length === 0 && (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+              No controls match your current filters. Try resetting or broadening your search.
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">API Integrations & Data Sources</h3>
+                <p className="text-xs text-muted-foreground">Connected sources feeding compliance evidence</p>
+              </div>
+              <span className="text-xs text-muted-foreground">{apiIntegrations.length} integrations</span>
+            </div>
+            {apiIntegrations.length > 0 ? (
+              <div className="space-y-3 max-h-64 overflow-auto pr-1">
+                {apiIntegrations.map((integration, idx) => {
+                  const coveredControls = integration.controls_covered || [];
+                  return (
+                    <div key={`${integration.name}-${idx}`} className="border border-[hsl(var(--border))] rounded-lg p-3 bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">{integration.name}</div>
+                          <div className="text-xs text-muted-foreground">{integration.vendor} • {integration.type}</div>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          Last sync {integration.last_sync ? new Date(integration.last_sync).toLocaleDateString() : "—"}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {coveredControls.slice(0, 6).map((controlId) => (
+                          <span key={`${integration.name}-${controlId}`} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded">
+                            {controlId}
+                          </span>
+                        ))}
+                        {coveredControls.length > 6 && (
+                          <span className="text-xs text-muted-foreground">+{coveredControls.length - 6} more</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Connect your security tools to attribute evidence automatically.</p>
+            )}
+          </div>
+
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">MDR & Vendor Coverage</h3>
+                <p className="text-xs text-muted-foreground">External partners providing inherited controls</p>
+              </div>
+              <span className="text-xs text-muted-foreground">{mdrProviders.length} providers</span>
+            </div>
+            {mdrProviders.length > 0 ? (
+              <div className="space-y-3 max-h-64 overflow-auto pr-1">
+                {mdrProviders.map((provider, idx) => {
+                  const providerControls = provider.controls_responsible || [];
+                  return (
+                    <div key={`${provider.name}-${idx}`} className="border border-[hsl(var(--border))] rounded-lg p-3 bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">{provider.name}</div>
+                          <div className="text-xs text-muted-foreground">{provider.type} • {provider.service_level}</div>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{provider.contact}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {providerControls.slice(0, 6).map((controlId) => (
+                          <span key={`${provider.name}-${controlId}`} className="text-xs bg-green-500/15 text-green-500 border border-green-500/30 px-2 py-1 rounded">
+                            {controlId}
+                          </span>
+                        ))}
+                        {providerControls.length > 6 && (
+                          <span className="text-xs text-muted-foreground">+{providerControls.length - 6} more</span>
+                        )}
+                      </div>
+                      {provider.responsibility_scope && (
+                        <p className="text-xs text-muted-foreground mt-2">{provider.responsibility_scope}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Add MDR and vendor partners to attribute shared controls.</p>
+            )}
+          </div>
+        </div>
+
+        {showControlDetail && selectedControl && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowControlDetail(false)}>
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="sticky top-0 bg-card border-b border-[hsl(var(--border))] p-6 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-foreground">{selectedControl.id}: {selectedControl.control_name}</h2>
+                  <p className="text-sm text-muted-foreground mt-1">{selectedControl.category} • Priority: {selectedControl.priority}</p>
+                </div>
+                <button
+                  onClick={() => setShowControlDetail(false)}
+                  className="p-2 hover:bg-muted rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-foreground" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Description</h3>
+                  <p className="text-muted-foreground">{selectedControl.description}</p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-foreground mb-2">Status</h4>
+                    <select
+                      value={selectedControl.status}
+                      onChange={(e) => {
+                        updateControl(selectedControl.id, 'status', e.target.value);
+                        setSelectedControl({...selectedControl, status: e.target.value});
+                      }}
+                      className={`w-full px-3 py-2 rounded-lg text-sm font-medium border ${statusColors[selectedControl.status]}`}
+                    >
+                      <option>Partial</option>
+                      <option>Implemented</option>
+                      <option>Compliant</option>
+                      <option>Non-Compliant</option>
+                      <option>Vendor Managed</option>
+                    </select>
+                  </div>
+                  
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-foreground mb-2">Responsible Party</h4>
+                    <input
+                      type="text"
+                      value={selectedControl.responsible_party}
+                      onChange={(e) => {
+                        updateControl(selectedControl.id, 'responsible_party', e.target.value);
+                        setSelectedControl({...selectedControl, responsible_party: e.target.value});
+                      }}
+                      className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg bg-card text-foreground"
+                    />
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-3">Frameworks</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedControl.frameworks.map((fw, idx) => (
+                      <span key={idx} className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-full text-sm font-medium">
+                        {fw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                
+                {selectedControl.mapped_fields && selectedControl.mapped_fields.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground mb-3">API Data Mapping</h3>
+                    <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                      <p className="text-sm text-muted-foreground mb-2">These fields can be auto-mapped from API integrations:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedControl.mapped_fields.map((field, idx) => (
+                          <span key={idx} className="px-2 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground">
+                            {field}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                <ControlDataSegments 
+                  control={selectedControl}
+                  backendConnected={backendConnected}
+                  fetchControlSegments={fetchControlSegments}
+                />
+                
+                {selectedControl.nist_id && (
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="w-5 h-5 text-blue-500" />
+                      <h4 className="font-semibold text-foreground">NIST 800-53 Control</h4>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Control Family: {selectedControl.control_family || 'Unknown'}
+                    </p>
+                    <a 
+                      href={`https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline flex items-center gap-1 mt-2"
+                    >
+                      View NIST 800-53 Documentation <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+                
+                {selectedControl.iso_id && (
+                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="w-5 h-5 text-green-500" />
+                      <h4 className="font-semibold text-foreground">ISO 27001:2022 Control</h4>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Category: {selectedControl.control_category || 'Unknown'}
+                    </p>
+                    <a 
+                      href={`https://hightable.io/iso-27001-annex-a-controls-list/`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-green-500 hover:underline flex items-center gap-1 mt-2"
+                    >
+                      View ISO 27001 Documentation <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
   const renderAutomationPlan = () => {
     if (!automationPlan) {
       return (
@@ -5261,7 +5889,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-
   // Placeholder render methods for other views
   const renderEntities = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Entity Management</h2><p className="text-muted-foreground mt-2">Manage subsidiaries and regional entities</p></div>;
   const renderRBAC = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Roles & Permissions</h2><p className="text-muted-foreground mt-2">Manage access control and user permissions</p></div>;
@@ -5974,7 +6601,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-
   const renderCSCA = () => {
     try {
       const severityColors = {
@@ -6549,7 +7175,7 @@ const ComplianceMVP = () => {
                 <p className="text-sm text-muted-foreground mb-4">
                   {backendConnected 
                     ? 'No patterns detected yet. Click "Run Pattern Detection" to analyze security events.'
-                    : 'Connect backend and ingest security events to enable pattern detection.'}
+                    : 'Connect backend to ingest real security events and see live compliance-impact correlation.'}
                 </p>
               </div>
             )}
@@ -6766,7 +7392,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-
   const renderVendorProfileModal = () => {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -7533,7 +8158,6 @@ const ComplianceMVP = () => {
       alert('Failed to create audit: ' + error.message);
     }
   };
-
   const renderAuditCreateModal = () => {
 
     return (
@@ -8188,7 +8812,6 @@ const ComplianceMVP = () => {
     const IconComponent = icons[view] || Shield;
     return <IconComponent className="w-4 h-4" />;
   };
-
   return (
     <div className="min-h-screen bg-background">
       <div className="flex flex-col h-screen overflow-hidden">
