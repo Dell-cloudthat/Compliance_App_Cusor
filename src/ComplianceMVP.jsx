@@ -475,6 +475,129 @@ const ComplianceMVP = () => {
   const [vendors, setVendors] = useState([]);
   const [userRole, setUserRole] = useState({ role: 'Admin', permissions: ['*'] });
   const [projectTimeline, setProjectTimeline] = useState(null);
+  const [automationActivityLog, setAutomationActivityLog] = useState([]);
+  const [showAutomationWalkthrough, setShowAutomationWalkthrough] = useState(false);
+  const [selectedAutomationControl, setSelectedAutomationControl] = useState(null);
+  const [automationChecklistState, setAutomationChecklistState] = useState({});
+  const [automationEvidenceNotes, setAutomationEvidenceNotes] = useState('');
+  const [automationEvidenceLink, setAutomationEvidenceLink] = useState('');
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [commandQuery, setCommandQuery] = useState('');
+  const [commandHighlightIndex, setCommandHighlightIndex] = useState(0);
+  const commandInputRef = useRef(null);
+  const formatRelative = useCallback((dateString) => {
+    if (!dateString) return 'Just now';
+    const target = new Date(dateString);
+    if (Number.isNaN(target.getTime())) return 'Just now';
+    const now = new Date();
+    const diffMs = now - target;
+    if (diffMs <= 0) return 'Just now';
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 4) return `${weeks}w ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    const years = Math.floor(days / 365);
+    return `${years}y ago`;
+  }, []);
+  const buildAutomationSteps = (control) => {
+    if (!control) return [];
+    if (control.remediation_steps && control.remediation_steps.length > 0) {
+      return control.remediation_steps.map((step, idx) => ({
+        id: `step-${control.id || idx}-${idx}`,
+        title: step.action || step.step || `Step ${idx + 1}`,
+        description: step.description || step.detail || ''
+      }));
+    }
+    const defaults = [
+      {
+        id: 'review-current',
+        title: 'Review current control state',
+        description: `Validate existing evidence and baseline for ${control.control_name}.`
+      },
+      {
+        id: 'perform-remediation',
+        title: 'Execute remediation actions',
+        description: `Apply required configuration or process changes for ${control.category}.`
+      },
+      {
+        id: 'collect-evidence',
+        title: 'Collect and attach evidence',
+        description: 'Capture screenshots, reports, or logs demonstrating remediation.'
+      },
+      {
+        id: 'update-records',
+        title: 'Update control status & matrix',
+        description: 'Mark the control implemented and refresh framework coverage.'
+      },
+    ];
+    if (control.automatable || (control.mapped_fields && control.mapped_fields.length > 0)) {
+      defaults.splice(2, 0, {
+        id: 'trigger-automation',
+        title: 'Trigger automation playbook',
+        description: 'Run connected workflows to auto-remediate and sync evidence.'
+      });
+    }
+    return defaults;
+  };
+  const openAutomationWalkthrough = (control, phase) => {
+    if (!control) return;
+    const steps = buildAutomationSteps(control);
+    const initialState = {};
+    steps.forEach((step) => {
+      initialState[step.id] = false;
+    });
+    setSelectedAutomationControl({ control, phase });
+    setAutomationChecklistState(initialState);
+    setAutomationEvidenceNotes('');
+    setAutomationEvidenceLink(control.evidence_link || '');
+    setShowAutomationWalkthrough(true);
+  };
+  const toggleAutomationChecklistStep = (stepId) => {
+    setAutomationChecklistState((prev) => ({
+      ...prev,
+      [stepId]: !prev[stepId],
+    }));
+  };
+  const closeAutomationWalkthrough = () => {
+    setShowAutomationWalkthrough(false);
+    setSelectedAutomationControl(null);
+  };
+  const recordAutomationActivity = (entry) => {
+    setAutomationActivityLog((prev) => [{ ...entry }, ...prev].slice(0, 25));
+  };
+  const handleAutomationProgressSave = () => {
+    if (!selectedAutomationControl) return;
+    const { control, phase } = selectedAutomationControl;
+    const allComplete = Object.values(automationChecklistState).every(Boolean);
+    recordAutomationActivity({
+      id: `automation-${Date.now()}`,
+      type: 'automation',
+      title: control.control_name,
+      status: allComplete ? 'completed' : 'in_progress',
+      timestamp: new Date().toISOString(),
+      phase: phase?.name || 'Automation Plan',
+      notes: automationEvidenceNotes,
+      evidenceLink: automationEvidenceLink,
+    });
+    if (allComplete) {
+      setControls((prevControls) =>
+        prevControls.map((existing) =>
+          existing.id === control.id
+            ? { ...existing, status: 'Implemented', last_updated: new Date().toISOString().split('T')[0] }
+            : existing
+        )
+      );
+    }
+    closeAutomationWalkthrough();
+  };
   
   // Timeline filtering
   const [selectedVendorFilter, setSelectedVendorFilter] = useState("ALL");
@@ -1789,6 +1912,20 @@ const ComplianceMVP = () => {
       }
     } catch (error) {
       console.error('Error loading actionable alerts:', error);
+    }
+  };
+  const runDriftCheckCommand = async () => {
+    if (!backendConnected || !currentUser.id) {
+      alert('Connect the backend API to run an automated drift check.');
+      return;
+    }
+    try {
+      await api.checkComplianceDrift(currentUser.id);
+      await loadActionableAlerts();
+    } catch (error) {
+      console.error('Error running drift check:', error);
+      const message = error?.detail || error?.message || (error instanceof Error ? error.message : String(error));
+      alert(`Unable to run drift check: ${message}`);
     }
   };
 
@@ -3173,6 +3310,30 @@ const ComplianceMVP = () => {
       return idx;
     });
   }, [recommendations]);
+  useEffect(() => {
+    const handleGlobalKey = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setShowCommandPalette(true);
+      } else if (event.key === 'Escape') {
+        setShowCommandPalette(false);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKey);
+    return () => window.removeEventListener('keydown', handleGlobalKey);
+  }, []);
+  useEffect(() => {
+    if (showCommandPalette) {
+      setCommandQuery('');
+      setCommandHighlightIndex(0);
+      if (commandInputRef.current) {
+        commandInputRef.current.focus();
+      }
+    }
+  }, [showCommandPalette]);
+  useEffect(() => {
+    setCommandHighlightIndex(0);
+  }, [commandQuery]);
 
   // Sync responsibility matrix with backend
   useEffect(() => {
@@ -5874,6 +6035,102 @@ const ComplianceMVP = () => {
     });
   }, [complianceScores, controls]);
 
+  const commandPaletteItems = useMemo(() => {
+    const items = [
+      {
+        id: 'go-dashboard',
+        title: 'Go to Dashboard',
+        subtitle: 'View real-time metrics and KPIs',
+        shortcut: 'D',
+        action: () => setActiveView('dashboard'),
+      },
+      {
+        id: 'open-controls',
+        title: 'Open Controls & Responsibility Matrix',
+        subtitle: 'Ownership filters, coverage, evidence',
+        shortcut: 'C',
+        action: () => setActiveView('controls'),
+      },
+      {
+        id: 'open-architecture',
+        title: 'Open Data Flow Architecture',
+        subtitle: 'Interactive lineage map & IAM context',
+        shortcut: 'A',
+        action: () => setActiveView('architecture'),
+      },
+      {
+        id: 'open-automation',
+        title: 'Open Automation Plan',
+        subtitle: '90-day playbook with walkthroughs',
+        shortcut: 'P',
+        action: () => setActiveView('automation'),
+      },
+      {
+        id: 'generate-plan',
+        title: automationPlan ? 'Regenerate Automation Plan' : 'Generate Automation Plan',
+        subtitle: 'Refresh AI recommendations and phases',
+        shortcut: 'G',
+        action: () => generateAutomationPlan(),
+      },
+      {
+        id: 'run-drift',
+        title: 'Run Compliance Drift Check',
+        subtitle: backendConnected ? 'Trigger drift detection via API' : 'Requires backend connection',
+        shortcut: 'Shift+D',
+        action: () => runDriftCheckCommand(),
+        disabled: !backendConnected || !currentUser.id,
+      },
+      {
+        id: 'view-alerts',
+        title: 'View Alert Alignment',
+        subtitle: 'Security signals mapped to controls',
+        shortcut: 'S',
+        action: () => setActiveView('csca'),
+      },
+      {
+        id: 'open-iam',
+        title: 'Open IAM & Permissions',
+        subtitle: 'Manage roles, grants, and audits',
+        shortcut: 'I',
+        action: () => setActiveView('iam'),
+      },
+    ];
+    return items;
+  }, [automationPlan, backendConnected, currentUser.id]);
+  const filteredCommands = useMemo(() => {
+    const query = commandQuery.trim().toLowerCase();
+    if (!query) return commandPaletteItems;
+    return commandPaletteItems.filter((command) => {
+      return (
+        command.title.toLowerCase().includes(query) ||
+        (command.subtitle && command.subtitle.toLowerCase().includes(query)) ||
+        (command.shortcut && command.shortcut.toLowerCase().includes(query))
+      );
+    });
+  }, [commandPaletteItems, commandQuery]);
+  useEffect(() => {
+    setCommandHighlightIndex((idx) => {
+      if (filteredCommands.length === 0) return 0;
+      if (idx >= filteredCommands.length) {
+        return filteredCommands.length - 1;
+      }
+      return idx;
+    });
+  }, [filteredCommands]);
+  const handleCommandSelect = (command) => {
+    if (!command || command.disabled) return;
+    const result = command.action?.();
+    if (result && typeof result.then === 'function') {
+      result.finally(() => {
+        if (!command.keepOpen) {
+          setShowCommandPalette(false);
+        }
+      });
+    } else if (!command.keepOpen) {
+      setShowCommandPalette(false);
+    }
+  };
+
   const renderDashboard = () => {
     // Calculate stats and coverage
     const stats = {
@@ -5888,6 +6145,29 @@ const ComplianceMVP = () => {
     const gapsChange = 5; // Example: 5 fewer gaps
     const complianceTrend = coverage >= 70 ? 12.5 : -5.2; // Example trend
     const gradeData = calculatePartnerGrade();
+    const alertActivityEntries = actionableAlerts
+      .map((alert) => {
+        const timestamp = alert.updated_at || alert.last_updated || alert.resolved_at || alert.created_at;
+        if (!timestamp) return null;
+        return {
+          id: `alert-${alert.id}`,
+          type: 'alert',
+          title: alert.title || alert.name || 'Compliance Alert',
+          status: (alert.status || 'open').toLowerCase(),
+          timestamp,
+          description: alert.description,
+          severity: (alert.severity || 'medium').toLowerCase(),
+          framework: alert.framework || null,
+        };
+      })
+      .filter(Boolean);
+    const automationEntries = automationActivityLog.map((entry) => ({
+      ...entry,
+      type: 'automation',
+    }));
+    const recentActivity = [...alertActivityEntries, ...automationEntries]
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 5);
     
     return (
     <div className="space-y-6">
@@ -6338,6 +6618,88 @@ const ComplianceMVP = () => {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {recentActivity.length > 0 && (
+          <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
+            <h3 className="text-lg font-semibold text-foreground mb-4">Alert & Automation Activity</h3>
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+              <ol className="relative flex flex-col gap-5">
+                {recentActivity.map((entry, idx) => {
+                  const isAlert = entry.type === 'alert';
+                  const accentColor =
+                    isAlert && entry.severity === 'critical'
+                      ? 'bg-red-500'
+                      : isAlert && entry.severity === 'high'
+                      ? 'bg-orange-500'
+                      : isAlert
+                      ? 'bg-blue-500'
+                      : 'bg-emerald-500';
+                  const statusLabel = entry.status
+                    ? entry.status.replace(/_/g, ' ')
+                    : isAlert
+                    ? 'open'
+                    : 'in progress';
+                  return (
+                    <li key={`${entry.id}-${idx}`} className="relative pl-8">
+                      <span className={`absolute left-0 top-1.5 h-3 w-3 rounded-full ${accentColor}`}></span>
+                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            {isAlert ? (
+                              <AlertTriangle className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <Sparkles className="w-4 h-4 text-muted-foreground" />
+                            )}
+                            <span className="text-sm font-semibold text-foreground">
+                              {entry.title}
+                            </span>
+                            <span className="text-[11px] uppercase text-muted-foreground tracking-wide">
+                              {statusLabel}
+                            </span>
+                          </div>
+                          {entry.description && (
+                            <p className="text-xs text-muted-foreground max-w-2xl">
+                              {entry.description}
+                            </p>
+                          )}
+                          {entry.phase && (
+                            <div className="text-[11px] text-muted-foreground">
+                              Phase: <span className="text-foreground">{entry.phase}</span>
+                            </div>
+                          )}
+                          {entry.notes && (
+                            <div className="text-[11px] text-muted-foreground">
+                              Notes: <span className="text-foreground">{entry.notes}</span>
+                            </div>
+                          )}
+                          {entry.evidenceLink && (
+                            <a
+                              href={entry.evidenceLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Evidence link
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          {entry.framework && (
+                            <span className="px-2 py-1 bg-muted rounded-full text-[11px] border border-[hsl(var(--border))]">
+                              {entry.framework}
+                            </span>
+                          )}
+                          <span>{formatRelative(entry.timestamp)}</span>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
           </div>
         )}
         
@@ -8256,6 +8618,110 @@ const ComplianceMVP = () => {
             <div className="text-sm text-muted-foreground mb-1">Total Cost</div>
             <div className="text-2xl font-bold text-purple-600">${plan.summary.totalCost.toLocaleString()}</div>
           </div>
+        </div>
+
+        <div className="space-y-6">
+          {Object.entries(plan.phases).map(([phaseKey, phase]) => (
+            <div key={phaseKey} className="bg-card border border-[hsl(var(--border))] rounded-lg shadow p-6 space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-foreground">{phase.name}</h3>
+                  <p className="text-sm text-muted-foreground">{phase.timeline} • {phase.focus}</p>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] uppercase text-muted-foreground">Controls</div>
+                    <div className="text-lg font-semibold text-foreground">{phase.metrics.controls}</div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] uppercase text-muted-foreground">Hours</div>
+                    <div className="text-lg font-semibold text-indigo-500">{phase.metrics.totalHours}</div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] uppercase text-muted-foreground">Cost</div>
+                    <div className="text-lg font-semibold text-purple-500">${phase.metrics.totalCost.toLocaleString()}</div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-center">
+                    <div className="text-[11px] uppercase text-muted-foreground">Automatable</div>
+                    <div className="text-lg font-semibold text-emerald-500">{phase.metrics.automatable}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {phase.controls.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground bg-muted/30 border border-dashed border-[hsl(var(--border))] rounded-lg text-center">
+                    No controls assigned to this phase.
+                  </div>
+                ) : (
+                  phase.controls.map((control) => {
+                    const frameworks = Array.isArray(control.frameworks) ? control.frameworks : [];
+                    const effortHours = control.timeEstimate ?? control.estimatedHours ?? 4;
+                    const controlCost = control.implementationCost ?? Math.round(effortHours * 125);
+                    return (
+                    <div
+                      key={control.id}
+                      className="border border-[hsl(var(--border))] rounded-lg p-4 bg-muted/20 hover:bg-muted/30 transition-colors"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">{control.control_name}</span>
+                            <span className={`px-2 py-1 rounded-full text-[11px] font-semibold ${
+                              control.priority === 'Critical'
+                                ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                                : control.priority === 'High'
+                                ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20'
+                                : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                            }`}>
+                              {control.priority}
+                            </span>
+                            {control.automatable && (
+                              <span className="px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                                Automatable
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {control.category} • Risk score {control.riskScore} • {frameworks.length} frameworks impacted
+                          </div>
+                          <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
+                            {frameworks.slice(0, 4).map((fw) => (
+                              <span key={fw} className="px-2 py-0.5 bg-muted rounded border border-[hsl(var(--border))]">
+                                {fw}
+                              </span>
+                            ))}
+                            {frameworks.length > 4 && (
+                              <span className="px-2 py-0.5 bg-muted rounded border border-[hsl(var(--border))]">
+                                +{frameworks.length - 4}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                          <div className="text-xs text-muted-foreground bg-muted/50 border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-center">
+                            <div className="font-semibold text-foreground">{effortHours} hrs</div>
+                            <div>Est. effort</div>
+                          </div>
+                          <div className="text-xs text-muted-foreground bg-muted/50 border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-center">
+                            <div className="font-semibold text-foreground">${controlCost.toLocaleString()}</div>
+                            <div>Cost</div>
+                          </div>
+                          <button
+                            onClick={() => openAutomationWalkthrough(control, phase)}
+                            className="px-3 py-2 rounded-lg border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 text-sm font-medium transition-colors"
+                          >
+                            Launch playbook
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -11610,6 +12076,204 @@ const ComplianceMVP = () => {
           </main>
         </div>
       </div>
+
+      {showAutomationWalkthrough && selectedAutomationControl && (() => {
+        const modalSteps = buildAutomationSteps(selectedAutomationControl.control);
+        const completedCount = Object.values(automationChecklistState).filter(Boolean).length;
+        const totalSteps = modalSteps.length;
+        return (
+          <div className="fixed inset-0 z-[150] bg-background/70 backdrop-blur-sm flex items-center justify-center px-4 py-8">
+            <div className="w-full max-w-3xl bg-card border border-[hsl(var(--border))] rounded-2xl shadow-2xl overflow-hidden">
+              <div className="p-6 border-b border-[hsl(var(--border))] flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold text-foreground">
+                    Automation Playbook • {selectedAutomationControl.control.control_name}
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedAutomationControl.phase?.name || 'Automation Plan'} • {completedCount}/{totalSteps} steps complete
+                  </p>
+                </div>
+                <button
+                  onClick={closeAutomationWalkthrough}
+                  className="p-2 rounded-lg hover:bg-muted transition-colors"
+                >
+                  <X className="w-5 h-5 text-muted-foreground" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Priority</div>
+                    <div className="text-lg font-semibold text-foreground mt-1">
+                      {selectedAutomationControl.control.priority}
+                    </div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Effort</div>
+                    <div className="text-lg font-semibold text-foreground mt-1">
+                      {(selectedAutomationControl.control.timeEstimate ?? 4)} hrs
+                    </div>
+                  </div>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Automation Ready</div>
+                    <div className="text-lg font-semibold text-foreground mt-1">
+                      {selectedAutomationControl.control.automatable ? 'Yes' : 'Manual'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4 max-h-[320px] overflow-y-auto pr-1">
+                  {modalSteps.map((step) => (
+                    <label
+                      key={step.id}
+                      className={`flex items-start gap-3 border border-[hsl(var(--border))] rounded-lg p-4 bg-muted/20 hover:bg-muted/30 transition-colors cursor-pointer ${
+                        automationChecklistState[step.id] ? 'border-primary/40 bg-primary/10' : ''
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={automationChecklistState[step.id] || false}
+                        onChange={() => toggleAutomationChecklistStep(step.id)}
+                        className="mt-1 h-4 w-4 rounded border-[hsl(var(--border))] text-primary focus:ring-primary"
+                      />
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">{step.title}</div>
+                        {step.description && (
+                          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{step.description}</p>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                      Evidence link
+                    </label>
+                    <input
+                      type="url"
+                      value={automationEvidenceLink}
+                      onChange={(e) => setAutomationEvidenceLink(e.target.value)}
+                      placeholder="https://share.your-evidence-link.com/artifact"
+                      className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                      Notes for audit log
+                    </label>
+                    <input
+                      type="text"
+                      value={automationEvidenceNotes}
+                      onChange={(e) => setAutomationEvidenceNotes(e.target.value)}
+                      placeholder="Summary of remediation actions"
+                      className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div className="text-xs text-muted-foreground">
+                    Complete every step to automatically move this control to <span className="text-foreground font-medium">Implemented</span>.
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={closeAutomationWalkthrough}
+                      className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleAutomationProgressSave}
+                      className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+                    >
+                      Save progress
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {showCommandPalette && (
+        <div
+          className="fixed inset-0 z-[200] bg-background/70 backdrop-blur-sm flex items-start justify-center pt-24 px-4"
+          onClick={() => setShowCommandPalette(false)}
+        >
+          <div
+            className="w-full max-w-xl bg-card border border-[hsl(var(--border))] rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="border-b border-[hsl(var(--border))] px-4 py-3">
+              <input
+                ref={commandInputRef}
+                value={commandQuery}
+                onChange={(e) => setCommandQuery(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setCommandHighlightIndex((idx) =>
+                      Math.min(idx + 1, Math.max(filteredCommands.length - 1, 0))
+                    );
+                  } else if (event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setCommandHighlightIndex((idx) => Math.max(idx - 1, 0));
+                  } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    const command = filteredCommands[commandHighlightIndex];
+                    handleCommandSelect(command);
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setShowCommandPalette(false);
+                  }
+                }}
+                placeholder="Search commands…"
+                className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+              />
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {filteredCommands.length === 0 ? (
+                <div className="px-4 py-6 text-sm text-muted-foreground">No commands found.</div>
+              ) : (
+                filteredCommands.map((command, idx) => {
+                  const isActive = idx === commandHighlightIndex;
+                  return (
+                    <button
+                      key={command.id}
+                      type="button"
+                      disabled={command.disabled}
+                      onClick={() => handleCommandSelect(command)}
+                      className={`w-full px-4 py-3 text-left text-sm transition-colors flex items-center justify-between gap-3 ${
+                        isActive ? 'bg-primary/10' : 'hover:bg-muted/60'
+                      } ${command.disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <div>
+                        <div className="font-medium text-foreground">{command.title}</div>
+                        {command.subtitle && (
+                          <div className="text-xs text-muted-foreground mt-0.5">{command.subtitle}</div>
+                        )}
+                      </div>
+                      {command.shortcut && (
+                        <div className="text-[11px] text-muted-foreground border border-[hsl(var(--border))] bg-muted/50 px-2 py-1 rounded">
+                          {command.shortcut}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="border-t border-[hsl(var(--border))] px-4 py-3 text-[11px] text-muted-foreground flex items-center justify-between">
+              <span>Use ↑ ↓ to navigate • Enter to run</span>
+              <span>Press Esc to close</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
