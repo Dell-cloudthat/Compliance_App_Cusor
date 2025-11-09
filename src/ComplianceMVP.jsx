@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import { CIS_CONTROLS } from './frameworks/cis-controls';
@@ -34,6 +34,129 @@ const FRAMEWORK_LIBRARY = {
   "PCI_DSS": { name: "PCI DSS", version: "v4.0" },
   "FedRAMP": { name: "FedRAMP", version: "High Baseline" }
 };
+
+const FRAMEWORK_GLOSSARY = [
+  {
+    id: 'nist80053',
+    name: 'NIST SP 800-53 Revision 5',
+    shortName: 'NIST 800-53',
+    category: 'Security & Privacy Controls Catalog',
+    description: 'Comprehensive catalog of security and privacy controls for U.S. federal information systems and organizations.',
+    focusAreas: ['Access Control (AC)', 'Audit & Accountability (AU)', 'System & Communications Protection (SC)', 'Incident Response (IR)'],
+    idealFor: ['US Federal agencies', 'Critical infrastructure', 'Enterprises needing a broad control baseline'],
+    docLink: 'https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final',
+    quickFacts: {
+      controlFamilies: 20,
+      totalControls: 1100,
+      assuranceLevel: 'High',
+    },
+  },
+  {
+    id: 'nist800171',
+    name: 'NIST SP 800-171 Revision 2',
+    shortName: 'NIST 800-171',
+    category: 'Controlled Unclassified Information (CUI)',
+    description: 'Safeguards for protecting Controlled Unclassified Information in nonfederal systems and organizations.',
+    focusAreas: ['Access Control', 'Media Protection', 'Personnel Security', 'System Integrity'],
+    idealFor: ['Defense industrial base', 'Federal contractors & suppliers', 'Manufacturing & aerospace'],
+    docLink: 'https://csrc.nist.gov/publications/detail/sp/800-171/rev-2/final',
+    quickFacts: {
+      controlFamilies: 14,
+      totalControls: 110,
+      assuranceLevel: 'Moderate',
+    },
+  },
+  {
+    id: 'iso27001',
+    name: 'ISO/IEC 27001:2022',
+    shortName: 'ISO 27001',
+    category: 'Information Security Management System (ISMS)',
+    description: 'International standard for establishing, implementing, maintaining, and improving an information security management system.',
+    focusAreas: ['Leadership & Governance', 'Risk Assessment', 'Asset Management', 'Supplier Security'],
+    idealFor: ['Global enterprises', 'Cloud & SaaS providers', 'Organizations with international customers'],
+    docLink: 'https://www.iso.org/standard/27001',
+    quickFacts: {
+      controlFamilies: 4,
+      totalControls: 93,
+      assuranceLevel: 'High',
+    },
+  },
+  {
+    id: 'soc2',
+    name: 'AICPA SOC 2 Trust Services Criteria',
+    shortName: 'SOC 2',
+    category: 'Service Organization Controls',
+    description: 'Framework for managing customer data based on five “trust service principles”: security, availability, processing integrity, confidentiality, and privacy.',
+    focusAreas: ['Logical & Physical Access', 'Change Management', 'Risk Mitigation', 'Privacy'],
+    idealFor: ['SaaS vendors', 'Managed service providers', 'FinTech'],
+    docLink: 'https://www.aicpa.org/resources/article/soc-2-frequently-asked-questions',
+    quickFacts: {
+      controlFamilies: 5,
+      totalControls: 61,
+      assuranceLevel: 'Audit Attestation',
+    },
+  },
+  {
+    id: 'cis',
+    name: 'CIS Critical Security Controls v8',
+    shortName: 'CIS Controls',
+    category: 'Operational Security Controls',
+    description: 'Prioritized set of safeguards to defend against common cyber attacks, organized into Implementation Groups.',
+    focusAreas: ['Enterprise Asset Management', 'Secure Configuration', 'Data Protection', 'Incident Response'],
+    idealFor: ['IT & Security teams', 'SMBs scaling security', 'Organizations seeking quick wins'],
+    docLink: 'https://www.cisecurity.org/controls/cis-controls-list',
+    quickFacts: {
+      controlFamilies: 18,
+      totalControls: 153,
+      assuranceLevel: 'Implementation Guidance',
+    },
+  },
+  {
+    id: 'hipaa',
+    name: 'HIPAA Security Rule',
+    shortName: 'HIPAA',
+    category: 'Healthcare Information Protection',
+    description: 'Standards for protecting the confidentiality, integrity, and availability of electronic protected health information (ePHI).',
+    focusAreas: ['Administrative Safeguards', 'Physical Safeguards', 'Technical Safeguards'],
+    idealFor: ['Hospitals & clinics', 'Health tech', 'Business associates handling ePHI'],
+    docLink: 'https://www.hhs.gov/hipaa/for-professionals/security/index.html',
+    quickFacts: {
+      controlFamilies: 3,
+      totalControls: 42,
+      assuranceLevel: 'Regulatory',
+    },
+  },
+  {
+    id: 'pcidss',
+    name: 'PCI DSS v4.0',
+    shortName: 'PCI DSS',
+    category: 'Payment Card Security',
+    description: 'Global standard that helps ensure the secure handling of credit card information by merchants, processors, and service providers.',
+    focusAreas: ['Network Security', 'Vulnerability Management', 'Access Control', 'Monitoring & Testing'],
+    idealFor: ['Retail & e-commerce', 'Payment processors', 'FinTech'],
+    docLink: 'https://www.pcisecuritystandards.org/document_library',
+    quickFacts: {
+      controlFamilies: 12,
+      totalControls: 300,
+      assuranceLevel: 'Regulatory',
+    },
+  },
+  {
+    id: 'fedramp',
+    name: 'FedRAMP Moderate/High Baseline',
+    shortName: 'FedRAMP',
+    category: 'US Federal Cloud Authorization',
+    description: 'Standardized approach to security assessment, authorization, and continuous monitoring for cloud products and services used by U.S. federal agencies.',
+    focusAreas: ['Authorization Boundary', 'Continuous Monitoring', 'Audit Logging', 'Incident Reporting'],
+    idealFor: ['Cloud service providers', 'GovTech startups', 'SaaS working with US federal agencies'],
+    docLink: 'https://www.fedramp.gov/documents/',
+    quickFacts: {
+      controlFamilies: 17,
+      totalControls: 325,
+      assuranceLevel: 'High',
+    },
+  },
+];
 
 
 
@@ -468,6 +591,7 @@ const ComplianceMVP = () => {
   const [selectedRecommendationIndex, setSelectedRecommendationIndex] = useState(0);
   const [automationPlan, setAutomationPlan] = useState(null);
   const [showPlanGenerator, setShowPlanGenerator] = useState(false);
+  const [frameworkGlossarySearch, setFrameworkGlossarySearch] = useState('');
   
   // Enterprise features
   const [entities, setEntities] = useState([]);
@@ -9239,9 +9363,112 @@ const ComplianceMVP = () => {
 
 
   const renderEntities = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Entity Management</h2><p className="text-muted-foreground mt-2">Manage subsidiaries and regional entities</p></div>;
-  const renderRBAC = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Roles & Permissions</h2><p className="text-muted-foreground mt-2">Manage access control and user permissions</p></div>;
   const renderDataImport = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Data Import Center</h2><p className="text-muted-foreground mt-2">Connect your security tools and import data seamlessly</p></div>;
   const renderVendors = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Vendor Risk Management</h2><p className="text-muted-foreground mt-2">Track third-party compliance and inherited controls</p></div>;
+  const renderFrameworkGlossary = () => {
+    const query = frameworkGlossarySearch.trim().toLowerCase();
+    const filteredFrameworks = FRAMEWORK_GLOSSARY.filter((framework) => {
+      if (!query) return true;
+      return (
+        framework.name.toLowerCase().includes(query) ||
+        framework.shortName.toLowerCase().includes(query) ||
+        framework.description.toLowerCase().includes(query) ||
+        framework.focusAreas.some((area) => area.toLowerCase().includes(query)) ||
+        framework.idealFor.some((audience) => audience.toLowerCase().includes(query))
+      );
+    });
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">Framework Glossary & Control Guide</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Quick explanations, focus areas, and official reference links to help teams understand where each framework shines.
+              </p>
+            </div>
+            <div className="relative w-full max-w-sm">
+              <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={frameworkGlossarySearch}
+                onChange={(e) => setFrameworkGlossarySearch(e.target.value)}
+                placeholder="Search frameworks, controls, industries..."
+                className="w-full pl-9 pr-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filteredFrameworks.map((framework) => (
+            <div key={framework.id} className="border border-[hsl(var(--border))] rounded-lg bg-card shadow-sm p-5 flex flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">{framework.name}</h3>
+                  <p className="text-xs text-muted-foreground mt-1 uppercase tracking-wide">
+                    {framework.category} • {framework.shortName}
+                  </p>
+                </div>
+                <button
+                  onClick={() => window.open(framework.docLink, '_blank', 'noopener,noreferrer')}
+                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  Reference <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+
+              <p className="text-sm text-muted-foreground leading-relaxed">{framework.description}</p>
+
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs font-semibold text-foreground uppercase tracking-wide mb-1">Focus Areas</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {framework.focusAreas.map((area) => (
+                      <span key={`${framework.id}-${area}`} className="text-[11px] bg-muted/50 border border-[hsl(var(--border))] text-muted-foreground px-2 py-0.5 rounded">
+                        {area}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-foreground uppercase tracking-wide mb-1">Great For</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {framework.idealFor.map((audience) => (
+                      <span key={`${framework.id}-aud-${audience}`} className="text-[11px] bg-primary/10 border border-primary/20 text-primary px-2 py-0.5 rounded">
+                        {audience}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground pt-2 border-t border-dashed border-[hsl(var(--border))]">
+                <div>
+                  <div className="font-semibold text-foreground">{framework.quickFacts.controlFamilies}</div>
+                  <div className="text-[11px] uppercase tracking-wide">Control Families</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">{framework.quickFacts.totalControls}</div>
+                  <div className="text-[11px] uppercase tracking-wide">Controls</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-foreground">{framework.quickFacts.assuranceLevel}</div>
+                  <div className="text-[11px] uppercase tracking-wide">Assurance</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {filteredFrameworks.length === 0 && (
+          <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-8 text-center text-sm text-muted-foreground">
+            No framework matches your search. Try keywords like “cloud”, “healthcare”, or “risk”.
+          </div>
+        )}
+      </div>
+    );
+  };
   
   const renderResponsibilityMatrix = () => {
     const filteredMatrix = responsibilityMatrix.filter(m => {
@@ -9755,14 +9982,54 @@ const ComplianceMVP = () => {
   // ============================================================================
   
   const renderIAM = () => {
+    const totalRoles = roles.length;
+    const privilegedRoles = roles.filter((role) => role.permissions.includes('*'));
+    const privilegedRolesCount = privilegedRoles.length;
+    const averagePermissionsPerRole = totalRoles
+      ? Math.round(roles.reduce((sum, role) => sum + (role.permissions?.length || 0), 0) / totalRoles)
+      : 0;
+
+    const permissionTemplates = [
+      {
+        id: 'least_privilege',
+        name: 'Least Privilege Starter',
+        description: 'Baseline visibility with no write access. Perfect for contractors or auditors-in-training.',
+        permissions: ['dashboard.view', 'controls.view_assigned', 'reports.view'],
+        recommendedFor: 'Observers, business stakeholders, external auditors',
+      },
+      {
+        id: 'control_owner',
+        name: 'Control Owner Toolkit',
+        description: 'Adds evidence upload and control updates without broad administrative powers.',
+        permissions: ['controls.view', 'controls.edit_assigned', 'evidence.upload', 'reports.generate'],
+        recommendedFor: 'Control owners, department managers',
+      },
+      {
+        id: 'security_operator',
+        name: 'Security Operations',
+        description: 'Balanced access for analysts handling incidents, vendors, and integrations.',
+        permissions: ['controls.view', 'vendors.edit', 'incidents.manage', 'integrations.manage'],
+        recommendedFor: 'Security analysts, platform operators',
+      },
+      {
+        id: 'full_admin',
+        name: 'Platform Administrator',
+        description: 'Full system control including IAM, automation, and data architecture changes.',
+        permissions: ['*'],
+        recommendedFor: 'CISO, Platform owners, Senior administrators',
+      },
+    ];
+
     return (
       <div className="space-y-6">
         {/* Header */}
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold text-foreground">IAM & Permissions</h2>
-              <p className="text-sm text-muted-foreground mt-1">Manage user permissions, vendor access, and audit trails</p>
+              <h2 className="text-2xl font-bold text-foreground">IAM, Roles & Permissions</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Centralize account access, roles, vendor privileges, and audit evidence in one workspace.
+              </p>
             </div>
             <div className="flex gap-2">
               <button
@@ -9784,18 +10051,28 @@ const ComplianceMVP = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Active Roles</div>
+            <div className="text-2xl font-bold text-foreground">{totalRoles}</div>
+            <div className="text-xs text-muted-foreground mt-1">{privilegedRolesCount} elevated</div>
+          </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
             <div className="text-sm text-muted-foreground mb-1">Active Permissions</div>
             <div className="text-2xl font-bold text-foreground">{userPermissions.length}</div>
+            <div className="text-xs text-muted-foreground mt-1">Avg {averagePermissionsPerRole} per role</div>
+          </div>
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
+            <div className="text-sm text-muted-foreground mb-1">Privileged Roles</div>
+            <div className="text-2xl font-bold text-foreground">{privilegedRolesCount}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {(totalRoles ? Math.round((privilegedRolesCount / totalRoles) * 100) : 0)}% of total
+            </div>
           </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
             <div className="text-sm text-muted-foreground mb-1">Vendor Profiles</div>
             <div className="text-2xl font-bold text-foreground">{vendorAccessProfiles.length}</div>
-          </div>
-          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
-            <div className="text-sm text-muted-foreground mb-1">Audit Log Entries</div>
-            <div className="text-2xl font-bold text-foreground">{permissionAuditLog.length}</div>
+            <div className="text-xs text-muted-foreground mt-1">Access monitored</div>
           </div>
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-4">
             <div className="text-sm text-muted-foreground mb-1">Expiring Soon</div>
@@ -9807,6 +10084,111 @@ const ComplianceMVP = () => {
                 return daysUntilExpiry > 0 && daysUntilExpiry <= 30;
               }).length}
             </div>
+          </div>
+        </div>
+
+        {/* Role Directory */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6 space-y-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Role Directory</h3>
+              <p className="text-sm text-muted-foreground">
+                Curated access bundles with mapped permissions, user counts, and best-fit scenarios.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/60 border border-[hsl(var(--border))] rounded-lg px-3 py-2">
+              <Shield className="w-3 h-3" />
+              <span>{averagePermissionsPerRole} avg permissions per role</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {roles.map((role) => {
+              const displayPermissions = role.permissions.slice(0, 4);
+              const remaining = Math.max(role.permissions.length - displayPermissions.length, 0);
+              const borderAccent =
+                role.color === 'red' ? 'border-red-500/30' :
+                role.color === 'blue' ? 'border-blue-500/30' :
+                role.color === 'green' ? 'border-green-500/30' :
+                role.color === 'purple' ? 'border-purple-500/30' :
+                role.color === 'yellow' ? 'border-yellow-500/30' :
+                'border-muted';
+
+              return (
+                <div key={role.id} className={`border ${borderAccent} rounded-lg p-4 bg-muted/20 hover:bg-muted/30 transition-colors`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-foreground">{role.name}</h4>
+                      <p className="text-xs text-muted-foreground mt-1">{role.description}</p>
+                    </div>
+                    <span className="px-2 py-1 text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20 rounded-full">
+                      {role.userCount} users
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="flex flex-wrap gap-1">
+                      {displayPermissions.map((perm) => (
+                        <span key={`${role.id}-${perm}`} className="text-[11px] bg-card border border-[hsl(var(--border))] px-2 py-0.5 rounded text-muted-foreground">
+                          {perm === '*' ? 'Full access' : perm}
+                        </span>
+                      ))}
+                      {remaining > 0 && (
+                        <span className="text-[11px] text-muted-foreground">+{remaining} more</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <Activity className="w-3 h-3" />
+                      <span>
+                        Coverage: {role.permissions.includes('*') ? 'All resources' : `${role.permissions.length} scoped rights`}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Permission Templates */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-sm p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">Permission Templates</h3>
+              <p className="text-sm text-muted-foreground">
+                Starter bundles to accelerate onboarding and maintain least-privilege access.
+              </p>
+            </div>
+            <BookOpen className="w-5 h-5 text-primary" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {permissionTemplates.map((template) => (
+              <div key={template.id} className="border border-[hsl(var(--border))] rounded-lg p-4 bg-muted/10">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-foreground">{template.name}</h4>
+                    <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  <div className="flex flex-wrap gap-1">
+                    {template.permissions.slice(0, 3).map((perm) => (
+                      <span key={`${template.id}-${perm}`} className="text-[11px] bg-card border border-[hsl(var(--border))] px-2 py-0.5 rounded text-muted-foreground">
+                        {perm}
+                      </span>
+                    ))}
+                    {template.permissions.length > 3 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        +{template.permissions.length - 3} more
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                    <Target className="w-3 h-3" />
+                    <span>{template.recommendedFor}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -9892,8 +10274,15 @@ const ComplianceMVP = () => {
         {/* Audit Log */}
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
           <div className="p-6 border-b border-[hsl(var(--border))]">
-            <h3 className="text-lg font-semibold text-foreground">Permission Audit Log</h3>
-            <p className="text-sm text-muted-foreground mt-1">Immutable record of all permission changes</p>
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Permission Audit Log</h3>
+                <p className="text-sm text-muted-foreground mt-1">Immutable record of all permission changes</p>
+              </div>
+              <span className="text-xs text-muted-foreground border border-[hsl(var(--border))] rounded-lg px-3 py-1 bg-muted/60">
+                {permissionAuditLog.length} events recorded
+              </span>
+            </div>
           </div>
           <div className="overflow-x-auto max-h-96 overflow-y-auto">
             <table className="w-full">
@@ -12164,11 +12553,11 @@ const ComplianceMVP = () => {
       'automation': 'Automation Plan',
       'import': 'Data Import',
       'vendors': 'Vendors',
-      'rbac': 'Roles & Permissions',
       'timeline': 'Timeline',
       'responsibility': 'Responsibility Matrix',
       'audits': 'Audits & Certifications',
-      'iam': 'IAM & Permissions'
+      'iam': 'IAM & Permissions',
+      'framework_glossary': 'Framework Glossary'
     };
     return viewNames[view] || 'Controls';
   };
@@ -12182,11 +12571,11 @@ const ComplianceMVP = () => {
       'automation': Award,
       'import': Upload,
       'vendors': Users,
-      'rbac': Shield,
       'timeline': TrendingUp,
       'responsibility': Database,
       'audits': ClipboardList,
-      'iam': UserCheck
+      'iam': UserCheck,
+      'framework_glossary': BookOpen
     };
     const IconComponent = icons[view] || Shield;
     return <IconComponent className="w-4 h-4" />;
@@ -12229,7 +12618,7 @@ const ComplianceMVP = () => {
                 {/* Compliance & Controls Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['controls', 'responsibility', 'audits'].includes(activeView)
+                    ['controls', 'responsibility', 'audits', 'framework_glossary'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -12248,6 +12637,10 @@ const ComplianceMVP = () => {
                       <Database className="w-4 h-4 mr-2" />
                       <span>Responsibility Matrix</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('framework_glossary')}>
+                      <BookOpen className="w-4 h-4 mr-2" />
+                      <span>Framework Glossary</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => { setActiveView('audits'); setSelectedAudit(null); }}>
                       <FileCheck className="w-4 h-4 mr-2" />
                       <span>Audits & Certifications</span>
@@ -12258,7 +12651,7 @@ const ComplianceMVP = () => {
                 {/* Security & Access Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['rbac', 'iam', 'csca', 'architecture'].includes(activeView)
+                    ['iam', 'csca', 'architecture'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -12269,10 +12662,6 @@ const ComplianceMVP = () => {
                   <DropdownMenuContent align="start" className="w-56">
                     <DropdownMenuLabel>Security, Roles & Access</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setActiveView('rbac')}>
-                      <Shield className="w-4 h-4 mr-2" />
-                      <span>Roles & Permissions</span>
-                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('iam')}>
                       <UserCheck className="w-4 h-4 mr-2" />
                       <span>IAM & Permissions</span>
@@ -12398,6 +12787,10 @@ const ComplianceMVP = () => {
                     <Database className="w-4 h-4 mr-2" />
                     <span>Responsibility Matrix</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('framework_glossary'); setMobileMenuOpen(false); }}>
+                    <BookOpen className="w-4 h-4 mr-2" />
+                    <span>Framework Glossary</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { setActiveView('audits'); setSelectedAudit(null); setMobileMenuOpen(false); }}>
                     <FileCheck className="w-4 h-4 mr-2" />
                     <span>Audits & Certifications</span>
@@ -12414,10 +12807,6 @@ const ComplianceMVP = () => {
                   <ChevronDown className="w-4 h-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-full">
-                  <DropdownMenuItem onClick={() => { setActiveView('rbac'); setMobileMenuOpen(false); }}>
-                    <Shield className="w-4 h-4 mr-2" />
-                    <span>Roles & Permissions</span>
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { setActiveView('iam'); setMobileMenuOpen(false); }}>
                     <UserCheck className="w-4 h-4 mr-2" />
                     <span>IAM & Permissions</span>
@@ -12522,6 +12911,7 @@ const ComplianceMVP = () => {
 
               {activeView === 'dashboard' ? renderDashboard() : 
                activeView === 'audits' ? renderAudits() :
+               activeView === 'framework_glossary' ? renderFrameworkGlossary() :
                activeView === 'iam' ? renderIAM() :
                activeView === 'architecture' ? (
                  <DataFlowArchitectureView
@@ -12577,7 +12967,6 @@ const ComplianceMVP = () => {
                activeView === 'automation' ? renderAutomationPlan() :
                activeView === 'import' ? renderDataImport() :
                activeView === 'vendors' ? renderVendors() :
-               activeView === 'rbac' ? renderRBAC() :
                activeView === 'timeline' ? renderTimeline() :
                activeView === 'responsibility' ? renderResponsibilityMatrix() :
                renderControls()}
