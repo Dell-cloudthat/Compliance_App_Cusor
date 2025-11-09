@@ -608,6 +608,26 @@ CREATE INDEX IF NOT EXISTS idx_security_compliance_correlation_user ON security_
 CREATE INDEX IF NOT EXISTS idx_compliance_alerts_user ON compliance_alerts(user_id);
 CREATE INDEX IF NOT EXISTS idx_compliance_alerts_acknowledged ON compliance_alerts(acknowledged);
 
+CREATE TABLE IF NOT EXISTS alert_activity_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  alert_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  actor TEXT,
+  event_type TEXT NOT NULL,
+  status TEXT,
+  notes TEXT,
+  actions_taken TEXT,
+  evidence_links TEXT,
+  metadata_json TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (alert_id) REFERENCES compliance_alerts(id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_activity_alert ON alert_activity_log(alert_id);
+CREATE INDEX IF NOT EXISTS idx_alert_activity_user ON alert_activity_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_alert_activity_created ON alert_activity_log(created_at);
+
 -- ============================================================================
 -- Security Event Pattern Detection & Trend Analysis
 -- ============================================================================

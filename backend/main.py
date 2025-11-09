@@ -2250,6 +2250,15 @@ async def acknowledge_compliance_alert(alert_id: int, user_id: int = Header(...,
     return {"message": "Alert acknowledged"}
 
 
+@app.get("/api/alerts/{alert_id}")
+async def get_alert_detail(alert_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Retrieve detailed alert drill-down data"""
+    detail = alert_service.get_alert_detail(alert_id, user_id)
+    if not detail:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return detail
+
+
 @app.post("/api/alerts/{alert_id}/remediation")
 async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdate, user_id: int = Header(..., alias="X-User-Id")):
     """Update remediation workflow for an alert and optionally modify related controls"""
@@ -2354,14 +2363,20 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
         payload.status,
         metadata_patch=metadata_patch if metadata_patch else None,
         resolved_by=str(user_id) if payload.status == 'resolved' else None,
-        notes=payload.notes
+        notes=payload.notes,
+        user_id=user_id,
+        actor=f"User {user_id}",
+        actions_taken=payload.actions_taken,
+        evidence_links=payload.evidence_links,
+        control_updates=control_updates_payload if control_updates_payload else None,
     )
 
     if not updated_alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
     await alert_ws_manager.broadcast_alert(updated_alert, 'alert.updated')
-    return updated_alert
+    detail_payload = alert_service.get_alert_detail(alert_id, user_id)
+    return detail_payload or updated_alert
 
 @app.get("/api/security-compliance-correlation")
 async def get_security_compliance_correlation_endpoint(user_id: int = Header(..., alias="X-User-Id"), days: int = 30):

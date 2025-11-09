@@ -789,6 +789,9 @@ const ComplianceMVP = () => {
   const alertsSocketRef = useRef(null);
   const [alertsSocketConnected, setAlertsSocketConnected] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
+  const [selectedAlertDetail, setSelectedAlertDetail] = useState(null);
+  const [alertDetailLoading, setAlertDetailLoading] = useState(false);
+  const [alertDetailError, setAlertDetailError] = useState(null);
   const [showAlertRemediation, setShowAlertRemediation] = useState(false);
   const [alertRemediationForm, setAlertRemediationForm] = useState({
     status: 'in_progress',
@@ -2702,6 +2705,9 @@ const ComplianceMVP = () => {
   const closeAlertRemediation = useCallback(() => {
     setShowAlertRemediation(false);
     setSelectedAlert(null);
+    setSelectedAlertDetail(null);
+    setAlertDetailError(null);
+    setAlertDetailLoading(false);
     setAlertRemediationForm({
       status: 'in_progress',
       notes: '',
@@ -2710,6 +2716,106 @@ const ComplianceMVP = () => {
       controlUpdates: {}
     });
   }, []);
+
+  const buildDemoAlertDetail = useCallback((alert) => {
+    if (!alert) return null;
+    const triggeredAt = alert.created_at ? new Date(alert.created_at) : new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const acknowledgedAt = alert.acknowledged_at ? new Date(alert.acknowledged_at) : new Date(triggeredAt.getTime() + 45 * 60 * 1000);
+    const updatedAt = alert.updated_at ? new Date(alert.updated_at) : new Date(Date.now() - 30 * 60 * 1000);
+
+    const timeline = [
+      {
+        id: `${alert.id}-triggered`,
+        timestamp: triggeredAt.toISOString(),
+        actor: 'Monitoring Engine',
+        event: 'Alert Triggered',
+        status: 'open',
+        notes: `Detected drift across ${alert.framework || 'framework'} with ${alert.drift_payload?.gaps_count || 12} gaps.`,
+        evidence_links: alert.drift_payload?.evidence_links || [],
+      },
+      {
+        id: `${alert.id}-ack`,
+        timestamp: acknowledgedAt.toISOString(),
+        actor: 'Compliance Bot',
+        event: 'Automated Assessment',
+        status: 'in_progress',
+        notes: 'Generated remediation guidance and prioritized affected controls.',
+        evidence_links: [],
+      },
+      {
+        id: `${alert.id}-update`,
+        timestamp: updatedAt.toISOString(),
+        actor: alert.responsible_party || 'Compliance Team',
+        event: 'Owner Assigned',
+        status: alert.status || 'open',
+        notes: 'Assigned remediation owner and initiated evidence collection.',
+        evidence_links: [],
+      },
+    ];
+
+    const linkedControls = (alert.remediation_guidance || []).map((guidance, index) => ({
+      id: guidance.control_id,
+      control_name: guidance.control_name,
+      framework: guidance.framework || alert.framework,
+      priority: guidance.priority,
+      status: guidance.current_status || 'Not Implemented',
+      target_status: guidance.target_status || 'Implemented',
+      owner: guidance.current_owner || alert.responsible_party || 'Unassigned',
+      coverage_delta: guidance.coverage_delta ?? -5,
+      evidence_links: guidance.evidence_links || [],
+      automation_ready: Boolean(guidance.automation_ready),
+      sequence: index + 1,
+    }));
+
+    const riskSnapshot = {
+      severity: alert.severity || 'high',
+      drift_percentage: alert.drift_payload?.drift_percentage ?? 7.5,
+      baseline_score: alert.drift_payload?.baseline_score ?? alert.compliance_score_before ?? 85,
+      current_score: alert.drift_payload?.current_score ?? alert.compliance_score_after ?? 78,
+      risk_owner: alert.responsible_party || 'Compliance Operations',
+      affected_assets: alert.drift_payload?.affected_assets || 12,
+      automation_impact: linkedControls.filter((ctrl) => ctrl.automation_ready).length,
+    };
+
+    return {
+      timeline,
+      linked_controls: linkedControls,
+      risk_snapshot: riskSnapshot,
+      actions: [
+        { id: 'guidance', label: 'View Guidance', icon: 'Sparkles', description: 'Review AI-generated remediation steps' },
+        { id: 'assign', label: 'Assign Owner', icon: 'UserCheck', description: 'Assign resolver and set due date' },
+        { id: 'ticket', label: 'Open Change Ticket', icon: 'ClipboardList', description: 'Create Jira/ServiceNow ticket' },
+        { id: 'evidence', label: 'Request Evidence', icon: 'FileCheck', description: 'Trigger automated evidence capture' },
+      ],
+      last_updated: updatedAt.toISOString(),
+      first_detected: triggeredAt.toISOString(),
+    };
+  }, []);
+
+  const fetchAlertDetails = useCallback(async (alert) => {
+    if (!alert) {
+      return;
+    }
+    setAlertDetailLoading(true);
+    setAlertDetailError(null);
+    try {
+      let detail = null;
+      if (backendConnected && currentUser?.id) {
+        detail = await api.getAlertDetails(currentUser.id, alert.id);
+      }
+      if (!detail) {
+        detail = buildDemoAlertDetail(alert);
+      }
+      setSelectedAlertDetail(detail);
+    } catch (error) {
+      console.error('Alert detail load error:', error);
+      const message = error?.detail || error?.message || 'Unable to load alert detail';
+      setAlertDetailError(message);
+      setSelectedAlertDetail(buildDemoAlertDetail(alert));
+    } finally {
+      setAlertDetailLoading(false);
+    }
+  }, [backendConnected, buildDemoAlertDetail, currentUser?.id]);
 
   const openAlertRemediation = useCallback((alert) => {
     if (!alert) return;
@@ -2732,7 +2838,10 @@ const ComplianceMVP = () => {
     });
     setSelectedAlert(alert);
     setShowAlertRemediation(true);
-  }, []);
+    setAlertDetailError(null);
+    setSelectedAlertDetail(null);
+    fetchAlertDetails(alert);
+  }, [fetchAlertDetails]);
 
   const handleRemediationFieldChange = (field, value) => {
     setAlertRemediationForm((prev) => ({
@@ -3008,6 +3117,18 @@ const ComplianceMVP = () => {
 
       await api.updateAlertRemediation(selectedAlert.id, currentUser.id, payload);
 
+      setSelectedAlert((prev) => {
+        if (!prev || prev.id !== selectedAlert.id) {
+          return prev;
+        }
+        return {
+          ...prev,
+          status: statusSnapshot,
+          acknowledged: true,
+          updated_at: new Date().toISOString(),
+        };
+      });
+
       if (controlUpdatesPayload.length) {
         applyControlUpdates(controlUpdatesPayload);
       }
@@ -3019,8 +3140,10 @@ const ComplianceMVP = () => {
       await loadActionableAlerts();
       if (statusSnapshot === 'resolved') {
         loadFrameworkGrowth();
+        closeAlertRemediation();
+      } else if (alertContext) {
+        await fetchAlertDetails(alertContext);
       }
-      closeAlertRemediation();
     } catch (error) {
       console.error('Error updating alert remediation:', error);
     } finally {
@@ -4540,6 +4663,16 @@ const ComplianceMVP = () => {
     "Non-Compliant": "bg-red-500/10 text-red-500 border-red-500/20",
     "Vendor Managed": "bg-blue-500/10 text-blue-500 border-blue-500/20"
   };
+  const ALERT_ACTION_ICONS = {
+    Sparkles,
+    UserCheck,
+    ClipboardList,
+    FileCheck,
+    ExternalLink,
+    Activity,
+    Target,
+    Link2,
+  };
 
   const matrixEntriesById = useMemo(() => {
     const map = new Map();
@@ -4613,6 +4746,117 @@ const ComplianceMVP = () => {
     });
     return Array.from(statuses).sort((a, b) => a.localeCompare(b));
   }, [controlsWithResponsibility]);
+  const alertRiskSnapshot = useMemo(() => {
+    if (selectedAlertDetail?.risk_snapshot) {
+      return selectedAlertDetail.risk_snapshot;
+    }
+    if (!selectedAlert) {
+      return null;
+    }
+    const drift = selectedAlert.drift_payload || {};
+    const guidance = selectedAlert.remediation_guidance || [];
+    return {
+      severity: selectedAlert.severity || 'medium',
+      drift_percentage: drift.drift_percentage ?? null,
+      baseline_score: drift.baseline_score ?? selectedAlert.compliance_score_before ?? null,
+      current_score: drift.current_score ?? selectedAlert.compliance_score_after ?? null,
+      risk_owner: selectedAlert.responsible_party || 'Unassigned',
+      affected_assets: drift.affected_assets ?? null,
+      automation_impact: guidance.filter((item) => item.automation_ready).length,
+    };
+  }, [selectedAlert, selectedAlertDetail]);
+
+  const alertTimeline = useMemo(() => {
+    if (selectedAlertDetail?.timeline?.length) {
+      return selectedAlertDetail.timeline;
+    }
+    if (!selectedAlert) {
+      return [];
+    }
+    const events = [];
+    const baseId = selectedAlert.id || 'alert';
+    const createdAt = selectedAlert.created_at;
+    const acknowledgedAt = selectedAlert.acknowledged_at;
+    const updatedAt = selectedAlert.updated_at || (selectedAlert.status === 'resolved' ? selectedAlert.resolved_at : null);
+    if (createdAt) {
+      events.push({
+        id: `${baseId}-created`,
+        timestamp: createdAt,
+        actor: selectedAlert.triggered_by || 'Monitoring Engine',
+        event: 'Alert Triggered',
+        status: 'open',
+        notes: selectedAlert.description || 'Alert raised by monitoring engine.',
+        evidence_links: [],
+      });
+    }
+    if (acknowledgedAt) {
+      events.push({
+        id: `${baseId}-ack`,
+        timestamp: acknowledgedAt,
+        actor: selectedAlert.responsible_party || 'Compliance Bot',
+        event: 'Acknowledged',
+        status: 'in_progress',
+        notes: 'Alert acknowledged and remediation guidance prepared.',
+        evidence_links: [],
+      });
+    }
+    if (updatedAt && (!createdAt || updatedAt !== createdAt)) {
+      events.push({
+        id: `${baseId}-update`,
+        timestamp: updatedAt,
+        actor: selectedAlert.updated_by || selectedAlert.responsible_party || 'Compliance Team',
+        event: selectedAlert.status === 'resolved' ? 'Resolved' : 'Updated',
+        status: selectedAlert.status || 'open',
+        notes: selectedAlert.status === 'resolved'
+          ? 'All remediation steps completed and evidence captured.'
+          : 'Alert status updated with latest remediation progress.',
+        evidence_links: [],
+      });
+    }
+    return events;
+  }, [selectedAlert, selectedAlertDetail]);
+
+  const alertLinkedControls = useMemo(() => {
+    if (selectedAlertDetail?.linked_controls?.length) {
+      return selectedAlertDetail.linked_controls;
+    }
+    if (!selectedAlert?.remediation_guidance?.length) {
+      return [];
+    }
+    return selectedAlert.remediation_guidance.map((guidance, index) => ({
+      id: guidance.control_id,
+      control_name: guidance.control_name,
+      framework: guidance.framework || selectedAlert.framework,
+      priority: guidance.priority,
+      status: guidance.status || guidance.current_status || 'Not Implemented',
+      target_status: guidance.target_status || 'Implemented',
+      owner: guidance.current_owner || guidance.recommended_owner || selectedAlert.responsible_party || 'Unassigned',
+      coverage_delta: guidance.coverage_delta ?? null,
+      evidence_links: guidance.evidence_links || [],
+      automation_ready: Boolean(guidance.automation_ready),
+      sequence: guidance.sequence || index + 1,
+    }));
+  }, [selectedAlert, selectedAlertDetail]);
+
+  const alertQuickActions = useMemo(() => {
+    if (selectedAlertDetail?.actions?.length) {
+      return selectedAlertDetail.actions;
+    }
+    return [
+      { id: 'guidance', label: 'View Guidance', icon: 'Sparkles', description: 'Review AI-generated remediation steps' },
+      { id: 'assign', label: 'Assign Owner', icon: 'UserCheck', description: 'Assign resolver and set due date' },
+      { id: 'ticket', label: 'Open Change Ticket', icon: 'ClipboardList', description: 'Create change or incident record' },
+      { id: 'evidence', label: 'Request Evidence', icon: 'FileCheck', description: 'Trigger automated evidence capture' },
+    ];
+  }, [selectedAlertDetail]);
+  const alertFirstDetectedTs = selectedAlertDetail?.first_detected || selectedAlert?.created_at || null;
+  const alertLastUpdatedTs =
+    selectedAlertDetail?.last_updated ||
+    selectedAlert?.updated_at ||
+    selectedAlert?.resolved_at ||
+    selectedAlert?.created_at ||
+    null;
+  const priorityGuidance = selectedAlert?.remediation_guidance || [];
 
   const totalControls = controlsWithResponsibility.length;
   const sharedControlsCount = controlsWithResponsibility.filter(control => control.responsibility.shared_responsibility).length;
@@ -8375,7 +8619,7 @@ const ComplianceMVP = () => {
               </div>
 
               <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
                     <div className="text-xs text-muted-foreground uppercase tracking-wide">Severity</div>
                     <div className="text-sm font-semibold text-foreground mt-1">{selectedAlert.severity?.toUpperCase()}</div>
@@ -8388,158 +8632,423 @@ const ComplianceMVP = () => {
                     <div className="text-xs text-muted-foreground uppercase tracking-wide">Framework</div>
                     <div className="text-sm font-semibold text-foreground mt-1">{selectedAlert.framework}</div>
                   </div>
-                </div>
-
-                {selectedAlert.drift_payload && (
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-amber-500 mb-3">
-                      <TrendingDown className="w-4 h-4" />
-                      <span className="text-sm font-semibold">Detected Drift Details</span>
+                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">Last Updated</div>
+                    <div className="text-sm font-semibold text-foreground mt-1">
+                      {alertLastUpdatedTs ? formatRelative(alertLastUpdatedTs) : '—'}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm text-muted-foreground">
-                      <div>
-                        <div className="text-xs uppercase">Drift</div>
-                        <div className="text-foreground font-semibold">{selectedAlert.drift_payload.drift_percentage?.toFixed?.(1) ?? selectedAlert.drift_payload.drift_percentage}%</div>
+                    {alertFirstDetectedTs && (
+                      <div className="text-[11px] text-muted-foreground mt-1">
+                        Detected {formatRelative(alertFirstDetectedTs)}
                       </div>
-                      <div>
-                        <div className="text-xs uppercase">Baseline Score</div>
-                        <div className="text-foreground font-semibold">{selectedAlert.drift_payload.baseline_score?.toFixed?.(1) ?? selectedAlert.compliance_score_before}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase">Current Score</div>
-                        <div className="text-foreground font-semibold">{selectedAlert.drift_payload.current_score?.toFixed?.(1) ?? selectedAlert.compliance_score_after}</div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase">Gaps</div>
-                        <div className="text-red-500 font-semibold">{selectedAlert.drift_payload.gaps_count}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-muted-foreground mb-1">Alert Status</label>
-                    <select
-                      value={alertRemediationForm.status}
-                      onChange={(e) => handleRemediationFieldChange('status', e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                    >
-                      <option value="open">Open</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="resolved">Resolved</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-muted-foreground mb-1">Remediation Notes</label>
-                    <textarea
-                      value={alertRemediationForm.notes}
-                      onChange={(e) => handleRemediationFieldChange('notes', e.target.value)}
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                      placeholder="Document key findings, blockers, or context"
-                    />
+                    )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-muted-foreground mb-1">Actions Taken</label>
-                    <textarea
-                      value={alertRemediationForm.actionsTaken}
-                      onChange={(e) => handleRemediationFieldChange('actionsTaken', e.target.value)}
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                      placeholder="List actions (comma or newline separated)"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence Links</label>
-                    <textarea
-                      value={alertRemediationForm.evidenceLinks}
-                      onChange={(e) => handleRemediationFieldChange('evidenceLinks', e.target.value)}
-                      rows={3}
-                      className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                      placeholder="Paste evidence URLs or references"
-                    />
-                  </div>
-                </div>
+                <div className="grid lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2 space-y-6">
+                    {alertDetailLoading && (
+                      <div className="bg-muted/30 border border-dashed border-[hsl(var(--border))] rounded-lg p-4 text-sm text-muted-foreground">
+                        Loading alert context…
+                      </div>
+                    )}
+                    {alertDetailError && (
+                      <div className="bg-red-500/10 border border-red-500/20 text-red-600 rounded-lg p-4 text-sm">
+                        {alertDetailError}
+                      </div>
+                    )}
 
-                {(selectedAlert.remediation_guidance || []).length > 0 && (
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-semibold text-foreground">Priority Controls</h4>
-                    {(selectedAlert.remediation_guidance || []).map((guidance) => {
-                      const controlForm = alertRemediationForm.controlUpdates[guidance.control_id] || {};
-                      return (
-                        <div key={guidance.control_id} className="border border-[hsl(var(--border))] rounded-lg bg-muted/20 p-4 space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <div className="text-sm font-semibold text-foreground">{guidance.control_name}</div>
-                              <div className="text-xs text-muted-foreground">{guidance.control_id} • {guidance.priority}</div>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="px-2 py-1 rounded bg-card border border-[hsl(var(--border))]">Current: {guidance.status}</span>
-                              {guidance.recommended_owner && (
-                                <span className="px-2 py-1 rounded bg-card border border-[hsl(var(--border))]">Recommended Owner: {guidance.recommended_owner}</span>
-                              )}
-                            </div>
+                    {alertRiskSnapshot && (
+                      <div className="bg-muted/20 border border-[hsl(var(--border))] rounded-lg p-5 space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-semibold text-foreground">Risk Snapshot</h4>
+                            {alertLastUpdatedTs && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Updated {formatRelative(alertLastUpdatedTs)}
+                              </p>
+                            )}
                           </div>
-
-                          {guidance.remediation_steps && guidance.remediation_steps.length > 0 && (
-                            <div className="bg-card border border-dashed border-[hsl(var(--border))] rounded-lg p-3 text-xs text-muted-foreground">
-                              <div className="font-medium text-foreground mb-2">Guided Steps</div>
-                              <ol className="list-decimal pl-4 space-y-1">
-                                {guidance.remediation_steps.map((step) => (
-                                  <li key={step.step}>
-                                    <span className="font-medium text-foreground">{step.action}</span>
-                                    {step.estimated_time && <span className="ml-2">({step.estimated_time})</span>}
-                                  </li>
-                                ))}
-                              </ol>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                            alertRiskSnapshot.severity === 'critical'
+                              ? 'bg-red-500/10 text-red-500 border-red-500/20'
+                              : alertRiskSnapshot.severity === 'high'
+                              ? 'bg-orange-500/10 text-orange-500 border-orange-500/20'
+                              : alertRiskSnapshot.severity === 'medium'
+                              ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+                              : 'bg-blue-500/10 text-blue-500 border-blue-500/20'
+                          }`}>
+                            {(alertRiskSnapshot.severity || 'medium').toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-muted-foreground">
+                          {alertRiskSnapshot.drift_percentage !== null && (
+                            <div>
+                              <div className="text-xs uppercase">Drift</div>
+                              <div className="text-foreground font-semibold">
+                                {alertRiskSnapshot.drift_percentage?.toFixed?.(1) ?? alertRiskSnapshot.drift_percentage}%
+                              </div>
                             </div>
                           )}
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {alertRiskSnapshot.baseline_score !== null && (
                             <div>
-                              <label className="block text-xs font-medium text-muted-foreground mb-1">Updated Status</label>
-                              <select
-                                value={controlForm.status || ''}
-                                onChange={(e) => handleControlUpdateChange(guidance.control_id, 'status', e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                              >
-                                <option value="">-- Select --</option>
-                                <option value="Implemented">Implemented</option>
-                                <option value="Partial">Partial</option>
-                                <option value="Non-Compliant">Non-Compliant</option>
-                                <option value="Vendor Managed">Vendor Managed</option>
-                              </select>
+                              <div className="text-xs uppercase">Baseline Score</div>
+                              <div className="text-foreground font-semibold">
+                                {alertRiskSnapshot.baseline_score}
+                              </div>
                             </div>
+                          )}
+                          {alertRiskSnapshot.current_score !== null && (
                             <div>
-                              <label className="block text-xs font-medium text-muted-foreground mb-1">Primary Owner</label>
-                              <input
-                                type="text"
-                                value={controlForm.responsible_party || ''}
-                                onChange={(e) => handleControlUpdateChange(guidance.control_id, 'responsible_party', e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                                placeholder="Assign owner"
-                              />
+                              <div className="text-xs uppercase">Current Score</div>
+                              <div className="text-foreground font-semibold">
+                                {alertRiskSnapshot.current_score}
+                              </div>
                             </div>
+                          )}
+                          {alertRiskSnapshot.risk_owner && (
                             <div>
-                              <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence Link</label>
-                              <input
-                                type="text"
-                                value={controlForm.evidence_link || ''}
-                                onChange={(e) => handleControlUpdateChange(guidance.control_id, 'evidence_link', e.target.value)}
-                                className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
-                                placeholder="URL or reference"
-                              />
+                              <div className="text-xs uppercase">Risk Owner</div>
+                              <div className="text-foreground font-semibold">
+                                {alertRiskSnapshot.risk_owner}
+                              </div>
+                            </div>
+                          )}
+                          {alertRiskSnapshot.affected_assets !== null && (
+                            <div>
+                              <div className="text-xs uppercase">Assets Impacted</div>
+                              <div className="text-foreground font-semibold">
+                                {alertRiskSnapshot.affected_assets}
+                              </div>
+                            </div>
+                          )}
+                          <div>
+                            <div className="text-xs uppercase">Automation Ready</div>
+                            <div className="text-foreground font-semibold">
+                              {alertRiskSnapshot.automation_impact}
                             </div>
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+                    )}
+
+                    <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="text-sm font-semibold text-foreground">Alert Timeline</h4>
+                          {alertFirstDetectedTs && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Detected {formatRelative(alertFirstDetectedTs)}
+                            </p>
+                          )}
+                        </div>
+                        {alertLastUpdatedTs && (
+                          <span className="text-xs text-muted-foreground">
+                            Last update {formatRelative(alertLastUpdatedTs)}
+                          </span>
+                        )}
+                      </div>
+                      {alertTimeline.length === 0 ? (
+                        <div className="text-xs text-muted-foreground text-center bg-muted/20 border border-dashed border-[hsl(var(--border))] rounded-lg px-4 py-6">
+                          Timeline entries will appear as remediation progresses.
+                        </div>
+                      ) : (
+                        <ol className="space-y-4">
+                          {alertTimeline.map((event) => {
+                            const statusClass =
+                              event.status === 'resolved'
+                                ? 'bg-green-500/10 text-green-500 border-green-500/20'
+                                : event.status === 'in_progress'
+                                ? 'bg-orange-500/10 text-orange-500 border-orange-500/20'
+                                : 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+                            return (
+                              <li key={event.id} className="border border-[hsl(var(--border))] rounded-lg p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-semibold text-foreground">{event.event}</div>
+                                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                                      <span>{formatRelative(event.timestamp)}</span>
+                                      <span>•</span>
+                                      <span>{event.actor}</span>
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-[11px] font-semibold border ${statusClass}`}>
+                                    {(event.status || 'open').replace('_', ' ').toUpperCase()}
+                                  </span>
+                                </div>
+                                {event.notes && (
+                                  <p className="text-xs text-muted-foreground mt-2">{event.notes}</p>
+                                )}
+                                {event.evidence_links && event.evidence_links.length > 0 && (
+                                  <div className="flex flex-wrap gap-2 mt-3">
+                                    {event.evidence_links.map((link, idx) => (
+                                      <a
+                                        key={`${event.id}-evidence-${idx}`}
+                                        href={link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                        Evidence {idx + 1}
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      )}
+                    </div>
+
+                    {alertLinkedControls.length > 0 && (
+                      <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-foreground">Linked Controls</h4>
+                          <span className="text-xs text-muted-foreground">
+                            {alertLinkedControls.length} controls impacted
+                          </span>
+                        </div>
+                        <div className="space-y-3">
+                          {alertLinkedControls.map((control) => {
+                            const badgeClass =
+                              statusColors[control.status] || 'bg-muted text-foreground border-[hsl(var(--border))]';
+                            return (
+                              <div
+                                key={control.id || control.control_id}
+                                className="border border-[hsl(var(--border))] rounded-lg p-4 bg-muted/10 hover:bg-muted/20 transition-colors"
+                              >
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-semibold text-foreground">
+                                      {control.control_name}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {(control.id || control.control_id) || 'Control'} • {control.framework || selectedAlert.framework}
+                                    </div>
+                                  </div>
+                                  <span className={`px-2 py-1 rounded-full text-[11px] font-semibold border ${badgeClass}`}>
+                                    {(control.status || 'Not Implemented').replace('_', ' ')}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground mt-3">
+                                  {control.owner && (
+                                    <span className="px-2 py-1 bg-card border border-[hsl(var(--border))] rounded">
+                                      Owner: {control.owner}
+                                    </span>
+                                  )}
+                                  {control.target_status && (
+                                    <span className="px-2 py-1 bg-card border border-[hsl(var(--border))] rounded">
+                                      Target: {control.target_status}
+                                    </span>
+                                  )}
+                                  {control.coverage_delta !== undefined && control.coverage_delta !== null && (
+                                    <span className={`px-2 py-1 bg-card border border-[hsl(var(--border))] rounded ${
+                                      control.coverage_delta >= 0 ? 'text-green-500' : 'text-red-500'
+                                    }`}>
+                                      Coverage {control.coverage_delta >= 0 ? '+' : ''}
+                                      {control.coverage_delta}%
+                                    </span>
+                                  )}
+                                  {control.automation_ready && (
+                                    <span className="px-2 py-1 bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 rounded">
+                                      Automation Ready
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 mt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleNavigateControl(control.id || control.control_id, 'controls')}
+                                    className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                                  >
+                                    View Control
+                                    <ExternalLink className="w-3 h-3" />
+                                  </button>
+                                  {control.evidence_links && control.evidence_links.length > 0 && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {control.evidence_links.length} evidence link{control.evidence_links.length === 1 ? '' : 's'}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {priorityGuidance.length > 0 && (
+                      <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-foreground">Remediation Checklist</h4>
+                          <span className="text-xs text-muted-foreground">
+                            Update status, ownership, and evidence as you work
+                          </span>
+                        </div>
+                        {priorityGuidance.map((guidance) => {
+                          const controlForm = alertRemediationForm.controlUpdates[guidance.control_id] || {};
+                          const currentStatus = guidance.status || guidance.current_status || 'Not Implemented';
+                          return (
+                            <div key={guidance.control_id} className="border border-[hsl(var(--border))] rounded-lg bg-muted/10 p-4 space-y-3">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                  <div className="text-sm font-semibold text-foreground">{guidance.control_name}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {guidance.control_id} • {guidance.priority}
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                  <span className="px-2 py-1 rounded bg-card border border-[hsl(var(--border))]">
+                                    Current: {currentStatus}
+                                  </span>
+                                  {guidance.recommended_owner && (
+                                    <span className="px-2 py-1 rounded bg-card border border-[hsl(var(--border))]">
+                                      Recommended Owner: {guidance.recommended_owner}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {guidance.remediation_steps && guidance.remediation_steps.length > 0 && (
+                                <div className="bg-card border border-dashed border-[hsl(var(--border))] rounded-lg p-3 text-xs text-muted-foreground">
+                                  <div className="font-medium text-foreground mb-2">Guided Steps</div>
+                                  <ol className="list-decimal pl-4 space-y-1">
+                                    {guidance.remediation_steps.map((step, idx) => (
+                                      <li key={`${guidance.control_id}-step-${idx}`}>
+                                        <span className="font-medium text-foreground">{step.action}</span>
+                                        {step.estimated_time && <span className="ml-2">({step.estimated_time})</span>}
+                                      </li>
+                                    ))}
+                                  </ol>
+                                </div>
+                              )}
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                  <label className="block text-xs font-medium text-muted-foreground mb-1">Updated Status</label>
+                                  <select
+                                    value={controlForm.status || ''}
+                                    onChange={(e) => handleControlUpdateChange(guidance.control_id, 'status', e.target.value)}
+                                    className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                                  >
+                                    <option value="">-- Select --</option>
+                                    <option value="Implemented">Implemented</option>
+                                    <option value="Partial">Partial</option>
+                                    <option value="Non-Compliant">Non-Compliant</option>
+                                    <option value="Vendor Managed">Vendor Managed</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-muted-foreground mb-1">Primary Owner</label>
+                                  <input
+                                    type="text"
+                                    value={controlForm.responsible_party || ''}
+                                    onChange={(e) => handleControlUpdateChange(guidance.control_id, 'responsible_party', e.target.value)}
+                                    className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                                    placeholder="Assign owner"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence Link</label>
+                                  <input
+                                    type="text"
+                                    value={controlForm.evidence_link || ''}
+                                    onChange={(e) => handleControlUpdateChange(guidance.control_id, 'evidence_link', e.target.value)}
+                                    className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                                    placeholder="URL or reference"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  <div className="space-y-6">
+                    <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-foreground">Quick Actions</h4>
+                        <Sparkles className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="space-y-2">
+                        {alertQuickActions.map((action) => {
+                          const IconComponent = ALERT_ACTION_ICONS[action.icon] || Sparkles;
+                          return (
+                            <button
+                              key={action.id}
+                              type="button"
+                              className="w-full border border-[hsl(var(--border))] rounded-lg px-3 py-2 text-left hover:border-primary/40 hover:bg-primary/5 transition-colors flex items-start gap-3"
+                            >
+                              <IconComponent className="w-4 h-4 text-primary mt-0.5" />
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-foreground">{action.label}</div>
+                                {action.description && (
+                                  <div className="text-xs text-muted-foreground mt-1">{action.description}</div>
+                                )}
+                              </div>
+                              <ExternalLink className="w-3 h-3 text-muted-foreground mt-0.5" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold text-foreground">Remediation Updates</h4>
+                        <ClipboardList className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">Alert Status</label>
+                          <select
+                            value={alertRemediationForm.status}
+                            onChange={(e) => handleRemediationFieldChange('status', e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                          >
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="resolved">Resolved</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">Remediation Notes</label>
+                          <textarea
+                            value={alertRemediationForm.notes}
+                            onChange={(e) => handleRemediationFieldChange('notes', e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                            placeholder="Document key findings, blockers, or context"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">Actions Taken</label>
+                          <textarea
+                            value={alertRemediationForm.actionsTaken}
+                            onChange={(e) => handleRemediationFieldChange('actionsTaken', e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                            placeholder="List actions (comma or newline separated)"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-muted-foreground mb-1">Evidence Links</label>
+                          <textarea
+                            value={alertRemediationForm.evidenceLinks}
+                            onChange={(e) => handleRemediationFieldChange('evidenceLinks', e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 rounded-lg border border-[hsl(var(--border))] bg-card text-sm"
+                            placeholder="Paste evidence URLs or references"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="border-t border-[hsl(var(--border))] px-6 py-4 flex justify-end gap-3">

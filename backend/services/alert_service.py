@@ -6,7 +6,7 @@ import sqlite3
 import json
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -52,6 +52,242 @@ def ensure_alert_columns():
         conn.commit()
     conn.close()
 
+def ensure_alert_activity_tables():
+    """Ensure alert activity log table exists"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alert_activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            actor TEXT,
+            event_type TEXT NOT NULL,
+            status TEXT,
+            notes TEXT,
+            actions_taken TEXT,
+            evidence_links TEXT,
+            metadata_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (alert_id) REFERENCES compliance_alerts(id),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_activity_alert ON alert_activity_log(alert_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_activity_user ON alert_activity_log(user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_alert_activity_created ON alert_activity_log(created_at)")
+    conn.commit()
+    conn.close()
+
+DEFAULT_ALERT_ACTIONS: List[Dict[str, Any]] = [
+    {'id': 'guidance', 'label': 'View Guidance', 'icon': 'Sparkles',
+     'description': 'Review AI-generated remediation steps'},
+    {'id': 'assign', 'label': 'Assign Owner', 'icon': 'UserCheck',
+     'description': 'Assign resolver and set due date'},
+    {'id': 'ticket', 'label': 'Open Change Ticket', 'icon': 'ClipboardList',
+     'description': 'Create change or incident record'},
+    {'id': 'evidence', 'label': 'Request Evidence', 'icon': 'FileCheck',
+     'description': 'Trigger automated evidence capture'},
+]
+
+def record_alert_activity(
+    alert_id: int,
+    user_id: int,
+    event_type: str,
+    status: Optional[str] = None,
+    actor: Optional[str] = None,
+    notes: Optional[str] = None,
+    actions_taken: Optional[List[str]] = None,
+    evidence_links: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Persist alert activity timeline entry"""
+    ensure_alert_activity_tables()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO alert_activity_log
+        (alert_id, user_id, actor, event_type, status, notes, actions_taken, evidence_links, metadata_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            alert_id,
+            user_id,
+            actor,
+            event_type,
+            status,
+            notes,
+            json.dumps(actions_taken) if actions_taken else None,
+            json.dumps(evidence_links) if evidence_links else None,
+            json.dumps(metadata) if metadata else None,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+def list_alert_activity(alert_id: int) -> List[Dict[str, Any]]:
+    """Return ordered timeline entries for an alert"""
+    ensure_alert_activity_tables()
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT id, actor, event_type, status, notes, actions_taken, evidence_links, metadata_json, created_at
+        FROM alert_activity_log
+        WHERE alert_id = ?
+        ORDER BY created_at ASC, id ASC
+        """,
+        (alert_id,),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    entries: List[Dict[str, Any]] = []
+    for row in rows:
+        entry = dict(row)
+        actions = entry.get('actions_taken')
+        evidence = entry.get('evidence_links')
+        metadata_json = entry.get('metadata_json')
+        if actions:
+            try:
+                entry['actions_taken'] = json.loads(actions)
+            except json.JSONDecodeError:
+                entry['actions_taken'] = actions
+        else:
+            entry['actions_taken'] = []
+        if evidence:
+            try:
+                entry['evidence_links'] = json.loads(evidence)
+            except json.JSONDecodeError:
+                entry['evidence_links'] = evidence
+        else:
+            entry['evidence_links'] = []
+        if metadata_json:
+            try:
+                entry['metadata'] = json.loads(metadata_json)
+            except json.JSONDecodeError:
+                entry['metadata'] = metadata_json
+        else:
+            entry['metadata'] = {}
+
+        event_type = entry.pop('event_type', 'update')
+        entry['event_type'] = event_type
+        entry['event'] = {
+            'alert_triggered': 'Alert Triggered',
+            'alert_status_change': 'Status Updated',
+            'control_update': 'Control Update',
+            'evidence_added': 'Evidence Added',
+        }.get(event_type, event_type.replace('_', ' ').title())
+        entry['timestamp'] = entry.pop('created_at')
+        entries.append(entry)
+    return entries
+
+def _build_linked_controls(alert: Dict[str, Any], user_id: Optional[int]) -> List[Dict[str, Any]]:
+    guidance = alert.get('remediation_guidance') or []
+    if not guidance:
+        return []
+
+    control_ids = [g.get('control_id') for g in guidance if g.get('control_id')]
+    controls_map: Dict[str, Dict[str, Any]] = {}
+    if control_ids:
+        placeholders = ",".join("?" for _ in control_ids)
+        sql = f"""
+            SELECT id, control_name, status, responsible_party, frameworks, priority, evidence_link
+            FROM controls
+            WHERE id IN ({placeholders})
+        """
+        params: Tuple[Any, ...]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params = tuple(control_ids) + (user_id,)
+        else:
+            params = tuple(control_ids)
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(sql, params)
+        for row in cursor.fetchall():
+            data = dict(row)
+            frameworks = data.get('frameworks')
+            if isinstance(frameworks, str):
+                try:
+                    data['frameworks'] = json.loads(frameworks)
+                except json.JSONDecodeError:
+                    data['frameworks'] = frameworks
+            controls_map[data['id']] = data
+        conn.close()
+
+    linked_controls: List[Dict[str, Any]] = []
+    for index, guidance_entry in enumerate(guidance, start=1):
+        control_id = guidance_entry.get('control_id')
+        current = controls_map.get(control_id, {})
+        linked_controls.append({
+            'id': control_id,
+            'control_name': guidance_entry.get('control_name') or current.get('control_name'),
+            'framework': guidance_entry.get('framework') or (current.get('frameworks') or [alert.get('framework')])[0] if current.get('frameworks') else alert.get('framework'),
+            'priority': guidance_entry.get('priority') or current.get('priority'),
+            'status': current.get('status') or guidance_entry.get('status') or guidance_entry.get('current_status') or 'Not Implemented',
+            'target_status': guidance_entry.get('target_status') or 'Implemented',
+            'owner': current.get('responsible_party') or guidance_entry.get('current_owner') or guidance_entry.get('recommended_owner') or alert.get('responsible_party'),
+            'coverage_delta': guidance_entry.get('coverage_delta'),
+            'evidence_links': guidance_entry.get('evidence_links') or ([current['evidence_link']] if current.get('evidence_link') else []),
+            'automation_ready': bool(guidance_entry.get('automation_ready')),
+            'sequence': guidance_entry.get('sequence') or index,
+        })
+    return linked_controls
+
+def _build_risk_snapshot(alert: Dict[str, Any]) -> Dict[str, Any]:
+    drift_payload = alert.get('drift_payload') or {}
+    baseline = drift_payload.get('baseline_score') or alert.get('compliance_score_before')
+    current = drift_payload.get('current_score') or alert.get('compliance_score_after')
+    return {
+        'severity': alert.get('severity'),
+        'drift_percentage': drift_payload.get('drift_percentage'),
+        'baseline_score': baseline,
+        'current_score': current,
+        'risk_owner': alert.get('responsible_party'),
+        'affected_assets': drift_payload.get('affected_assets'),
+        'automation_impact': len([g for g in alert.get('remediation_guidance') or [] if g.get('automation_ready')]),
+    }
+
+def get_alert_detail(alert_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    """Fetch alert and enriched drill-down data"""
+    alert = get_alert(alert_id)
+    if not alert:
+        return None
+    if user_id is not None and alert.get('user_id') != user_id:
+        return None
+
+    timeline = list_alert_activity(alert_id)
+    if not timeline:
+        metadata = alert.get('resolution_metadata') or {}
+        history = metadata.get('status_history') or []
+        for item in history:
+            timeline.append({
+                'id': f"{alert_id}-history-{item.get('timestamp')}",
+                'actor': None,
+                'event_type': 'alert_status_change',
+                'event': 'Status Updated',
+                'status': item.get('status'),
+                'notes': None,
+                'actions_taken': [],
+                'evidence_links': [],
+                'metadata': {},
+                'timestamp': item.get('timestamp'),
+            })
+        timeline.sort(key=lambda entry: entry.get('timestamp') or '')
+
+    linked_controls = _build_linked_controls(alert, user_id)
+    detail = {
+        'alert': alert,
+        'timeline': timeline,
+        'linked_controls': linked_controls,
+        'risk_snapshot': _build_risk_snapshot(alert),
+        'actions': DEFAULT_ALERT_ACTIONS,
+        'first_detected': alert.get('created_at'),
+        'last_updated': alert.get('resolved_at') or (timeline[-1]['timestamp'] if timeline else alert.get('created_at')),
+    }
+    return detail
 def calculate_alert_priority(alert_type: str, compliance_impact: float, framework_coverage: float, 
                              time_since_update: int, evidence_freshness: float) -> Dict[str, Any]:
     """
@@ -333,7 +569,19 @@ def create_compliance_drift_alert(user_id: int, drift_data: Dict[str, Any]) -> D
     conn.commit()
     conn.close()
 
-    return get_alert(alert_id)
+    alert_record = get_alert(alert_id)
+    if alert_record:
+        record_alert_activity(
+            alert_id=alert_id,
+            user_id=user_id,
+            event_type='alert_triggered',
+            status='open',
+            actor='Monitoring Engine',
+            notes=description,
+            metadata={'drift_payload': drift_data},
+        )
+
+    return alert_record
 
 def _parse_alert_row(row: sqlite3.Row) -> Dict[str, Any]:
     alert = dict(row)
@@ -357,8 +605,19 @@ def get_alert(alert_id: int) -> Optional[Dict[str, Any]]:
         return None
     return _parse_alert_row(row)
 
-def update_alert_status(alert_id: int, status: str, metadata_patch: Optional[Dict[str, Any]] = None,
-                        resolved_by: Optional[str] = None, notes: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def update_alert_status(
+    alert_id: int,
+    status: str,
+    metadata_patch: Optional[Dict[str, Any]] = None,
+    resolved_by: Optional[str] = None,
+    notes: Optional[str] = None,
+    *,
+    user_id: Optional[int] = None,
+    actor: Optional[str] = None,
+    actions_taken: Optional[List[str]] = None,
+    evidence_links: Optional[List[str]] = None,
+    control_updates: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
     ensure_alert_columns()
     existing_alert = get_alert(alert_id)
     if not existing_alert:
@@ -407,7 +666,27 @@ def update_alert_status(alert_id: int, status: str, metadata_patch: Optional[Dic
     conn.commit()
     conn.close()
 
-    return get_alert(alert_id)
+    updated_alert = get_alert(alert_id)
+    if updated_alert:
+        activity_metadata: Dict[str, Any] = {}
+        if metadata_patch:
+            activity_metadata.update(metadata_patch)
+        if control_updates:
+            activity_metadata['control_updates'] = control_updates
+
+        record_alert_activity(
+            alert_id=alert_id,
+            user_id=user_id or existing_alert.get('user_id'),
+            event_type='alert_status_change',
+            status=status,
+            actor=actor or resolved_by or (f"User {user_id}" if user_id is not None else None),
+            notes=notes,
+            actions_taken=actions_taken,
+            evidence_links=evidence_links,
+            metadata=activity_metadata if activity_metadata else None,
+        )
+
+    return updated_alert
 
 def check_and_generate_alerts(user_id: int) -> List[Dict[str, Any]]:
     """
