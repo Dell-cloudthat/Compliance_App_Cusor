@@ -154,6 +154,80 @@ CREATE TABLE IF NOT EXISTS metadata_tags_registry (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Data Flow Architecture Graph
+CREATE TABLE IF NOT EXISTS data_flow_nodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  node_type TEXT NOT NULL, -- 'source', 'system', 'processor', 'analytics', 'report', 'storage'
+  name TEXT NOT NULL,
+  description TEXT,
+  icon TEXT,
+  sensitivity TEXT, -- 'PII', 'CUI', 'Internal', 'Public', etc.
+  data_domains TEXT, -- JSON array of data domains
+  classification_tags TEXT, -- JSON array referencing metadata_tags_registry
+  owner TEXT,
+  responsible_party TEXT,
+  framework_controls TEXT, -- JSON array of control IDs
+  evidence_links TEXT, -- JSON array of URLs/identifiers
+  integration_status TEXT DEFAULT 'active', -- 'active', 'deprecated', 'planned'
+  last_sync_at TIMESTAMP,
+  sync_frequency TEXT,
+  system_of_record BOOLEAN DEFAULT 0,
+  metadata_json TEXT,
+  layout_position TEXT, -- JSON object { x, y }
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_data_flow_nodes_user ON data_flow_nodes(user_id);
+CREATE INDEX IF NOT EXISTS idx_data_flow_nodes_type ON data_flow_nodes(user_id, node_type);
+
+CREATE TABLE IF NOT EXISTS data_flow_edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  source_node_id INTEGER NOT NULL,
+  target_node_id INTEGER NOT NULL,
+  flow_type TEXT NOT NULL, -- 'ingest', 'transform', 'export', 'evidence'
+  transport TEXT, -- 'API', 'SFTP', 'Manual', etc.
+  encryption_status TEXT,
+  retention_policy TEXT,
+  latency TEXT,
+  volume TEXT,
+  status TEXT DEFAULT 'active', -- 'active', 'planned', 'decommissioning'
+  automated BOOLEAN DEFAULT 1,
+  controls_impacted TEXT, -- JSON array of control IDs
+  metadata_json TEXT,
+  last_validated_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (source_node_id) REFERENCES data_flow_nodes(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_node_id) REFERENCES data_flow_nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_data_flow_edges_user ON data_flow_edges(user_id);
+CREATE INDEX IF NOT EXISTS idx_data_flow_edges_nodes ON data_flow_edges(source_node_id, target_node_id);
+
+CREATE TABLE IF NOT EXISTS data_flow_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  action TEXT NOT NULL, -- 'create_node', 'update_node', 'delete_node', 'create_edge', etc.
+  target_type TEXT NOT NULL, -- 'node', 'edge'
+  target_id INTEGER,
+  before_state TEXT,
+  after_state TEXT,
+  performed_by INTEGER NOT NULL,
+  reason TEXT,
+  approval_reference TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id),
+  FOREIGN KEY (performed_by) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_data_flow_audit_user ON data_flow_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_data_flow_audit_target ON data_flow_audit_log(target_type, target_id);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_data_segments_control ON data_segments(control_id);
 CREATE INDEX IF NOT EXISTS idx_data_segments_source ON data_segments(data_source_id);

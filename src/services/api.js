@@ -536,6 +536,82 @@ class ComplianceAPI {
     });
   }
 
+  async getDataFlowGraph(userId) {
+    return this.request('/api/data-flow/graph', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getDataFlowAudit(userId, limit = 50) {
+    return this.request(`/api/data-flow/audit?limit=${limit}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async createDataFlowNode(userId, nodePayload) {
+    return this.request('/api/data-flow/nodes', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(nodePayload),
+    });
+  }
+
+  async updateDataFlowNode(userId, nodeId, nodePayload) {
+    return this.request(`/api/data-flow/nodes/${nodeId}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(nodePayload),
+    });
+  }
+
+  async deleteDataFlowNode(userId, nodeId, reason) {
+    const query = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+    return this.request(`/api/data-flow/nodes/${nodeId}${query}`, {
+      method: 'DELETE',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async createDataFlowEdge(userId, edgePayload) {
+    return this.request('/api/data-flow/edges', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(edgePayload),
+    });
+  }
+
+  async updateDataFlowEdge(userId, edgeId, edgePayload) {
+    return this.request(`/api/data-flow/edges/${edgeId}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(edgePayload),
+    });
+  }
+
+  async deleteDataFlowEdge(userId, edgeId, reason) {
+    const query = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+    return this.request(`/api/data-flow/edges/${edgeId}${query}`, {
+      method: 'DELETE',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
   async updateAlertRemediation(alertId, userId, payload) {
     return this.request(`/api/alerts/${alertId}/remediation`, {
       method: 'POST',

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import { CIS_CONTROLS } from './frameworks/cis-controls';
@@ -9,6 +9,7 @@ import { SOC2_CONTROLS } from './frameworks/soc2-controls';
 import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
 import api, { API_BASE_URL } from './services/api';
+import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -464,6 +465,7 @@ const ComplianceMVP = () => {
   const [bulkOwner, setBulkOwner] = useState("");
   const [bulkStatus, setBulkStatus] = useState("");
   const [recommendations, setRecommendations] = useState([]);
+  const [selectedRecommendationIndex, setSelectedRecommendationIndex] = useState(0);
   const [automationPlan, setAutomationPlan] = useState(null);
   const [showPlanGenerator, setShowPlanGenerator] = useState(false);
   
@@ -604,6 +606,59 @@ const ComplianceMVP = () => {
   const [patternTrends, setPatternTrends] = useState(null);
   const [patternDetectionRunning, setPatternDetectionRunning] = useState(false);
   
+  // Data Flow Architecture State
+  const [dataFlowNodes, setDataFlowNodes] = useState([]);
+  const [dataFlowEdges, setDataFlowEdges] = useState([]);
+  const [dataFlowAudit, setDataFlowAudit] = useState([]);
+  const [dataFlowLoading, setDataFlowLoading] = useState(false);
+  const [dataFlowError, setDataFlowError] = useState(null);
+  const [dataFlowFilters, setDataFlowFilters] = useState({
+    nodeType: 'ALL',
+    sensitivity: 'ALL',
+    owner: 'ALL',
+    status: 'ALL',
+    search: ''
+  });
+  const [selectedDataFlowItem, setSelectedDataFlowItem] = useState(null);
+  const [showDataFlowNodeModal, setShowDataFlowNodeModal] = useState(false);
+  const [showDataFlowEdgeModal, setShowDataFlowEdgeModal] = useState(false);
+  const [editingDataFlowNode, setEditingDataFlowNode] = useState(null);
+  const [editingDataFlowEdge, setEditingDataFlowEdge] = useState(null);
+  const [dataFlowNodeForm, setDataFlowNodeForm] = useState({
+    node_type: 'source',
+    name: '',
+    description: '',
+    sensitivity: 'Internal',
+    data_domains: '',
+    classification_tags: '',
+    owner: '',
+    responsible_party: '',
+    framework_controls: '',
+    evidence_links: '',
+    integration_status: 'active',
+    last_sync_at: '',
+    sync_frequency: '',
+    system_of_record: false
+  });
+  const [dataFlowEdgeForm, setDataFlowEdgeForm] = useState({
+    source_node_id: '',
+    target_node_id: '',
+    flow_type: 'ingest',
+    transport: '',
+    encryption_status: '',
+    retention_policy: '',
+    latency: '',
+    volume: '',
+    status: 'active',
+    automated: true,
+    controls_impacted: '',
+    last_validated_at: ''
+  });
+  const dataFlowGraphRef = useRef(null);
+  const [dataFlowLayoutSaving, setDataFlowLayoutSaving] = useState(false);
+  const [dataFlowLayoutResetting, setDataFlowLayoutResetting] = useState(false);
+  const [dataFlowLayoutLastSaved, setDataFlowLayoutLastSaved] = useState(null);
+
   // Unified Data Flow: Framework Growth & Actionable Alerts
   const [frameworkGrowth, setFrameworkGrowth] = useState({});
   const [actionableAlerts, setActionableAlerts] = useState([]);
@@ -622,7 +677,473 @@ const ComplianceMVP = () => {
   const [alertSaving, setAlertSaving] = useState(false);
   const selectedAlertRef = useRef(null);
   const showAlertRemediationRef = useRef(false);
-  
+
+  const canEditDataFlow = useMemo(() => {
+    if (!backendConnected) return true;
+    const role = (currentUser.role || '').toLowerCase();
+    if (role === 'admin') return true;
+    return userPermissions.some((perm) => {
+      const type = (perm.permission_type || '').toLowerCase();
+      const resource = (perm.resource_type || '').toLowerCase();
+      return ['write', 'manage'].includes(type) && (resource === 'data_flow' || resource === 'all');
+    });
+  }, [backendConnected, currentUser.role, userPermissions]);
+
+  const canManageDataFlow = useMemo(() => {
+    if (!backendConnected) return true;
+    const role = (currentUser.role || '').toLowerCase();
+    if (role === 'admin') return true;
+    return userPermissions.some((perm) => {
+      const type = (perm.permission_type || '').toLowerCase();
+      const resource = (perm.resource_type || '').toLowerCase();
+      return type === 'manage' && (resource === 'data_flow' || resource === 'all');
+    });
+  }, [backendConnected, currentUser.role, userPermissions]);
+
+  const dataFlowOwners = useMemo(() => {
+    const owners = new Set();
+    dataFlowNodes.forEach((node) => {
+      if (node.owner) owners.add(node.owner);
+      if (node.responsible_party) owners.add(node.responsible_party);
+    });
+    return Array.from(owners).sort();
+  }, [dataFlowNodes]);
+
+  const dataFlowSensitivities = useMemo(() => {
+    const sensitivities = new Set();
+    dataFlowNodes.forEach((node) => {
+      if (node.sensitivity) sensitivities.add(node.sensitivity);
+    });
+    return Array.from(sensitivities).sort();
+  }, [dataFlowNodes]);
+
+  const dataFlowNodeTypes = useMemo(() => {
+    const types = new Set();
+    dataFlowNodes.forEach((node) => {
+      if (node.node_type) types.add(node.node_type);
+    });
+    return Array.from(types).sort();
+  }, [dataFlowNodes]);
+
+  const dataFlowNodeAlerts = useMemo(() => {
+    const controlIndex = new Map();
+    dataFlowNodes.forEach((node) => {
+      if (Array.isArray(node.framework_controls)) {
+        const nodeId = String(node.id);
+        node.framework_controls.forEach((control) => {
+          if (!control) return;
+          const key = control.toLowerCase();
+          if (!controlIndex.has(key)) {
+            controlIndex.set(key, new Set());
+          }
+          controlIndex.get(key).add(nodeId);
+        });
+      }
+    });
+
+    const alertMap = new Map();
+
+    actionableAlerts.forEach((alert) => {
+      const severity = (alert.severity || 'medium').toLowerCase();
+      const guidanceControls = Array.isArray(alert.remediation_guidance)
+        ? alert.remediation_guidance
+        : [];
+
+      const relatedControlIds = new Set();
+      guidanceControls.forEach((guidance) => {
+        if (guidance && guidance.control_id) {
+          relatedControlIds.add(guidance.control_id.toLowerCase());
+        }
+      });
+      if (alert.control_id) {
+        relatedControlIds.add(alert.control_id.toLowerCase());
+      }
+
+      relatedControlIds.forEach((controlId) => {
+        const nodeIds = controlIndex.get(controlId);
+        if (!nodeIds) return;
+
+        nodeIds.forEach((nodeId) => {
+          const entry =
+            alertMap.get(String(nodeId)) || {
+              alerts: [],
+              counts: { critical: 0, high: 0, medium: 0, low: 0 },
+            };
+
+          if (!entry.alerts.some((existing) => existing.id === alert.id)) {
+            entry.alerts.push(alert);
+            if (entry.counts[severity] !== undefined) {
+              entry.counts[severity] += 1;
+            } else {
+              entry.counts.low += 1;
+            }
+          }
+
+          alertMap.set(String(nodeId), entry);
+        });
+      });
+    });
+
+    return alertMap;
+  }, [dataFlowNodes, actionableAlerts]);
+
+  const dataFlowAccessSummary = useMemo(() => {
+    const existingNodeIds = new Set(dataFlowNodes.map((node) => String(node.id)));
+    const perNode = new Map();
+    const privilegedAccounts = new Set();
+    const readOnlyAccounts = new Set();
+    let totalPermissions = 0;
+    let expiringSoon = 0;
+    const now = new Date();
+
+    userPermissions.forEach((perm) => {
+      const resourceType = (perm.resource_type || '').toLowerCase();
+      if (!['data_flow', 'data_flow_node', 'data_flow_edge', 'architecture'].includes(resourceType)) {
+        return;
+      }
+
+      const normalizedId =
+        perm.resource_id !== undefined && perm.resource_id !== null
+          ? String(perm.resource_id)
+          : null;
+      if (normalizedId && !existingNodeIds.has(normalizedId)) {
+        return;
+      }
+
+      const permissionType = (perm.permission_type || '').toLowerCase();
+      const permissionEntry = {
+        id: perm.id,
+        user: perm.user_email || `User ${perm.user_id}`,
+        type: permissionType,
+        expiresAt: perm.expires_at || null,
+        resourceType: perm.resource_type,
+        resourceId: normalizedId,
+        grantedBy: perm.granted_by_email || `User ${perm.granted_by}`,
+      };
+
+      totalPermissions += 1;
+
+      if (['write', 'manage', 'admin'].includes(permissionType)) {
+        if (permissionEntry.user) privilegedAccounts.add(permissionEntry.user);
+      } else if (permissionType === 'read' && permissionEntry.user) {
+        readOnlyAccounts.add(permissionEntry.user);
+      }
+
+      if (permissionEntry.expiresAt) {
+        const expires = new Date(permissionEntry.expiresAt);
+        const daysUntilExpiry = (expires - now) / (1000 * 60 * 60 * 24);
+        if (daysUntilExpiry > 0 && daysUntilExpiry <= 30) {
+          expiringSoon += 1;
+        }
+      }
+
+      if (normalizedId) {
+        if (!perNode.has(normalizedId)) {
+          perNode.set(normalizedId, {
+            permissions: [],
+            total: 0,
+            elevated: 0,
+            expiringSoon: 0,
+            viewers: new Set(),
+          });
+        }
+        const nodeEntry = perNode.get(normalizedId);
+        nodeEntry.permissions.push(permissionEntry);
+        nodeEntry.total += 1;
+        if (['write', 'manage', 'admin'].includes(permissionType)) {
+          nodeEntry.elevated += 1;
+        }
+        if (permissionEntry.expiresAt) {
+          const expires = new Date(permissionEntry.expiresAt);
+          const daysUntilExpiry = (expires - now) / (1000 * 60 * 60 * 24);
+          if (daysUntilExpiry > 0 && daysUntilExpiry <= 30) {
+            nodeEntry.expiringSoon += 1;
+          }
+        }
+        if (permissionEntry.user) {
+          nodeEntry.viewers.add(permissionEntry.user);
+        }
+      }
+    });
+
+    const normalizedPerNode = new Map();
+    perNode.forEach((value, key) => {
+      normalizedPerNode.set(key, {
+        permissions: value.permissions,
+        total: value.total,
+        elevated: value.elevated,
+        expiringSoon: value.expiringSoon,
+        viewers: Array.from(value.viewers),
+      });
+    });
+
+    return {
+      perNode: normalizedPerNode,
+      totalPermissions,
+      expiringSoon,
+      privilegedAccounts: Array.from(privilegedAccounts),
+      readOnlyAccounts: Array.from(readOnlyAccounts),
+    };
+  }, [userPermissions, dataFlowNodes]);
+
+  const dataFlowNodeSignals = useMemo(() => {
+    const signals = {};
+
+    dataFlowNodes.forEach((node) => {
+      const id = String(node.id);
+      signals[id] = {
+        alertCount: 0,
+        counts: { critical: 0, high: 0, medium: 0, low: 0 },
+        alerts: [],
+        hasDrift: false,
+        evidenceGap: !(Array.isArray(node.evidence_links) && node.evidence_links.length > 0),
+        inactive: (node.integration_status || '').toLowerCase() !== 'active',
+        access: {
+          total: 0,
+          elevated: 0,
+          expiringSoon: 0,
+          viewers: [],
+        },
+      };
+    });
+
+    dataFlowNodeAlerts.forEach((value, key) => {
+      if (!value) return;
+      const alerts = Array.isArray(value.alerts) ? value.alerts : [];
+      const existing =
+        signals[String(key)] ||
+        {
+          alertCount: 0,
+          counts: { critical: 0, high: 0, medium: 0, low: 0 },
+          alerts: [],
+          hasDrift: false,
+          evidenceGap: true,
+          inactive: true,
+        };
+
+      existing.alertCount = alerts.length;
+      existing.alerts = alerts;
+      existing.counts = {
+        critical: value.counts?.critical || 0,
+        high: value.counts?.high || 0,
+        medium: value.counts?.medium || 0,
+        low: value.counts?.low || 0,
+      };
+      existing.hasDrift = alerts.some(
+        (alert) => (alert.alert_type || '').toLowerCase() === 'compliance_drift'
+      );
+      signals[String(key)] = existing;
+    });
+
+    dataFlowAccessSummary.perNode.forEach((value, key) => {
+      if (!signals[key]) {
+        signals[key] = {
+          alertCount: 0,
+          counts: { critical: 0, high: 0, medium: 0, low: 0 },
+          alerts: [],
+          hasDrift: false,
+          evidenceGap: true,
+          inactive: true,
+          access: {
+            total: value.total,
+            elevated: value.elevated,
+            expiringSoon: value.expiringSoon,
+            viewers: value.viewers,
+          },
+        };
+        return;
+      }
+      signals[key].access = {
+        total: value.total,
+        elevated: value.elevated,
+        expiringSoon: value.expiringSoon,
+        viewers: value.viewers,
+      };
+    });
+
+    return signals;
+  }, [dataFlowNodes, dataFlowNodeAlerts, dataFlowAccessSummary]);
+
+  const filteredDataFlowNodes = useMemo(() => {
+    const searchTerm = dataFlowFilters.search.trim().toLowerCase();
+    return dataFlowNodes.filter((node) => {
+      const typeMatch = dataFlowFilters.nodeType === 'ALL' || node.node_type === dataFlowFilters.nodeType;
+      const sensitivityMatch = dataFlowFilters.sensitivity === 'ALL' || (node.sensitivity || '') === dataFlowFilters.sensitivity;
+      const ownerMatch =
+        dataFlowFilters.owner === 'ALL' ||
+        (node.owner && node.owner === dataFlowFilters.owner) ||
+        (node.responsible_party && node.responsible_party === dataFlowFilters.owner);
+      const statusMatch = dataFlowFilters.status === 'ALL' || (node.integration_status || '').toLowerCase() === dataFlowFilters.status.toLowerCase();
+      const searchMatch =
+        !searchTerm ||
+        (node.name && node.name.toLowerCase().includes(searchTerm)) ||
+        (node.description && node.description.toLowerCase().includes(searchTerm)) ||
+        (Array.isArray(node.framework_controls) && node.framework_controls.some((c) => c.toLowerCase().includes(searchTerm)));
+      return typeMatch && sensitivityMatch && ownerMatch && statusMatch && searchMatch;
+    });
+  }, [dataFlowNodes, dataFlowFilters]);
+
+  const filteredDataFlowEdges = useMemo(() => {
+    const nodeIds = new Set(filteredDataFlowNodes.map((node) => node.id));
+    return dataFlowEdges.filter((edge) => {
+      if (!nodeIds.has(edge.source_node_id) || !nodeIds.has(edge.target_node_id)) {
+        return false;
+      }
+      if (dataFlowFilters.status !== 'ALL') {
+        return (edge.status || '').toLowerCase() === dataFlowFilters.status.toLowerCase();
+      }
+      return true;
+    });
+  }, [dataFlowEdges, filteredDataFlowNodes, dataFlowFilters.status]);
+
+  const dataFlowStats = useMemo(() => {
+    const highSensitivity = dataFlowNodes.filter((node) => {
+      const sensitivity = (node.sensitivity || '').toUpperCase();
+      return sensitivity === 'PII' || sensitivity === 'CUI';
+    }).length;
+    const plannedConnections = dataFlowEdges.filter((edge) => (edge.status || '').toLowerCase() === 'planned').length;
+    const automatedFlows = dataFlowEdges.filter((edge) => edge.automated !== false).length;
+    return {
+      totalNodes: dataFlowNodes.length,
+      totalEdges: dataFlowEdges.length,
+      highSensitivity,
+      plannedConnections,
+      automatedFlows,
+    };
+  }, [dataFlowNodes, dataFlowEdges]);
+
+  const dataFlowNodeMap = useMemo(() => {
+    const map = new Map();
+    dataFlowNodes.forEach((node) => {
+      map.set(node.id, node);
+    });
+    return map;
+  }, [dataFlowNodes]);
+
+  const dataFlowEdgeMap = useMemo(() => {
+    const map = new Map();
+    dataFlowEdges.forEach((edge) => {
+      map.set(edge.id, edge);
+    });
+    return map;
+  }, [dataFlowEdges]);
+
+  const dataFlowGraphData = useMemo(() => {
+    const nodes = filteredDataFlowNodes.map((node) => {
+      const layout = node.layout_position || {};
+      const x = typeof layout.x === 'number' ? layout.x : undefined;
+      const y = typeof layout.y === 'number' ? layout.y : undefined;
+      const nodeId = node.id != null ? String(node.id) : '';
+      return {
+        ...node,
+        id: nodeId,
+        fx: x,
+        fy: y,
+        x,
+        y,
+      };
+    });
+
+    const links = filteredDataFlowEdges.map((edge) => {
+      const sourceId =
+        edge.source_node_id != null ? String(edge.source_node_id) : edge.source != null ? String(edge.source) : '';
+      const targetId =
+        edge.target_node_id != null ? String(edge.target_node_id) : edge.target != null ? String(edge.target) : '';
+      return {
+        ...edge,
+        id:
+          edge.id != null
+            ? String(edge.id)
+            : `${sourceId}-${targetId}-${edge.flow_type || ''}`,
+        source: sourceId,
+        target: targetId,
+      };
+    });
+
+    return { nodes, links };
+  }, [filteredDataFlowNodes, filteredDataFlowEdges]);
+
+  const dataFlowHasZoomedRef = useRef(false);
+
+  const persistDataFlowNodePosition = useCallback(
+    async (graphNode) => {
+      if (!graphNode || !graphNode.id) return;
+      const layoutPosition = { x: graphNode.x, y: graphNode.y };
+      const nodeId = String(graphNode.id);
+      const applyLocalUpdate = () => {
+        setDataFlowNodes((prev) =>
+          prev.map((node) =>
+            String(node.id) === nodeId ? { ...node, layout_position: layoutPosition } : node
+          )
+        );
+        setDataFlowLayoutLastSaved(new Date());
+      };
+      if (!backendConnected || !currentUser.id) {
+        applyLocalUpdate();
+        return;
+      }
+      try {
+        setDataFlowLayoutSaving(true);
+        await api.updateDataFlowNode(currentUser.id, graphNode.id, { layout_position: layoutPosition });
+        applyLocalUpdate();
+      } catch (error) {
+        console.error('Error saving node position:', error);
+        setDataFlowError(error.message || 'Failed to save node position');
+      } finally {
+        setDataFlowLayoutSaving(false);
+      }
+    },
+    [backendConnected, currentUser.id]
+  );
+
+  const resetDataFlowLayout = useCallback(async () => {
+    setDataFlowLayoutResetting(true);
+    let nodeIds = [];
+    setDataFlowNodes((prev) => {
+      nodeIds = prev.map((node) => String(node.id));
+      return prev.map((node) => ({ ...node, layout_position: null }));
+    });
+
+    let saved = false;
+    if (!backendConnected || !currentUser.id) {
+      saved = true;
+    } else if (nodeIds.length > 0) {
+      try {
+        await Promise.all(
+          nodeIds.map((id) =>
+            api.updateDataFlowNode(currentUser.id, id, { layout_position: null })
+          )
+        );
+        saved = true;
+      } catch (error) {
+        console.error('Error resetting layout positions:', error);
+        setDataFlowError(error.message || 'Failed to reset layout');
+      }
+    } else {
+      saved = true;
+    }
+
+    if (dataFlowGraphRef.current && typeof dataFlowGraphRef.current.graphData === 'function') {
+      const graphInstance = dataFlowGraphRef.current;
+      const currentGraph = graphInstance.graphData();
+      if (currentGraph?.nodes) {
+        currentGraph.nodes.forEach((node) => {
+          delete node.fx;
+          delete node.fy;
+        });
+      }
+      dataFlowHasZoomedRef.current = false;
+      graphInstance.d3ReheatSimulation();
+      graphInstance.zoomToFit(400, 80);
+    }
+
+    if (saved) {
+      setDataFlowLayoutLastSaved(new Date());
+    }
+    setDataFlowLayoutResetting(false);
+    setDataFlowLayoutSaving(false);
+  }, [backendConnected, currentUser.id]);
+
   useEffect(() => {
     selectedAlertRef.current = selectedAlert;
   }, [selectedAlert]);
@@ -719,6 +1240,35 @@ const ComplianceMVP = () => {
       }
     }
   }, [activeView, backendConnected, currentUser.id]);
+
+  // Load Data Flow Architecture data
+  useEffect(() => {
+    if (activeView === 'architecture') {
+      refreshDataFlowGraph();
+    }
+  }, [activeView, backendConnected, currentUser.id]);
+
+  useEffect(() => {
+    if (activeView === 'architecture') {
+      dataFlowHasZoomedRef.current = false;
+    }
+  }, [activeView]);
+
+  useEffect(() => {
+    if (
+      activeView === 'architecture' &&
+      filteredDataFlowNodes.length > 0 &&
+      dataFlowGraphRef.current &&
+      !dataFlowHasZoomedRef.current
+    ) {
+      requestAnimationFrame(() => {
+        if (dataFlowGraphRef.current) {
+          dataFlowGraphRef.current.zoomToFit(400, 80);
+          dataFlowHasZoomedRef.current = true;
+        }
+      });
+    }
+  }, [activeView, filteredDataFlowNodes.length]);
 
   const loadDemoCSCAData = () => {
     // Demo security events
@@ -1241,6 +1791,738 @@ const ComplianceMVP = () => {
       console.error('Error loading actionable alerts:', error);
     }
   };
+
+  const getDemoDataFlowGraph = () => {
+    const now = new Date();
+    const daysAgo = (days) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - days);
+      return d.toISOString();
+    };
+
+    const demoNodes = [
+      {
+        id: 1,
+        node_type: 'source',
+        name: 'AWS CloudTrail',
+        description: 'Centralized audit logs ingested from all AWS accounts.',
+        sensitivity: 'Internal',
+        data_domains: ['Audit Logs'],
+        classification_tags: ['LOGS', 'CLOUD'],
+        owner: 'Cloud Security',
+        responsible_party: 'Security Operations',
+        framework_controls: ['AC-2', 'AU-6', 'AU-12'],
+        evidence_links: ['https://demo.aws/cloudtrail'],
+        integration_status: 'active',
+        last_sync_at: daysAgo(0),
+        sync_frequency: 'Real-time',
+        system_of_record: true,
+        created_at: daysAgo(420),
+        updated_at: daysAgo(12),
+        last_adjusted_by: 'Alex Romero',
+        change_log: [
+          {
+            timestamp: daysAgo(12),
+            summary: 'Enabled new CloudTrail Lake channel for GovCloud accounts.',
+            actor: 'Alex Romero'
+          },
+          {
+            timestamp: daysAgo(60),
+            summary: 'Increased retention from 365 to 730 days.',
+            actor: 'Jamie Chen'
+          }
+        ],
+        metadata: { platform: 'AWS', accountCount: 8 },
+        layout_position: { x: 180, y: 120 }
+      },
+      {
+        id: 2,
+        node_type: 'source',
+        name: 'Okta Identity Logs',
+        description: 'Authentication and user lifecycle events.',
+        sensitivity: 'PII',
+        data_domains: ['Identity Events'],
+        classification_tags: ['IAM', 'IDENTITY'],
+        owner: 'Identity Engineering',
+        responsible_party: 'Security Operations',
+        framework_controls: ['IA-2', 'AC-3'],
+        evidence_links: ['https://okta.demo.com/events'],
+        integration_status: 'active',
+        last_sync_at: daysAgo(0),
+        sync_frequency: '5 min',
+        system_of_record: false,
+        created_at: daysAgo(365),
+        updated_at: daysAgo(6),
+        last_adjusted_by: 'Priya Desai',
+        change_log: [
+          {
+            timestamp: daysAgo(6),
+            summary: 'Added MFA challenge telemetry for privileged apps.',
+            actor: 'Priya Desai'
+          }
+        ],
+        metadata: { platform: 'Okta', fishyLoginsLast24h: 3 },
+        layout_position: { x: 160, y: 260 }
+      },
+      {
+        id: 3,
+        node_type: 'processor',
+        name: 'Splunk Enterprise',
+        description: 'Security analytics platform correlating events in real-time.',
+        sensitivity: 'Internal',
+        data_domains: ['Security Events'],
+        classification_tags: ['SIEM', 'SECURITY'],
+        owner: 'Security Operations',
+        responsible_party: 'Security Operations',
+        framework_controls: ['SI-4', 'IR-4'],
+        evidence_links: ['https://demo.splunk/dashboard'],
+        integration_status: 'active',
+        system_of_record: false,
+        created_at: daysAgo(530),
+        updated_at: daysAgo(2),
+        last_adjusted_by: 'Morgan Ellis',
+        change_log: [
+          {
+            timestamp: daysAgo(2),
+            summary: 'Deployed playbook to auto-tag suspected exfiltration events.',
+            actor: 'Morgan Ellis'
+          }
+        ],
+        metadata: { environment: 'Production', ingestionRateGbDay: 1.9 },
+        layout_position: { x: 420, y: 140 }
+      },
+      {
+        id: 4,
+        node_type: 'processor',
+        name: 'Automation Orchestrator',
+        description: 'Runs evidence collection and drift remediation playbooks.',
+        sensitivity: 'Internal',
+        data_domains: ['Automation Jobs'],
+        classification_tags: ['AUTOMATION', 'ORCHESTRATION'],
+        owner: 'Platform Engineering',
+        responsible_party: 'Automation Squad',
+        framework_controls: ['IR-4', 'CA-7'],
+        integration_status: 'active',
+        created_at: daysAgo(210),
+        updated_at: daysAgo(4),
+        last_adjusted_by: 'Morgan Ellis',
+        change_log: [
+          {
+            timestamp: daysAgo(4),
+            summary: 'Released new remediation flow for CIS 1.4 misconfigurations.',
+            actor: 'Morgan Ellis'
+          },
+          {
+            timestamp: daysAgo(28),
+            summary: 'Connected to Azure Policy to auto-open change tickets.',
+            actor: 'Taylor Rivers'
+          }
+        ],
+        framework_controls: ['IR-4', 'CA-7', 'SI-2'],
+        metadata: { runbooks: 18, lastRunbook: 'CIS-LINUX-SSH-0004' },
+        layout_position: { x: 440, y: 260 }
+      },
+      {
+        id: 5,
+        node_type: 'analytics',
+        name: 'Compliance Engine',
+        description: 'Maps security events and evidence to framework controls.',
+        sensitivity: 'Internal',
+        data_domains: ['Compliance Metrics'],
+        owner: 'GRC Team',
+        responsible_party: 'Compliance',
+        framework_controls: ['CA-7', 'PM-6', 'AU-11'],
+        integration_status: 'active',
+        system_of_record: false,
+        created_at: daysAgo(480),
+        updated_at: daysAgo(1),
+        last_adjusted_by: 'Riley Stone',
+        change_log: [
+          {
+            timestamp: daysAgo(1),
+            summary: 'Added FedRAMP Moderate mappings for identity events.',
+            actor: 'Riley Stone'
+          }
+        ],
+        metadata: { coveragePercent: 78 },
+        layout_position: { x: 650, y: 180 }
+      },
+      {
+        id: 6,
+        node_type: 'storage',
+        name: 'Evidence Vault',
+        description: 'Immutable storage for audit evidence with retention policy.',
+        sensitivity: 'Confidential',
+        data_domains: ['Audit Evidence'],
+        owner: 'Compliance',
+        responsible_party: 'Security Operations',
+        framework_controls: ['CM-8', 'AU-11'],
+        evidence_links: ['https://vault.demo.com/controls'],
+        integration_status: 'active',
+        system_of_record: true,
+        created_at: daysAgo(600),
+        updated_at: daysAgo(9),
+        last_adjusted_by: 'Jordan Lee',
+        change_log: [
+          {
+            timestamp: daysAgo(9),
+            summary: 'Enabled write-once retention and legal hold.',
+            actor: 'Jordan Lee'
+          }
+        ],
+        metadata: { retentionYears: 7 },
+        layout_position: { x: 660, y: 320 }
+      },
+      {
+        id: 7,
+        node_type: 'analytics',
+        name: 'Risk AI Engine',
+        description: 'Calculates residual risk and predicts drift likelihood.',
+        sensitivity: 'Internal',
+        data_domains: ['Risk Scores'],
+        owner: 'Risk Management',
+        responsible_party: 'Data Science',
+        framework_controls: ['RA-3', 'PM-9'],
+        integration_status: 'planned',
+        created_at: daysAgo(60),
+        updated_at: daysAgo(7),
+        last_adjusted_by: 'Leah Patel',
+        change_log: [
+          {
+            timestamp: daysAgo(7),
+            summary: 'Training dataset refreshed with 30-day drift outcomes.',
+            actor: 'Leah Patel'
+          }
+        ],
+        metadata: { modelVersion: 'v0.9-beta' },
+        layout_position: { x: 820, y: 120 }
+      },
+      {
+        id: 8,
+        node_type: 'report',
+        name: 'Executive Dashboard',
+        description: 'Cohesive compliance + security view for leadership.',
+        sensitivity: 'Internal',
+        owner: 'Leadership',
+        responsible_party: 'Compliance',
+        integration_status: 'planned',
+        created_at: daysAgo(30),
+        updated_at: daysAgo(3),
+        last_adjusted_by: 'Taylor Rivers',
+        change_log: [
+          {
+            timestamp: daysAgo(3),
+            summary: 'Added drift recovery timeline widget.',
+            actor: 'Taylor Rivers'
+          }
+        ],
+        metadata: { releaseTarget: 'Q1 2026' },
+        layout_position: { x: 860, y: 240 }
+      },
+      {
+        id: 9,
+        node_type: 'report',
+        name: 'Auditor Portal',
+        description: 'Read-only evidence and control traceability workspace.',
+        sensitivity: 'Confidential',
+        owner: 'Compliance',
+        responsible_party: 'Audit Readiness',
+        integration_status: 'active',
+        created_at: daysAgo(120),
+        updated_at: daysAgo(15),
+        last_adjusted_by: 'Jordan Lee',
+        change_log: [
+          {
+            timestamp: daysAgo(15),
+            summary: 'Configured SOC Type II evidence access for Deloitte.',
+            actor: 'Jordan Lee'
+          }
+        ],
+        framework_controls: ['AU-11', 'CA-7'],
+        metadata: { externalAuditors: ['Deloitte'], readOnlyUsers: 7 },
+        layout_position: { x: 900, y: 360 }
+      }
+    ];
+
+    const demoEdges = [
+      {
+        id: 11,
+        source_node_id: 1,
+        target_node_id: 3,
+        flow_type: 'ingest',
+        transport: 'API',
+        encryption_status: 'Encrypted in transit',
+        status: 'active',
+        automated: true,
+        controls_impacted: ['AU-6', 'AU-12'],
+        metadata: { connector: 'Lambda' },
+        first_seen_at: daysAgo(420),
+        last_validated_at: daysAgo(2),
+        last_transfer_at: daysAgo(0),
+        daily_volume_gb: 1.2,
+        peak_volume_gb: 2.1,
+        latency_ms: 380,
+        particle_count: 2,
+        change_log: [
+          {
+            timestamp: daysAgo(2),
+            summary: 'Validation succeeded after API credential rotation.',
+            actor: 'Alex Romero'
+          }
+        ],
+        sample_payloads: ['CloudTrail.CreateUser', 'CloudTrail.StopLogging']
+      },
+      {
+        id: 12,
+        source_node_id: 2,
+        target_node_id: 3,
+        flow_type: 'ingest',
+        transport: 'API',
+        encryption_status: 'Encrypted in transit',
+        status: 'active',
+        automated: true,
+        controls_impacted: ['IA-2', 'AC-3'],
+        first_seen_at: daysAgo(360),
+        last_validated_at: daysAgo(1),
+        last_transfer_at: daysAgo(0),
+        daily_volume_gb: 0.5,
+        peak_volume_gb: 0.8,
+        latency_ms: 220,
+        particle_count: 1,
+        change_log: [
+          {
+            timestamp: daysAgo(6),
+            summary: 'Added MFA failure events to stream.',
+            actor: 'Priya Desai'
+          }
+        ],
+        sample_payloads: ['Okta.LoginFailure', 'Okta.UserSuspended']
+      },
+      {
+        id: 13,
+        source_node_id: 3,
+        target_node_id: 5,
+        flow_type: 'transform',
+        transport: 'API',
+        encryption_status: 'Encrypted in transit',
+        status: 'active',
+        automated: true,
+        controls_impacted: ['SI-4', 'CA-7', 'PM-6'],
+        first_seen_at: daysAgo(480),
+        last_validated_at: daysAgo(1),
+        last_transfer_at: daysAgo(0),
+        daily_volume_gb: 0.9,
+        peak_volume_gb: 1.4,
+        latency_ms: 540,
+        particle_count: 2,
+        change_log: [
+          {
+            timestamp: daysAgo(1),
+            summary: 'Mapped new anomaly detections to CIS v8 Section 4.',
+            actor: 'Riley Stone'
+          }
+        ],
+        sample_payloads: ['Derived.Alert#1294', 'Anomaly.HighRiskLogin']
+      },
+      {
+        id: 14,
+        source_node_id: 4,
+        target_node_id: 6,
+        flow_type: 'transform',
+        transport: 'API',
+        encryption_status: 'Encrypted in transit',
+        status: 'active',
+        automated: true,
+        controls_impacted: ['IR-4', 'AU-11'],
+        first_seen_at: daysAgo(210),
+        last_validated_at: daysAgo(3),
+        last_transfer_at: daysAgo(0),
+        daily_volume_gb: 0.35,
+        peak_volume_gb: 0.6,
+        latency_ms: 420,
+        particle_count: 1,
+        change_log: [
+          {
+            timestamp: daysAgo(3),
+            summary: 'Automation job archived 42 drift remediation evidence files.',
+            actor: 'Morgan Ellis'
+          }
+        ],
+        sample_payloads: ['Playbook.EvidencePackage#987']
+      },
+      {
+        id: 15,
+        source_node_id: 5,
+        target_node_id: 7,
+        flow_type: 'transform',
+        transport: 'Streaming',
+        encryption_status: 'Encrypted in transit',
+        status: 'planned',
+        automated: false,
+        controls_impacted: ['RA-3', 'PM-9'],
+        first_seen_at: daysAgo(30),
+        last_validated_at: null,
+        last_transfer_at: null,
+        daily_volume_gb: 0.2,
+        peak_volume_gb: 0.2,
+        latency_ms: 800,
+        particle_count: 1,
+        change_log: [
+          {
+            timestamp: daysAgo(7),
+            summary: 'Integration pending security review.',
+            actor: 'Leah Patel'
+          }
+        ],
+        sample_payloads: []
+      },
+      {
+        id: 16,
+        source_node_id: 5,
+        target_node_id: 8,
+        flow_type: 'export',
+        transport: 'API',
+        encryption_status: 'Encrypted in transit',
+        status: 'planned',
+        automated: true,
+        controls_impacted: ['PM-3', 'CA-7'],
+        first_seen_at: daysAgo(30),
+        last_validated_at: null,
+        last_transfer_at: null,
+        daily_volume_gb: 0.1,
+        peak_volume_gb: 0.2,
+        latency_ms: 620,
+        particle_count: 1,
+        change_log: [
+          {
+            timestamp: daysAgo(3),
+            summary: 'Dashboard schema aligned with leadership OKRs.',
+            actor: 'Taylor Rivers'
+          }
+        ],
+        sample_payloads: []
+      },
+      {
+        id: 17,
+        source_node_id: 6,
+        target_node_id: 9,
+        flow_type: 'export',
+        transport: 'S3 Signed URL',
+        encryption_status: 'Encrypted at rest',
+        status: 'active',
+        automated: false,
+        controls_impacted: ['AU-11'],
+        first_seen_at: daysAgo(90),
+        last_validated_at: daysAgo(10),
+        last_transfer_at: daysAgo(5),
+        daily_volume_gb: 0.05,
+        peak_volume_gb: 0.08,
+        latency_ms: 900,
+        particle_count: 1,
+        change_log: [
+          {
+            timestamp: daysAgo(10),
+            summary: 'Auditor access rotated for SOC II evidence package.',
+            actor: 'Jordan Lee'
+          }
+        ],
+        sample_payloads: ['Evidence.Zip#SOC2-FY25']
+      }
+    ];
+
+    return { nodes: demoNodes, edges: demoEdges };
+  };
+
+  const loadDataFlowGraph = async () => {
+    if (!backendConnected || !currentUser.id) {
+      const demoGraph = getDemoDataFlowGraph();
+      setDataFlowNodes(demoGraph.nodes);
+      setDataFlowEdges(demoGraph.edges);
+      setDataFlowAudit([]);
+      return;
+    }
+    setDataFlowLoading(true);
+    setDataFlowError(null);
+    try {
+      const graph = await api.getDataFlowGraph(currentUser.id);
+      setDataFlowNodes(Array.isArray(graph?.nodes) ? graph.nodes : []);
+      setDataFlowEdges(Array.isArray(graph?.edges) ? graph.edges : []);
+    } catch (error) {
+      console.error('Error loading data flow graph:', error);
+      setDataFlowError(error.message || 'Failed to load data flow graph');
+    } finally {
+      setDataFlowLoading(false);
+    }
+  };
+
+  const loadDataFlowAudit = async () => {
+    if (!backendConnected || !currentUser.id) {
+      setDataFlowAudit([]);
+      return;
+    }
+    try {
+      const audit = await api.getDataFlowAudit(currentUser.id, 25);
+      setDataFlowAudit(audit || []);
+    } catch (error) {
+      console.error('Error loading data flow audit log:', error);
+    }
+  };
+
+  const refreshDataFlowGraph = async () => {
+    await Promise.all([loadDataFlowGraph(), loadDataFlowAudit()]);
+  };
+
+  const resetDataFlowNodeForm = (overrides = {}) => {
+    setDataFlowNodeForm({
+      node_type: 'source',
+      name: '',
+      description: '',
+      sensitivity: 'Internal',
+      data_domains: '',
+      classification_tags: '',
+      owner: '',
+      responsible_party: '',
+      framework_controls: '',
+      evidence_links: '',
+      integration_status: 'active',
+      last_sync_at: '',
+      sync_frequency: '',
+      system_of_record: false,
+      ...overrides
+    });
+  };
+
+  const resetDataFlowEdgeForm = (overrides = {}) => {
+    setDataFlowEdgeForm({
+      source_node_id: '',
+      target_node_id: '',
+      flow_type: 'ingest',
+      transport: '',
+      encryption_status: '',
+      retention_policy: '',
+      latency: '',
+      volume: '',
+      status: 'active',
+      automated: true,
+      controls_impacted: '',
+      last_validated_at: '',
+      ...overrides
+    });
+  };
+
+  const parseListInput = (value) => {
+    if (!value || typeof value !== 'string') return [];
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  };
+
+  const handleSubmitDataFlowNode = async (event) => {
+    event.preventDefault();
+    const payload = {
+      node_type: dataFlowNodeForm.node_type,
+      name: dataFlowNodeForm.name,
+      description: dataFlowNodeForm.description,
+      sensitivity: dataFlowNodeForm.sensitivity,
+      data_domains: parseListInput(dataFlowNodeForm.data_domains),
+      classification_tags: parseListInput(dataFlowNodeForm.classification_tags),
+      owner: dataFlowNodeForm.owner,
+      responsible_party: dataFlowNodeForm.responsible_party,
+      framework_controls: parseListInput(dataFlowNodeForm.framework_controls),
+      evidence_links: parseListInput(dataFlowNodeForm.evidence_links),
+      integration_status: dataFlowNodeForm.integration_status,
+      last_sync_at: dataFlowNodeForm.last_sync_at || null,
+      sync_frequency: dataFlowNodeForm.sync_frequency,
+      system_of_record: Boolean(dataFlowNodeForm.system_of_record),
+    };
+
+    try {
+      if (!backendConnected || !currentUser.id) {
+        // Demo mode adjustments
+        if (editingDataFlowNode) {
+          setDataFlowNodes((prev) =>
+            prev.map((node) =>
+              node.id === editingDataFlowNode.id ? { ...node, ...payload } : node
+            )
+          );
+        } else {
+          const nextId = Math.max(0, ...dataFlowNodes.map((n) => n.id || 0)) + 1;
+          setDataFlowNodes((prev) => [...prev, { id: nextId, ...payload }]);
+        }
+      } else if (editingDataFlowNode) {
+        await api.updateDataFlowNode(currentUser.id, editingDataFlowNode.id, payload);
+        await refreshDataFlowGraph();
+      } else {
+        await api.createDataFlowNode(currentUser.id, payload);
+        await refreshDataFlowGraph();
+      }
+      closeDataFlowNodeModal();
+      resetDataFlowNodeForm();
+    } catch (error) {
+      console.error('Error saving data flow node:', error);
+      setDataFlowError(error.message || 'Failed to save data flow node');
+    }
+  };
+
+  const handleSubmitDataFlowEdge = async (event) => {
+    event.preventDefault();
+    const payload = {
+      source_node_id: Number(dataFlowEdgeForm.source_node_id),
+      target_node_id: Number(dataFlowEdgeForm.target_node_id),
+      flow_type: dataFlowEdgeForm.flow_type,
+      transport: dataFlowEdgeForm.transport,
+      encryption_status: dataFlowEdgeForm.encryption_status,
+      retention_policy: dataFlowEdgeForm.retention_policy,
+      latency: dataFlowEdgeForm.latency,
+      volume: dataFlowEdgeForm.volume,
+      status: dataFlowEdgeForm.status,
+      automated: Boolean(dataFlowEdgeForm.automated),
+      controls_impacted: parseListInput(dataFlowEdgeForm.controls_impacted),
+      last_validated_at: dataFlowEdgeForm.last_validated_at || null,
+    };
+
+    try {
+      if (!backendConnected || !currentUser.id) {
+        if (editingDataFlowEdge) {
+          setDataFlowEdges((prev) =>
+            prev.map((edge) =>
+              edge.id === editingDataFlowEdge.id ? { ...edge, ...payload } : edge
+            )
+          );
+        } else {
+          const nextId = Math.max(0, ...dataFlowEdges.map((e) => e.id || 0)) + 1;
+          setDataFlowEdges((prev) => [...prev, { id: nextId, ...payload }]);
+        }
+      } else if (editingDataFlowEdge) {
+        await api.updateDataFlowEdge(currentUser.id, editingDataFlowEdge.id, payload);
+        await refreshDataFlowGraph();
+      } else {
+        await api.createDataFlowEdge(currentUser.id, payload);
+        await refreshDataFlowGraph();
+      }
+      closeDataFlowEdgeModal();
+      resetDataFlowEdgeForm();
+    } catch (error) {
+      console.error('Error saving data flow edge:', error);
+      setDataFlowError(error.message || 'Failed to save data flow edge');
+    }
+  };
+
+  const handleDeleteDataFlowNode = async (node) => {
+    if (!node) return;
+    const confirmation = window.confirm(`Remove ${node.name} and its connections?`);
+    if (!confirmation) return;
+    try {
+      if (!backendConnected || !currentUser.id) {
+        setDataFlowNodes((prev) => prev.filter((n) => n.id !== node.id));
+        setDataFlowEdges((prev) =>
+          prev.filter((edge) => edge.source_node_id !== node.id && edge.target_node_id !== node.id)
+        );
+      } else {
+        await api.deleteDataFlowNode(currentUser.id, node.id);
+        await refreshDataFlowGraph();
+      }
+      setSelectedDataFlowItem(null);
+    } catch (error) {
+      console.error('Error deleting data flow node:', error);
+      setDataFlowError(error.message || 'Failed to delete data flow node');
+    }
+  };
+
+  const handleDeleteDataFlowEdge = async (edge) => {
+    if (!edge) return;
+    const confirmation = window.confirm(`Remove flow from ${edge.source_node_id} to ${edge.target_node_id}?`);
+    if (!confirmation) return;
+    try {
+      if (!backendConnected || !currentUser.id) {
+        setDataFlowEdges((prev) => prev.filter((e) => e.id !== edge.id));
+      } else {
+        await api.deleteDataFlowEdge(currentUser.id, edge.id);
+        await refreshDataFlowGraph();
+      }
+      setSelectedDataFlowItem(null);
+    } catch (error) {
+      console.error('Error deleting data flow edge:', error);
+      setDataFlowError(error.message || 'Failed to delete data flow edge');
+    }
+  };
+
+  const updateDataFlowFilter = (key, value) => {
+    setDataFlowFilters((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const openDataFlowNodeModal = (node = null) => {
+    if (node) {
+      setEditingDataFlowNode(node);
+      resetDataFlowNodeForm({
+        node_type: node.node_type || 'source',
+        name: node.name || '',
+        description: node.description || '',
+        sensitivity: node.sensitivity || 'Internal',
+        data_domains: Array.isArray(node.data_domains) ? node.data_domains.join(', ') : '',
+        classification_tags: Array.isArray(node.classification_tags) ? node.classification_tags.join(', ') : '',
+        owner: node.owner || '',
+        responsible_party: node.responsible_party || '',
+        framework_controls: Array.isArray(node.framework_controls) ? node.framework_controls.join(', ') : '',
+        evidence_links: Array.isArray(node.evidence_links) ? node.evidence_links.join(', ') : '',
+        integration_status: node.integration_status || 'active',
+        last_sync_at: node.last_sync_at || '',
+        sync_frequency: node.sync_frequency || '',
+        system_of_record: Boolean(node.system_of_record),
+      });
+    } else {
+      setEditingDataFlowNode(null);
+      resetDataFlowNodeForm();
+    }
+    setShowDataFlowNodeModal(true);
+  };
+
+  const openDataFlowEdgeModal = (edge = null) => {
+    if (edge) {
+      setEditingDataFlowEdge(edge);
+      resetDataFlowEdgeForm({
+        source_node_id: edge.source_node_id?.toString() || '',
+        target_node_id: edge.target_node_id?.toString() || '',
+        flow_type: edge.flow_type || 'ingest',
+        transport: edge.transport || '',
+        encryption_status: edge.encryption_status || '',
+        retention_policy: edge.retention_policy || '',
+        latency: edge.latency || '',
+        volume: edge.volume || '',
+        status: edge.status || 'active',
+        automated: edge.automated !== false,
+        controls_impacted: Array.isArray(edge.controls_impacted) ? edge.controls_impacted.join(', ') : '',
+        last_validated_at: edge.last_validated_at || '',
+      });
+    } else {
+      setEditingDataFlowEdge(null);
+      resetDataFlowEdgeForm();
+    }
+    setShowDataFlowEdgeModal(true);
+  };
+
+  const closeDataFlowNodeModal = () => {
+    setShowDataFlowNodeModal(false);
+    setEditingDataFlowNode(null);
+  };
+
+  const closeDataFlowEdgeModal = () => {
+    setShowDataFlowEdgeModal(false);
+    setEditingDataFlowEdge(null);
+  };
+
+  const handleDataFlowCheckboxChange = (type, checked) => {
+    if (type === 'node') {
+      setDataFlowNodeForm((prev) => ({ ...prev, system_of_record: Boolean(checked) }));
+    } else {
+      setDataFlowEdgeForm((prev) => ({ ...prev, automated: Boolean(checked) }));
+    }
+  };
+
 
   const upsertActionableAlert = useCallback((incomingAlert) => {
     if (!incomingAlert || !incomingAlert.id) return;
@@ -1877,6 +3159,20 @@ const ComplianceMVP = () => {
       }
     }
   }, [controls, tcoInputs, assets, apiIntegrations, mdrProviders, vendors]);
+
+  useEffect(() => {
+    if (recommendations.length === 0) {
+      setSelectedRecommendationIndex(0);
+      return;
+    }
+    setSelectedRecommendationIndex((idx) => {
+      const cappedLength = Math.min(recommendations.length, 5);
+      if (idx >= cappedLength) {
+        return cappedLength - 1;
+      }
+      return idx;
+    });
+  }, [recommendations]);
 
   // Sync responsibility matrix with backend
   useEffect(() => {
@@ -3269,6 +4565,90 @@ const ComplianceMVP = () => {
 
     return matchesFramework && matchesSearch && matchesOwner && matchesShared && matchesDataSource && matchesCoverage && matchesStatus;
   });
+
+  const handleNavigateControl = useCallback(
+    (controlId, targetView = 'controls') => {
+      if (!controlId) return;
+      const normalizedId = controlId.trim();
+      if (!normalizedId) return;
+
+      const controlRecord = controlsWithResponsibility.find((c) => c.id === normalizedId);
+      const matrixEntry = responsibilityMatrix.find((m) => m.control_id === normalizedId);
+
+      if (targetView === 'controls') {
+        setMobileMenuOpen(false);
+        setSearchTerm(normalizedId);
+        setSelectedFramework(() => {
+          if (controlRecord && Array.isArray(controlRecord.frameworks) && controlRecord.frameworks.length > 0) {
+            const firstFramework = controlRecord.frameworks[0];
+            return typeof firstFramework === 'string' ? firstFramework.split(':')[0] : 'ALL';
+          }
+          return 'ALL';
+        });
+        setControlOwnerFilter('ALL');
+        setControlSharedFilter('ALL');
+        setControlDataSourceFilter('ALL');
+        setControlCoverageFilter('ALL');
+        setControlStatusFilter('ALL');
+        setActiveView('controls');
+        return;
+      }
+
+      if (targetView === 'responsibility') {
+        setMobileMenuOpen(false);
+        setMatrixFilterCategory('ALL');
+        setMatrixFilterCoverageType('ALL');
+        setMatrixFilterOwnership('ALL');
+
+        if (matrixEntry) {
+          const frameworksToExpand = Array.isArray(matrixEntry.frameworks)
+            ? matrixEntry.frameworks.map((fw) => {
+                const key = typeof fw === 'string' ? fw.split(':')[0] : fw;
+                return FRAMEWORK_LIBRARY[key]?.name || key;
+              })
+            : [];
+
+          setExpandedFrameworks((prev) => {
+            const next = new Set(prev);
+            frameworksToExpand.forEach((name) => {
+              if (name) next.add(name);
+            });
+            return next;
+          });
+
+          setExpandedSections((prev) => {
+            const next = new Set(prev);
+            frameworksToExpand.forEach((name) => {
+              if (name && matrixEntry.category) {
+                next.add(`${name}-${matrixEntry.category}`);
+              }
+            });
+            return next;
+          });
+        }
+
+        setActiveView('responsibility');
+      }
+    },
+    [
+      controlsWithResponsibility,
+      responsibilityMatrix,
+      setActiveView,
+      setControlCoverageFilter,
+      setControlDataSourceFilter,
+      setControlOwnerFilter,
+      setControlSharedFilter,
+      setControlStatusFilter,
+      setMatrixFilterCategory,
+      setMatrixFilterCoverageType,
+      setMatrixFilterOwnership,
+      setSearchTerm,
+      setSelectedFramework,
+      setExpandedFrameworks,
+      setExpandedSections,
+      setMobileMenuOpen
+    ]
+  );
 
   const updateControl = (id, field, value) => {
     setControls(controls.map(c => 
@@ -4699,80 +6079,107 @@ const ComplianceMVP = () => {
           </div>
         </div>
 
-        {/* Framework Growth Metrics */}
-        <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">Framework Growth Metrics</h3>
-              <p className="text-sm text-muted-foreground mt-1">Real-time compliance tracking across all frameworks</p>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              Live
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Object.entries(FRAMEWORK_LIBRARY).map(([frameworkKey, framework]) => {
-              const growth = frameworkGrowth[frameworkKey];
-              if (!growth) return null;
-              
-              const trendIcon = growth.trend_direction === 'improving' ? 
-                <ArrowUpRight className="w-4 h-4 text-green-500" /> :
-                growth.trend_direction === 'declining' ?
-                <ArrowDownRight className="w-4 h-4 text-red-500" /> :
-                <TrendingUp className="w-4 h-4 text-muted-foreground" />;
-              
-              return (
-                <div key={frameworkKey} className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-sm font-semibold text-foreground">{framework.name}</h4>
-                    {growth.drift_detected && (
-                      <div className="px-2 py-1 bg-red-500/10 text-red-500 rounded text-xs font-medium">
-                        Drift
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between">
-                      <span className="text-2xl font-bold text-foreground">{growth.current_score.toFixed(1)}%</span>
-                      <div className="flex items-center gap-1">
-                        {trendIcon}
-                        <span className={`text-xs font-medium ${
-                          growth.growth_rate >= 0 ? 'text-green-500' : 'text-red-500'
-                        }`}>
-                          {growth.growth_rate >= 0 ? '+' : ''}{growth.growth_rate.toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <div className="flex justify-between">
-                        <span>Controls:</span>
-                        <span className="text-foreground">{growth.controls_implemented}/{growth.controls_total}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Coverage:</span>
-                        <span className="text-foreground">{growth.control_coverage.toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Gaps:</span>
-                        <span className="text-red-500">{growth.gaps_count}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Velocity:</span>
-                        <span className={`${growth.score_velocity >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                          {growth.score_velocity >= 0 ? '+' : ''}{growth.score_velocity.toFixed(2)} pts/day
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+        {/* Framework Metrics & Attention */}
+        {(() => {
+          const frameworksForDropdown = Object.entries(FRAMEWORK_LIBRARY).map(([frameworkKey, frameworkMeta]) => {
+            const growth = frameworkGrowth[frameworkKey];
+            const complianceScore = complianceScores[frameworkKey];
+            const needsAttention = !!(growth?.drift_detected || (growth?.gaps_count ?? 0) > 0 || (complianceScore ?? 100) < 80);
+            const growthDelta = growth ? (growth.current_score - (growth.previous_score ?? growth.current_score)) : 0;
+            return {
+              key: frameworkKey,
+              name: frameworkMeta.name,
+              growth,
+              complianceScore,
+              needsAttention,
+              growthDelta,
+            };
+          });
+
+          return (
+            <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">Framework Oversight</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Track each framework’s health, drift risk, and remediation urgency.
+                  </p>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-card px-4 py-2 text-sm font-medium hover:bg-muted transition-colors">
+                    <ChevronDown className="w-4 h-4" />
+                    <span>Framework Attention Center</span>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-80 max-h-[420px] overflow-y-auto">
+                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                      Summary of drift, coverage, and gaps by framework
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {frameworksForDropdown.map((fw) => (
+                      <DropdownMenuItem
+                        key={fw.key}
+                        className="py-3 px-3 focus:bg-primary/10 focus:text-foreground"
+                        onClick={() => {
+                          setSelectedFramework(fw.key);
+                          setActiveView('controls');
+                        }}
+                      >
+                        <div className="w-full space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-foreground">{fw.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Coverage {fw.growth?.control_coverage?.toFixed?.(1) ?? '—'}% ·{' '}
+                                {fw.growth?.controls_implemented ?? '—'}/{fw.growth?.controls_total ?? '—'} controls
+                              </div>
+                            </div>
+                            {fw.needsAttention ? (
+                              <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-500 border border-red-500/20">
+                                Needs attention
+                              </span>
+                            ) : (
+                              <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-500 border border-green-500/20">
+                                On track
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-3 text-xs">
+                            <div className="rounded bg-muted/40 p-2 text-center">
+                              <div className="text-muted-foreground">Score</div>
+                              <div className="font-semibold text-foreground">
+                                {fw.complianceScore != null ? `${fw.complianceScore}%` : '—'}
+                              </div>
+                            </div>
+                            <div className="rounded bg-muted/40 p-2 text-center">
+                              <div className="text-muted-foreground">Gaps</div>
+                              <div className="font-semibold text-red-500">
+                                {fw.growth?.gaps_count ?? '—'}
+                              </div>
+                            </div>
+                            <div className="rounded bg-muted/40 p-2 text-center">
+                              <div className="text-muted-foreground">Velocity</div>
+                              <div className={`font-semibold ${
+                                (fw.growth?.score_velocity ?? 0) >= 0 ? 'text-green-500' : 'text-red-500'
+                              }`}>
+                                {(fw.growth?.score_velocity ?? 0) >= 0 ? '+' : ''}
+                                {fw.growth?.score_velocity?.toFixed?.(2) ?? '0.00'}
+                              </div>
+                            </div>
+                          </div>
+                          {fw.growth?.drift_detected && (
+                            <div className="text-[11px] text-red-500">
+                              ⚠️ Drift detected – {fw.growth?.drift_percentage?.toFixed?.(1) ?? fw.growth?.drift_percentage}% deviation from baseline.
+                            </div>
+                          )}
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Actionable Alerts */}
         {actionableAlerts.length > 0 && (
@@ -4934,151 +6341,280 @@ const ComplianceMVP = () => {
           </div>
         )}
         
-        {/* Historical Trend Chart */}
-        <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
-          <h3 className="text-lg font-semibold text-foreground mb-4">Historical Growth Trend</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {partnerGrowthHistory.map((snapshot, idx) => {
-              const isLatest = idx === partnerGrowthHistory.length - 1;
-              const prevSnapshot = idx > 0 ? partnerGrowthHistory[idx - 1] : null;
-              const scoreChange = prevSnapshot ? snapshot.overallScore - prevSnapshot.overallScore : 0;
-              
-              return (
-                <div key={idx} className={`bg-card border rounded-lg p-4 ${
-                  isLatest ? 'border-primary ring-2 ring-primary/20' : 'border-[hsl(var(--border))]'
-                }`}>
-                  <div className="text-xs text-muted-foreground mb-1">
-                    {new Date(snapshot.date).toLocaleDateString()}
+        {/* Historical Growth Chart */}
+        {(() => {
+          const ninetyDaysAgo = (() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 90);
+            return d;
+          })();
+          const historicalWindow = partnerGrowthHistory.filter((snapshot) => {
+            const snapshotDate = new Date(snapshot.date);
+            return snapshotDate >= ninetyDaysAgo;
+          });
+          const chartPoints = (historicalWindow.length > 1 ? historicalWindow : partnerGrowthHistory).slice(-12);
+
+          const chartWidth = 880;
+          const chartHeight = 260;
+          const paddingX = 48;
+          const paddingY = 36;
+          const effectiveWidth = chartWidth - paddingX * 2;
+          const effectiveHeight = chartHeight - paddingY * 2;
+
+          const minScore = chartPoints.reduce((min, point) => Math.min(min, point.overallScore), Infinity);
+          const maxScore = chartPoints.reduce((max, point) => Math.max(max, point.overallScore), -Infinity);
+          const scoreRange = maxScore - minScore || 1;
+
+          const coordinates = chartPoints.map((point, index) => {
+            const x =
+              paddingX +
+              (chartPoints.length <= 1
+                ? effectiveWidth / 2
+                : (effectiveWidth / (chartPoints.length - 1)) * index);
+            const normalized = (point.overallScore - minScore) / scoreRange;
+            const y = chartHeight - paddingY - normalized * effectiveHeight;
+            return { x, y, label: point.date, score: point.overallScore };
+          });
+
+          const velocityAverage = chartPoints.length > 1
+            ? chartPoints.slice(1).reduce((sum, point, index) => {
+                const previous = chartPoints[index];
+                return sum + (point.overallScore - previous.overallScore);
+              }, 0) / (chartPoints.length - 1)
+            : 0;
+
+          const linePath = coordinates
+            .map((coord, idx) => `${idx === 0 ? 'M' : 'L'} ${coord.x} ${coord.y}`)
+            .join(' ');
+          const areaPath =
+            coordinates.length > 0
+              ? `${linePath} L ${coordinates[coordinates.length - 1].x} ${chartHeight - paddingY} L ${coordinates[0].x} ${chartHeight - paddingY} Z`
+              : '';
+
+          const latestPoint = coordinates[coordinates.length - 1];
+          const firstPoint = coordinates[0];
+          const deltaScore = latestPoint && firstPoint ? latestPoint.score - firstPoint.score : 0;
+
+          const xLabels = [
+            coordinates[0],
+            coordinates[Math.floor(coordinates.length / 2)],
+            coordinates[coordinates.length - 1],
+          ].filter(Boolean);
+
+          return (
+            <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">Historical Growth (Last 90 Days)</h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Rolling compliance score trend with daily velocity and drift insight.
+                    </p>
                   </div>
-                  <div className="text-2xl font-bold text-foreground mb-1">
-                    {snapshot.overallScore}%
-                  </div>
-                  <div className="text-xs text-muted-foreground mb-2">
-                    {snapshot.quarter}
-                  </div>
-                  {scoreChange !== 0 && (
-                    <div className={`flex items-center gap-1 text-xs ${
-                      scoreChange >= 0 ? 'text-green-500' : 'text-red-500'
-                    }`}>
-                      {scoreChange >= 0 ? (
-                        <ArrowUpRight className="w-3 h-3" />
-                      ) : (
-                        <ArrowDownRight className="w-3 h-3" />
-                      )}
-                      <span>{scoreChange >= 0 ? '+' : ''}{scoreChange}%</span>
+                  <div className="flex items-center gap-3 text-sm">
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <div className="h-2 w-2 rounded-full bg-primary"></div>
+                      <span>Overall Score</span>
                     </div>
-                  )}
+                    <div className="flex items-center gap-1 text-muted-foreground">
+                      <div className="h-2 w-2 rounded-full bg-primary/20 border border-primary/40"></div>
+                      <span>Target zone</span>
+                    </div>
+                  </div>
                 </div>
-              );
+
+                <div className="flex flex-col lg:flex-row gap-6">
+                  <div className="flex-1">
+                    <svg
+                      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                      className="w-full h-[260px]"
+                    >
+                      <defs>
+                        <linearGradient id="growthArea" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.25" />
+                          <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0" />
+                        </linearGradient>
+                      </defs>
+                      <rect
+                        x={paddingX}
+                        y={paddingY}
+                        width={effectiveWidth}
+                        height={effectiveHeight}
+                        fill="none"
+                        stroke="hsl(var(--border))"
+                        strokeDasharray="4 6"
+                        strokeWidth="1"
+                        rx="12"
+                      />
+                      {areaPath && (
+                        <path
+                          d={areaPath}
+                          fill="url(#growthArea)"
+                          stroke="none"
+                        />
+                      )}
+                      {linePath && (
+                        <path
+                          d={linePath}
+                          fill="none"
+                          stroke="hsl(var(--primary))"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                        />
+                      )}
+                      {coordinates.map((coord, idx) => (
+                        <circle
+                          key={coord.label}
+                          cx={coord.x}
+                          cy={coord.y}
+                          r={idx === coordinates.length - 1 ? 5 : 3.2}
+                          fill={idx === coordinates.length - 1 ? 'hsl(var(--primary))' : 'hsl(var(--primary))'}
+                          stroke="hsl(var(--background))"
+                          strokeWidth="1.5"
+                        />
+                      ))}
+                      {xLabels.map((label) => (
+                        <g key={label.label}>
+                          <line
+                            x1={label.x}
+                            y1={chartHeight - paddingY}
+                            x2={label.x}
+                            y2={chartHeight - paddingY + 6}
+                            stroke="hsl(var(--border))"
+                            strokeWidth="1"
+                          />
+                          <text
+                            x={label.x}
+                            y={chartHeight - paddingY + 20}
+                            textAnchor="middle"
+                            className="text-[10px] fill-muted-foreground"
+                          >
+                            {new Date(label.label).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                          </text>
+                        </g>
+                      ))}
+                    </svg>
+                  </div>
+
+                  <div className="w-full lg:w-64 border border-[hsl(var(--border))] rounded-lg bg-muted/40 p-4 space-y-4">
+                    <div>
+                      <div className="text-xs uppercase text-muted-foreground">Current score</div>
+                      <div className="text-3xl font-semibold text-foreground flex items-center gap-2">
+                        {latestPoint?.score ?? '—'}%
+                        {deltaScore !== 0 && (
+                          <>
+                            {deltaScore >= 0 ? (
+                              <ArrowUpRight className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <ArrowDownRight className="w-4 h-4 text-red-500" />
+                            )}
+                            <span className={`text-sm font-medium ${deltaScore >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                              {deltaScore >= 0 ? '+' : ''}
+                              {deltaScore.toFixed(1)} pts
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Compared to {firstPoint ? new Date(firstPoint.label).toLocaleDateString() : 'baseline'}
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-green-500"></div>
+                        <span>90-day peak: <span className="text-foreground font-medium">
+                          {Math.max(...chartPoints.map((p) => p.overallScore)).toFixed?.(1) ?? '—'}%
+                        </span></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-red-500"></div>
+                        <span>90-day low: <span className="text-foreground font-medium">
+                          {Math.min(...chartPoints.map((p) => p.overallScore)).toFixed?.(1) ?? '—'}%
+                        </span></span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-primary"></div>
+                        <span>Velocity avg: <span className="text-foreground font-medium">
+                          {velocityAverage >= 0 ? '+' : ''}
+                          {velocityAverage.toFixed(2)}
+                        </span> pts/change</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveView('timeline')}
+                      className="w-full px-3 py-2 text-sm rounded-md border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
+                    >
+                      View program timeline →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* KPI Circular Metrics */}
+      {(() => {
+        const renderCircularStat = ({ label, displayValue, helperText, color, percentage }) => {
+          const gradientPercent = Math.min(100, Math.max(0, percentage));
+          return (
+            <div className="bg-card border border-[hsl(var(--border))] rounded-xl p-6 flex flex-col items-center text-center gap-4">
+              <div
+                className="relative h-32 w-32 rounded-full flex items-center justify-center"
+                style={{
+                  background: `conic-gradient(${color} ${gradientPercent}%, rgba(148,163,184,0.15) ${gradientPercent}%)`,
+                  boxShadow: 'inset 0 0 0 14px rgba(15,23,42,0.85)',
+                }}
+              >
+                <div className="text-2xl font-semibold text-foreground">
+                  {displayValue}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-sm font-medium text-muted-foreground uppercase tracking-wide">{label}</div>
+                <div className="text-xs text-muted-foreground">{helperText}</div>
+              </div>
+            </div>
+          );
+        };
+
+        const implementedPercent = stats.total > 0 ? (stats.implemented / stats.total) * 100 : 0;
+        const gapsPercent = stats.total > 0 ? (gaps / stats.total) * 100 : 0;
+
+        return (
+          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {renderCircularStat({
+              label: 'Total Controls',
+              displayValue: stats.total.toString(),
+              helperText: `${stats.total} controls across frameworks`,
+              color: 'hsl(226 71% 40%)',
+              percentage: stats.total > 0 ? 100 : 0,
+            })}
+            {renderCircularStat({
+              label: 'Compliance Coverage',
+              displayValue: `${coverage}%`,
+              helperText: `${coverage}% across all mapped controls`,
+              color: 'hsl(162 73% 46%)',
+              percentage: coverage,
+            })}
+            {renderCircularStat({
+              label: 'Controls Implemented',
+              displayValue: stats.implemented.toString(),
+              helperText: `${stats.implemented}/${stats.total} controls implemented`,
+              color: 'hsl(161 84% 39%)',
+              percentage: implementedPercent,
+            })}
+            {renderCircularStat({
+              label: 'Active Gaps',
+              displayValue: gaps.toString(),
+              helperText: `${gaps} controls require remediation`,
+              color: 'hsl(0 82% 55%)',
+              percentage: Math.min(100, gapsPercent),
             })}
           </div>
-        </div>
-      </div>
-
-      {/* Main Metrics Cards - shadcn style */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Total Controls Card */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <div className="text-sm font-medium text-muted-foreground">Total Controls</div>
-            <Shield className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-foreground">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">Across all frameworks</p>
-          </div>
-        </div>
-
-        {/* Coverage Card */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <div className="text-sm font-medium text-muted-foreground">Compliance Coverage</div>
-            <Target className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-foreground">{coverage}%</div>
-            <div className="flex items-center text-xs">
-              {complianceTrend > 0 ? (
-                <>
-                  <ArrowUpRight className="mr-1 h-3 w-3 text-green-500" />
-                  <span className="text-green-500">+{complianceTrend}%</span>
-                </>
-              ) : (
-                <>
-                  <ArrowDownRight className="mr-1 h-3 w-3 text-red-500" />
-                  <span className="text-red-500">{complianceTrend}%</span>
-                </>
-              )}
-              <span className="text-muted-foreground ml-1">from last quarter</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Implemented Controls Card */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <div className="text-sm font-medium text-muted-foreground">Implemented</div>
-            <CheckCircle className="h-4 w-4 text-green-500" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-foreground">{stats.implemented}</div>
-            <div className="flex items-center text-xs">
-              <ArrowUpRight className="mr-1 h-3 w-3 text-green-500" />
-              <span className="text-green-500">+{(stats.implemented / stats.total * 100).toFixed(1)}%</span>
-              <span className="text-muted-foreground ml-1">of total</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Compliance Gaps Card */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-          <div className="flex items-center justify-between space-y-0 pb-2">
-            <div className="text-sm font-medium text-muted-foreground">Active Gaps</div>
-            <AlertCircle className="h-4 w-4 text-red-500" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-foreground">{gaps}</div>
-            <div className="flex items-center text-xs">
-              {gapsChange > 0 ? (
-                <>
-                  <ArrowDownRight className="mr-1 h-3 w-3 text-green-500" />
-                  <span className="text-green-500">-{gapsChange}</span>
-                </>
-              ) : (
-                <>
-                  <ArrowUpRight className="mr-1 h-3 w-3 text-red-500" />
-                  <span className="text-red-500">+{Math.abs(gapsChange)}</span>
-                </>
-              )}
-              <span className="text-muted-foreground ml-1">from last month</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Framework Compliance Section - shadcn style */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {Object.entries(complianceScores).map(([framework, score]) => (
-          <div key={framework} className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-            <div className="flex items-center justify-between space-y-0 pb-2">
-              <div className="text-sm font-medium text-muted-foreground">{FRAMEWORK_LIBRARY[framework].name}</div>
-              <Activity className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="space-y-1">
-              <div className={`text-2xl font-bold ${
-                score >= 80 ? 'text-green-500' : 
-                score >= 50 ? 'text-yellow-500' : 
-                'text-red-500'
-              }`}>
-                {score}%
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {score >= 80 ? 'Compliant' : score >= 50 ? 'In progress' : 'Needs attention'}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
+        );
+      })()}
 
       {/* AI Gap Analysis Section */}
       <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
@@ -5099,6 +6635,13 @@ const ComplianceMVP = () => {
               (c.status === 'Not Implemented' || c.status === 'Non-Compliant' || c.status === 'Partial') 
               && c.priority === 'High'
             );
+            const spotlightGaps = criticalGaps.slice(0, 3).map((gap) => ({
+              id: gap.id,
+              name: gap.control_name,
+              status: gap.status,
+              owner: gap.responsible_party || gap.owner || 'Unassigned',
+              frameworks: gap.frameworks || [],
+            }));
             
             return (
               <>
@@ -5126,52 +6669,125 @@ const ComplianceMVP = () => {
                   <div className="text-2xl font-bold text-green-500">{stats.implemented}</div>
                   <p className="text-xs text-muted-foreground mt-1">Controls in good standing</p>
                 </div>
+
+                {spotlightGaps.length > 0 && (
+                  <div className="md:col-span-3 bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold text-foreground">Spotlight Controls</span>
+                      <button
+                        onClick={() => setActiveView('automation')}
+                        className="text-xs text-primary hover:underline font-medium"
+                      >
+                        Open automation playbook →
+                      </button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {spotlightGaps.map((gap) => (
+                        <div
+                          key={gap.id}
+                          className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-foreground"
+                        >
+                          <div className="font-semibold text-red-500">{gap.name}</div>
+                          <div className="text-muted-foreground mt-1">Status: {gap.status}</div>
+                          <div className="text-muted-foreground mt-1">
+                            Owner: <span className="text-foreground">{gap.owner}</span>
+                          </div>
+                          {gap.frameworks.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {gap.frameworks.slice(0, 3).map((fw) => (
+                                <span
+                                  key={fw}
+                                  className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20"
+                                >
+                                  {fw}
+                                </span>
+                              ))}
+                              {gap.frameworks.length > 3 && (
+                                <span className="text-muted-foreground">+{gap.frameworks.length - 3}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             );
           })()}
         </div>
       </div>
 
-      {recommendations.length > 0 && (
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-foreground mb-1">AI-Powered Recommendations</h3>
-            <p className="text-sm text-muted-foreground">Smart suggestions to improve your compliance posture</p>
-          </div>
-          <div className="space-y-4">
-            {recommendations.slice(0, 5).map((rec, idx) => (
-              <div key={idx} className={`p-4 rounded-lg border ${
-                rec.type === 'critical' ? 'bg-muted/30 border-red-500/30' :
-                rec.type === 'high-priority' ? 'bg-muted/30 border-yellow-500/30' :
-                rec.type === 'assignment' ? 'bg-muted/30 border-blue-500/30' :
-                rec.type === 'optimization' ? 'bg-muted/30 border-purple-500/30' :
+      {recommendations.length > 0 && (() => {
+        const visibleRecommendations = recommendations.slice(0, 5);
+        const activeIndex = Math.min(selectedRecommendationIndex, visibleRecommendations.length - 1);
+        const activeRecommendation = visibleRecommendations[activeIndex] || visibleRecommendations[0];
+
+        return (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground mb-1">AI-Powered Recommendations</h3>
+                <p className="text-sm text-muted-foreground">
+                  Smart scenarios tailored to improve your compliance posture.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {visibleRecommendations.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedRecommendationIndex(idx)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                      idx === activeIndex
+                        ? 'bg-primary text-primary-foreground shadow'
+                        : 'bg-muted text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Option {idx + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {activeRecommendation && (
+              <div className={`p-5 rounded-xl border transition-colors ${
+                activeRecommendation.type === 'critical' ? 'bg-muted/30 border-red-500/30' :
+                activeRecommendation.type === 'high-priority' ? 'bg-muted/30 border-yellow-500/30' :
+                activeRecommendation.type === 'assignment' ? 'bg-muted/30 border-blue-500/30' :
+                activeRecommendation.type === 'optimization' ? 'bg-muted/30 border-purple-500/30' :
                 'bg-muted/30 border-[hsl(var(--border))]'
               }`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <div className="font-semibold text-foreground">{rec.title}</div>
-                    <div className="text-sm text-muted-foreground mt-1">{rec.description}</div>
-                    {rec.estimatedImpact && (
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+                  <div className="space-y-2">
+                    <div className="font-semibold text-lg text-foreground">{activeRecommendation.title}</div>
+                    <div className="text-sm text-muted-foreground">{activeRecommendation.description}</div>
+                    {activeRecommendation.estimatedImpact && (
                       <div className="text-xs text-primary mt-2 font-medium">
-                        💡 {rec.estimatedImpact}
+                        💡 {activeRecommendation.estimatedImpact}
                       </div>
                     )}
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    rec.type === 'critical' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
-                    rec.type === 'high-priority' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' :
+                  <span className={`self-start px-3 py-1 rounded-full text-xs font-semibold ${
+                    activeRecommendation.type === 'critical' ? 'bg-red-500/10 text-red-500 border border-red-500/20' :
+                    activeRecommendation.type === 'high-priority' ? 'bg-orange-500/10 text-orange-500 border border-orange-500/20' :
                     'bg-muted text-foreground'
                   }`}>
-                    Priority {rec.priority}
+                    Priority {activeRecommendation.priority}
                   </span>
                 </div>
 
-                {rec.vendorRecommendations && rec.vendorRecommendations.length > 0 && (
+                {activeRecommendation.vendorRecommendations && activeRecommendation.vendorRecommendations.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-border">
-                    <div className="text-sm font-semibold text-foreground mb-3">💼 Recommended Vendors (Sorted by Priority & ROI):</div>
+                    <div className="text-sm font-semibold text-foreground mb-3">
+                      💼 Recommended Vendors (Sorted by Priority & ROI):
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {rec.vendorRecommendations.map((vendor, vIdx) => (
-                        <div key={vIdx} className="bg-card rounded-lg p-3 border border-[hsl(var(--border))] hover:shadow-md transition-shadow">
+                      {activeRecommendation.vendorRecommendations.map((vendor, vIdx) => (
+                        <div
+                          key={vIdx}
+                          className="bg-card rounded-lg p-3 border border-[hsl(var(--border))] hover:shadow-md transition-shadow"
+                          onClick={(event) => event.stopPropagation()}
+                        >
                           <div className="flex items-start justify-between mb-2">
                             <div className="font-semibold text-foreground">{vendor.vendor}</div>
                             <span className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded">
@@ -5180,7 +6796,12 @@ const ComplianceMVP = () => {
                           </div>
                           <div className="text-xs text-muted-foreground space-y-1">
                             <div>💰 ${vendor.monthlyPrice.toLocaleString()}/mo</div>
-                            <div>📊 ROI: <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-500' : 'text-red-500'}`}>{vendor.roi}%</span></div>
+                            <div>
+                              📊 ROI:{' '}
+                              <span className={`font-semibold ${vendor.roi > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                {vendor.roi}%
+                              </span>
+                            </div>
                             <div>🎯 Covers: {vendor.controlsCovered.join(', ')}</div>
                             <div>📋 {vendor.controlsList.length} control{vendor.controlsList.length > 1 ? 's' : ''}</div>
                             {vendor.automatable && (
@@ -5193,27 +6814,48 @@ const ComplianceMVP = () => {
                   </div>
                 )}
 
-                {rec.suggestedActions && rec.suggestedActions.length > 0 && (
+                {activeRecommendation.suggestedActions && activeRecommendation.suggestedActions.length > 0 && (
                   <div className="mt-3 pt-3 border-t border-[hsl(var(--border))]">
                     <div className="text-sm font-semibold text-foreground mb-2">📝 Suggested Actions:</div>
                     <ul className="list-disc list-inside text-xs text-muted-foreground space-y-1">
-                      {rec.suggestedActions.map((action, aIdx) => (
+                      {activeRecommendation.suggestedActions.map((action, aIdx) => (
                         <li key={aIdx}>{action}</li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {rec.estimatedSavings && (
+                {activeRecommendation.estimatedSavings && (
                   <div className="mt-3 p-2 bg-green-500/10 border border-green-500/20 rounded text-sm text-green-500 font-semibold">
-                    💰 {rec.estimatedSavings}
+                    💰 {activeRecommendation.estimatedSavings}
                   </div>
                 )}
+
+                <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-primary font-medium">
+                    <ArrowUpRight className="w-3 h-3" />
+                    <span>Review automation playbooks to execute this recommendation.</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setActiveView('automation')}
+                      className="px-3 py-2 rounded-md border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
+                    >
+                      Open Automation Plan
+                    </button>
+                    <button
+                      onClick={() => setActiveView('controls')}
+                      className="px-3 py-2 rounded-md border border-[hsl(var(--border))] bg-card text-sm hover:bg-muted transition-colors"
+                    >
+                      View Related Controls
+                    </button>
+                  </div>
+                </div>
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
     );
   };
@@ -6618,7 +8260,9 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-  // Placeholder render methods for other views
+
+
+
   const renderEntities = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Entity Management</h2><p className="text-muted-foreground mt-2">Manage subsidiaries and regional entities</p></div>;
   const renderRBAC = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Roles & Permissions</h2><p className="text-muted-foreground mt-2">Manage access control and user permissions</p></div>;
   const renderDataImport = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Data Import Center</h2><p className="text-muted-foreground mt-2">Connect your security tools and import data seamlessly</p></div>;
@@ -9639,7 +11283,7 @@ const ComplianceMVP = () => {
                 {/* Security & Access Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['iam', 'csca'].includes(activeView)
+                    ['rbac', 'iam', 'csca', 'architecture'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -9648,11 +11292,19 @@ const ComplianceMVP = () => {
                     <ChevronDown className="w-4 h-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
-                    <DropdownMenuLabel>Security & Access</DropdownMenuLabel>
+                    <DropdownMenuLabel>Security, Roles & Access</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('rbac')}>
+                      <Shield className="w-4 h-4 mr-2" />
+                      <span>Roles & Permissions</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('iam')}>
                       <UserCheck className="w-4 h-4 mr-2" />
                       <span>IAM & Permissions</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('architecture')}>
+                      <Network className="w-4 h-4 mr-2" />
+                      <span>Data Flow Architecture</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('csca')}>
                       <Link2 className="w-4 h-4 mr-2" />
@@ -9731,24 +11383,6 @@ const ComplianceMVP = () => {
                   <span className="text-xs text-yellow-500 hidden md:inline">{apiError}</span>
                 </div>
               )}
-              
-              {/* Settings Dropdown */}
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-                  <Settings className="w-4 h-4" />
-                  <span className="hidden md:inline">Settings</span>
-                  <ChevronDown className="w-4 h-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>Settings</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setActiveView('rbac')}>
-                    <Shield className="w-4 h-4 mr-2" />
-                    <span>Roles & Permissions</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
               {/* User Info */}
               <div className="hidden md:flex flex-col items-end border-l border-[hsl(var(--border))] pl-4">
                 <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
@@ -9805,9 +11439,17 @@ const ComplianceMVP = () => {
                   <ChevronDown className="w-4 h-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-full">
+                  <DropdownMenuItem onClick={() => { setActiveView('rbac'); setMobileMenuOpen(false); }}>
+                    <Shield className="w-4 h-4 mr-2" />
+                    <span>Roles & Permissions</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { setActiveView('iam'); setMobileMenuOpen(false); }}>
                     <UserCheck className="w-4 h-4 mr-2" />
                     <span>IAM & Permissions</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('architecture'); setMobileMenuOpen(false); }}>
+                    <Network className="w-4 h-4 mr-2" />
+                    <span>Data Flow Architecture</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { setActiveView('csca'); setMobileMenuOpen(false); }}>
                     <Link2 className="w-4 h-4 mr-2" />
@@ -9859,18 +11501,6 @@ const ComplianceMVP = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-
-              <button
-                onClick={() => { setActiveView('rbac'); setMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeView === 'rbac'
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                <span>Settings</span>
-              </button>
             </div>
           )}
         </header>
@@ -9887,7 +11517,7 @@ const ComplianceMVP = () => {
 
           {/* Scrollable Content */}
           <main className="flex-1 overflow-y-auto p-4 md:p-8">
-            <div className="max-w-7xl mx-auto space-y-6">
+            <div className="max-w-[1400px] xl:max-w-[1600px] mx-auto space-y-6">
 
         {/* Stats Cards with shadcn/ui styling - Only show on dashboard */}
         {activeView === 'dashboard' && (
@@ -9918,6 +11548,55 @@ const ComplianceMVP = () => {
               {activeView === 'dashboard' ? renderDashboard() : 
                activeView === 'audits' ? renderAudits() :
                activeView === 'iam' ? renderIAM() :
+               activeView === 'architecture' ? (
+                 <DataFlowArchitectureView
+                   stats={dataFlowStats}
+                   canEdit={canEditDataFlow}
+                   canManage={canManageDataFlow}
+                   onAddNode={openDataFlowNodeModal}
+                   onAddEdge={openDataFlowEdgeModal}
+                   filters={dataFlowFilters}
+                   onFilterChange={(key, value) => updateDataFlowFilter(key, value)}
+                   nodeTypes={dataFlowNodeTypes}
+                   sensitivities={dataFlowSensitivities}
+                   owners={dataFlowOwners}
+                   error={dataFlowError}
+                   loading={dataFlowLoading}
+                   graphData={dataFlowGraphData}
+                   graphRef={dataFlowGraphRef}
+                   hasZoomedRef={dataFlowHasZoomedRef}
+                   nodeMap={dataFlowNodeMap}
+                   nodeSignals={dataFlowNodeSignals}
+                   edgeMap={dataFlowEdgeMap}
+                   selectedItem={selectedDataFlowItem}
+                   onSelectItem={setSelectedDataFlowItem}
+                   onDeleteNode={handleDeleteDataFlowNode}
+                   onDeleteEdge={handleDeleteDataFlowEdge}
+                   auditLog={dataFlowAudit}
+                   onRefresh={refreshDataFlowGraph}
+                   showNodeModal={showDataFlowNodeModal}
+                   showEdgeModal={showDataFlowEdgeModal}
+                   nodeForm={dataFlowNodeForm}
+                   edgeForm={dataFlowEdgeForm}
+                   setNodeForm={setDataFlowNodeForm}
+                   setEdgeForm={setDataFlowEdgeForm}
+                   onSubmitNode={handleSubmitDataFlowNode}
+                   onSubmitEdge={handleSubmitDataFlowEdge}
+                   closeNodeModal={closeDataFlowNodeModal}
+                   closeEdgeModal={closeDataFlowEdgeModal}
+                   editingNode={editingDataFlowNode}
+                   editingEdge={editingDataFlowEdge}
+                   nodes={dataFlowNodes}
+                   persistNodePosition={persistDataFlowNodePosition}
+                   onResetLayout={resetDataFlowLayout}
+                   savingLayout={dataFlowLayoutSaving}
+                   resettingLayout={dataFlowLayoutResetting}
+                   layoutLastSaved={dataFlowLayoutLastSaved}
+                   accessSummary={dataFlowAccessSummary}
+                   onNavigateControl={handleNavigateControl}
+                   handleFormCheckbox={handleDataFlowCheckboxChange}
+                 />
+               ) :
                activeView === 'csca' ? renderCSCA() :
                activeView === 'tco' ? renderTCOCalculator() : 
                activeView === 'automation' ? renderAutomationPlan() :
