@@ -2270,6 +2270,8 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
         conn.close()
         raise HTTPException(status_code=404, detail="Alert not found")
 
+    control_updates_payload: List[Dict[str, Any]] = []
+
     if payload.control_updates:
         for update in payload.control_updates:
             cursor.execute("SELECT id FROM controls WHERE id = ? AND user_id = ?", (update.control_id, user_id))
@@ -2278,18 +2280,22 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
                 conn.close()
                 raise HTTPException(status_code=404, detail=f"Control {update.control_id} not found")
 
-            control_updates = []
+            control_updates: List[str] = []
             control_params: List[Any] = []
+            control_activity_metadata: Dict[str, Any] = {"control_id": update.control_id}
 
             if update.status:
                 control_updates.append("status = ?")
                 control_params.append(update.status)
+                control_activity_metadata["new_status"] = update.status
             if update.responsible_party:
                 control_updates.append("responsible_party = ?")
                 control_params.append(update.responsible_party)
+                control_activity_metadata["new_owner"] = update.responsible_party
             if update.evidence_link:
                 control_updates.append("evidence_link = ?")
                 control_params.append(update.evidence_link)
+                control_activity_metadata.setdefault("evidence_links", []).append(update.evidence_link)
 
             if control_updates:
                 control_updates.append("last_updated = CURRENT_TIMESTAMP")
@@ -2313,14 +2319,17 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
                     if update.coverage_type is not None:
                         rm_updates.append("coverage_type = ?")
                         rm_params.append(update.coverage_type)
+                        control_activity_metadata["coverage_type"] = update.coverage_type
                     if update.secondary_owners is not None:
                         rm_updates.append("secondary_owners = ?")
                         rm_params.append(json.dumps(update.secondary_owners))
                         rm_updates.append("shared_responsibility = ?")
                         rm_params.append(shared_flag)
+                        control_activity_metadata["secondary_owners"] = update.secondary_owners
                     if update.data_sources is not None:
                         rm_updates.append("data_sources = ?")
                         rm_params.append(json.dumps(update.data_sources))
+                        control_activity_metadata["data_sources"] = update.data_sources
                     if update.responsible_party:
                         rm_updates.append("primary_owner = ?")
                         rm_params.append(update.responsible_party)
@@ -2346,6 +2355,41 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
                             update.coverage_type
                         )
                     )
+                    control_activity_metadata["coverage_type"] = update.coverage_type
+                    control_activity_metadata["secondary_owners"] = update.secondary_owners or []
+                    control_activity_metadata["data_sources"] = update.data_sources or []
+
+            has_changes = any([
+                update.status is not None,
+                update.responsible_party is not None,
+                update.coverage_type is not None,
+                update.secondary_owners is not None,
+                update.data_sources is not None,
+                update.evidence_link is not None,
+            ])
+
+            if has_changes:
+                control_updates_payload.append({
+                "control_id": update.control_id,
+                "status": update.status,
+                "responsible_party": update.responsible_party,
+                "coverage_type": update.coverage_type,
+                "secondary_owners": update.secondary_owners,
+                "data_sources": update.data_sources,
+                "evidence_link": update.evidence_link,
+                })
+
+            metadata_payload = {k: v for k, v in control_activity_metadata.items() if v is not None and k != "control_id"}
+            if metadata_payload:
+                metadata_payload["control_id"] = control_activity_metadata["control_id"]
+                alert_service.record_alert_activity(
+                    alert_id=alert_id,
+                    user_id=user_id,
+                    event_type="control_update",
+                    status=payload.status,
+                    actor=f"User {user_id}",
+                    metadata=metadata_payload,
+                )
 
     conn.commit()
     conn.close()

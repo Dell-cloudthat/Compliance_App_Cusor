@@ -3239,34 +3239,48 @@ const ComplianceMVP = () => {
       const alertContext = selectedAlertRef.current || selectedAlert;
       const statusSnapshot = alertRemediationForm.status;
 
-      await api.updateAlertRemediation(selectedAlert.id, currentUser.id, payload);
+      const updateResponse = await api.updateAlertRemediation(selectedAlert.id, currentUser.id, payload);
+      const responseDetail = updateResponse && updateResponse.alert ? updateResponse : null;
+      const responseAlert = responseDetail ? updateResponse.alert : updateResponse;
+      const timestamp = new Date().toISOString();
+
+      let nextAlertSnapshot = responseAlert && responseAlert.id
+        ? responseAlert
+        : (alertContext ? {
+            ...alertContext,
+            status: statusSnapshot,
+            acknowledged: true,
+            updated_at: timestamp,
+          } : null);
+
+      if (nextAlertSnapshot && !nextAlertSnapshot.updated_at) {
+        nextAlertSnapshot = { ...nextAlertSnapshot, updated_at: timestamp };
+      }
 
       setSelectedAlert((prev) => {
         if (!prev || prev.id !== selectedAlert.id) {
           return prev;
         }
-        return {
-          ...prev,
-          status: statusSnapshot,
-          acknowledged: true,
-          updated_at: new Date().toISOString(),
-        };
+        return nextAlertSnapshot || prev;
       });
 
       if (controlUpdatesPayload.length) {
         applyControlUpdates(controlUpdatesPayload);
       }
 
-      if (alertContext) {
-        recordRemediationProgress(alertContext, controlUpdatesPayload, statusSnapshot);
+      const progressContext = nextAlertSnapshot || alertContext;
+      if (progressContext) {
+        recordRemediationProgress(progressContext, controlUpdatesPayload, statusSnapshot);
       }
 
       await loadActionableAlerts();
       if (statusSnapshot === 'resolved') {
         loadFrameworkGrowth();
         closeAlertRemediation();
-      } else if (alertContext) {
-        await fetchAlertDetails(alertContext);
+      } else if (responseDetail) {
+        setSelectedAlertDetail(responseDetail);
+      } else if (progressContext) {
+        await fetchAlertDetails(progressContext);
       }
     } catch (error) {
       console.error('Error updating alert remediation:', error);
@@ -3350,6 +3364,16 @@ const ComplianceMVP = () => {
             }
           } else if ((data.type === 'alert.created' || data.type === 'alert.updated') && data.payload) {
             upsertActionableAlert(data.payload);
+            if (data.type === 'alert.updated') {
+              const currentSelected = selectedAlertRef.current;
+              if (
+                showAlertRemediationRef.current &&
+                currentSelected &&
+                currentSelected.id === data.payload.id
+              ) {
+                fetchAlertDetails({ ...currentSelected, ...data.payload });
+              }
+            }
           }
         } catch (error) {
           console.error('Error processing alert message:', error);
@@ -3367,7 +3391,7 @@ const ComplianceMVP = () => {
       console.error('Error initializing alert WebSocket:', error);
       setAlertsSocketConnected(false);
     }
-  }, [backendConnected, currentUser.id, upsertActionableAlert]);
+  }, [backendConnected, currentUser.id, upsertActionableAlert, fetchAlertDetails]);
 
   const loadIAMData = async () => {
     if (!backendConnected || !currentUser.id) return;

@@ -6,7 +6,8 @@ import sqlite3
 import json
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, DefaultDict
+from collections import defaultdict
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -185,8 +186,16 @@ def list_alert_activity(alert_id: int) -> List[Dict[str, Any]]:
 
 def _build_linked_controls(alert: Dict[str, Any], user_id: Optional[int]) -> List[Dict[str, Any]]:
     guidance = alert.get('remediation_guidance') or []
-    if not guidance:
-        return []
+    if not guidance and alert.get('control_id'):
+        guidance = [{
+            'control_id': alert.get('control_id'),
+            'control_name': alert.get('title'),
+            'framework': alert.get('framework'),
+            'priority': alert.get('severity'),
+            'current_status': alert.get('status'),
+            'target_status': 'Implemented',
+            'recommended_owner': alert.get('responsible_party'),
+        }]
 
     control_ids = [g.get('control_id') for g in guidance if g.get('control_id')]
     controls_map: Dict[str, Dict[str, Any]] = {}
@@ -236,6 +245,56 @@ def _build_linked_controls(alert: Dict[str, Any], user_id: Optional[int]) -> Lis
         })
     return linked_controls
 
+def _get_control_evidence(control_ids: List[str], user_id: Optional[int]) -> Dict[str, List[Dict[str, Any]]]:
+    """Fetch latest evidence entries for the provided controls"""
+    if not control_ids:
+        return {}
+
+    conn = get_db()
+    cursor = conn.cursor()
+    placeholders = ",".join("?" for _ in control_ids)
+    sql = f"""
+        SELECT ae.id,
+               ae.control_id,
+               ae.evidence_type,
+               ae.evidence_name,
+               ae.file_url,
+               ae.file_size_bytes,
+               ae.uploaded_by,
+               ae.uploaded_at,
+               ae.validated,
+               ae.validated_by,
+               ae.validated_at,
+               ae.notes,
+               ae.metadata
+        FROM audit_evidence ae
+        JOIN controls c ON c.id = ae.control_id
+        WHERE ae.control_id IN ({placeholders})
+    """
+    params: Tuple[Any, ...]
+    if user_id is not None:
+        sql += " AND c.user_id = ?"
+        params = tuple(control_ids) + (user_id,)
+    else:
+        params = tuple(control_ids)
+    sql += " ORDER BY ae.uploaded_at DESC"
+    cursor.execute(sql, params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    evidence_by_control: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        entry = dict(row)
+        metadata = entry.get('metadata')
+        if metadata:
+            try:
+                entry['metadata'] = json.loads(metadata)
+            except json.JSONDecodeError:
+                entry['metadata'] = metadata
+        entry['validated'] = bool(entry.get('validated'))
+        evidence_by_control[entry['control_id']].append(entry)
+    return evidence_by_control
+
 def _build_risk_snapshot(alert: Dict[str, Any]) -> Dict[str, Any]:
     drift_payload = alert.get('drift_payload') or {}
     baseline = drift_payload.get('baseline_score') or alert.get('compliance_score_before')
@@ -278,6 +337,13 @@ def get_alert_detail(alert_id: int, user_id: Optional[int] = None) -> Optional[D
         timeline.sort(key=lambda entry: entry.get('timestamp') or '')
 
     linked_controls = _build_linked_controls(alert, user_id)
+    control_ids = [control['id'] for control in linked_controls if control.get('id')]
+    evidence_by_control = _get_control_evidence(control_ids, user_id)
+
+    for control in linked_controls:
+        cid = control.get('id')
+        control['evidence'] = evidence_by_control.get(cid, [])
+
     detail = {
         'alert': alert,
         'timeline': timeline,
