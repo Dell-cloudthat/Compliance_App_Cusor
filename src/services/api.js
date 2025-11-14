@@ -438,6 +438,26 @@ class ComplianceAPI {
     });
   }
 
+  async getControlPriorities(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.limit) params.append('limit', options.limit);
+    if (options.controlId) params.append('control_id', options.controlId);
+    const query = params.toString();
+    return this.request(`/api/intelligence/priorities${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
+  async getControlGuidance(userId, controlId) {
+    return this.request(`/api/intelligence/guidance?control_id=${encodeURIComponent(controlId)}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      }
+    });
+  }
+
   // ============================================================================
   // Pattern Detection & Trend Analysis Endpoints
   // ============================================================================
@@ -672,6 +692,84 @@ class ComplianceAPI {
     }
 
     return segments;
+  }
+
+  // ============================================================================
+  // Self-Learning Automation System
+  // ============================================================================
+
+  async runLearningAnalysis(userId) {
+    return this.request('/api/learning/analyze', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getLearnedPatterns(userId, minConfidence = 0.3) {
+    return this.request(`/api/learning/patterns?min_confidence=${minConfidence}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getAutoPlaybooks(userId, status = null) {
+    const url = status 
+      ? `/api/learning/playbooks?status=${status}`
+      : '/api/learning/playbooks';
+    return this.request(url, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async approvePlaybook(userId, playbookId) {
+    return this.request(`/api/learning/playbooks/${playbookId}/approve`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getDataValueSummary(userId) {
+    return this.request('/api/learning/data-value', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getMatchingPlaybooks(userId, alertId = null, controlId = null) {
+    const params = new URLSearchParams();
+    if (alertId) params.append('alert_id', alertId);
+    if (controlId) params.append('control_id', controlId);
+    return this.request(`/api/learning/playbooks/match?${params.toString()}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getControlPatterns(userId, controlId) {
+    return this.request(`/api/learning/patterns/control/${controlId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async trackPlaybookUsage(userId, playbookId, alertId) {
+    return this.request(`/api/learning/playbooks/${playbookId}/execute`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify({ alert_id: alertId }),
+    });
   }
 }
 

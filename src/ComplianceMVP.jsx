@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2 } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import { CIS_CONTROLS } from './frameworks/cis-controls';
@@ -20,7 +20,324 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 
+const PRODUCT_LIBRARY = [
+  {
+    key: 'golden-thread',
+    name: 'Golden Thread Control Workspace',
+    summary: 'Unified control view tying together risk snapshot, alerts, architecture, evidence, and AI guidance.',
+    value: 'Reduces manual investigation time by presenting the entire control lifecycle in one place.',
+    users: 'Compliance managers, SecOps analysts, auditors',
+    status: 'Live',
+    related: ['AI Guidance', 'Alert Drill-Down', 'Data Flow Architecture'],
+    capabilities: [
+      'Risk and timeline snapshot with live updates',
+      'Linked alerts, systems, flows, and evidence',
+      'AI-driven remediation guidance and automation opportunities',
+      'CSV export for audit packages',
+    ],
+  },
+  {
+    key: 'ai-intelligence',
+    name: 'AI Compliance Intelligence Core',
+    summary: 'Scoring and guidance engine that ranks control risk and prescribes remediation steps.',
+    value: 'Helps teams prioritize by risk, understand "why", and take action faster.',
+    users: 'Compliance leads, GRC analysts, CISOs',
+    status: 'Live',
+    related: ['Golden Thread', 'Automation Playbook', 'Controls Matrix'],
+    capabilities: [
+      'Control priority scoring (obligation, threat, evidence, automation)',
+      'Guided remediation actions and narratives',
+      'Evidence freshness and owner recommendations',
+    ],
+  },
+  {
+    key: 'alert-drilldown',
+    name: 'Alert Drill-Down & Remediation Console',
+    summary: 'Full-screen alert workspace with risk snapshot, timeline, linked controls, and checklist.',
+    value: 'Collapses investigation and remediation workflow into a single pane.',
+    users: 'Security operations, compliance responders',
+    status: 'Live',
+    related: ['AI Guidance', 'Automation Playbook', 'Golden Thread'],
+    capabilities: [
+      'Detailed alert timeline with activity log',
+      'Linked controls and remediation checklist',
+      'Websocket refresh for collaborative response',
+    ],
+  },
+  {
+    key: 'dataflow',
+    name: 'Data Flow Architecture Graph',
+    summary: 'Interactive graph of systems, data flows, telemetry, and control attribution.',
+    value: 'Visualizes data lineage and evidence mapping to support compliance-by-design.',
+    users: 'Cloud/security architects, data governance, compliance teams',
+    status: 'Live',
+    related: ['Golden Thread', 'Automation Plan', 'Controls Matrix'],
+    capabilities: [
+      'Node/edge CRUD with audit history',
+      'Telemetry overlays and signals',
+      'Cross-navigation to controls and alerts',
+    ],
+  },
+  {
+    key: 'controls-matrix',
+    name: 'Controls & Responsibility Matrix',
+    summary: 'Tabular view of controls, ownership, shared responsibility, and data sources.',
+    value: 'Clarifies accountability and forms the backbone for remediation reporting.',
+    users: 'Compliance program owners, control operators, auditors',
+    status: 'Live',
+    related: ['Golden Thread', 'IAM & Permissions', 'Automation Plan'],
+    capabilities: [
+      'Filters and quick metrics',
+      'Inline ownership updates and exports',
+      'Shared responsibility and data attribution visibility',
+    ],
+  },
+  {
+    key: 'automation-playbook',
+    name: 'Automation Playbook & Checklist',
+    summary: 'Guided remediation modal that tracks steps, evidence, and automation progress.',
+    value: 'Standardizes remediation, captures evidence, and tracks automation velocity.',
+    users: 'Control owners, automation engineers, compliance teams',
+    status: 'Live',
+    related: ['AI Guidance', 'Automation Activity Log', 'Golden Thread'],
+    capabilities: [
+      'Step-by-step checklist with completion tracking',
+      'Evidence and notes capture',
+      'Automation history logging',
+    ],
+  },
+  {
+    key: 'framework-glossary',
+    name: 'Framework Glossary & Learning Hub',
+    summary: 'Interactive dictionary of frameworks, controls, and beginner-friendly explanations.',
+    value: 'Onboards new stakeholders and supports multi-framework mapping.',
+    users: 'Compliance teams, auditors, newcomers',
+    status: 'Live',
+    related: ['Controls Matrix', 'Reports', 'Product Library'],
+    capabilities: [
+      'Searchable catalogue of frameworks',
+      'Quick facts and reference links',
+      'Beginner-friendly descriptions',
+    ],
+  },
+  {
+    key: 'iam-console',
+    name: 'IAM & Permissions Console',
+    summary: 'Unified view of roles, vendor profiles, permission grants, and audit logs.',
+    value: 'Supports least-privilege evidence and streamlines access governance.',
+    users: 'IAM admins, compliance managers, auditors',
+    status: 'Live',
+    related: ['Controls Matrix', 'Golden Thread', 'Automation Plan'],
+    capabilities: [
+      'Role and permission management UI',
+      'Vendor access profiles',
+      'Permission audit logging',
+    ],
+  },
+  {
+    key: 'realtime-compliance',
+    name: 'Real-Time Compliance & Score History',
+    summary: 'Dashboards and APIs that track framework scores and security-compliance correlation.',
+    value: 'Quantifies progress and highlights drift for leadership and auditors.',
+    users: 'Compliance leadership, executives, auditors',
+    status: 'Live',
+    related: ['AI Prioritization', 'Alert Drill-Down', 'Reports'],
+    capabilities: [
+      'Framework growth metrics and history',
+      'Security-compliance correlation API',
+      'Real-time score snapshots',
+    ],
+  },
+  {
+    key: 'product-library',
+    name: 'Product Library',
+    summary: 'In-app catalogue explaining every platform feature and capability.',
+    value: 'Supports adoption by documenting value, users, and related workflows.',
+    users: 'All users (product, compliance, customer success)',
+    status: 'Live',
+    related: ['Framework Glossary', 'Golden Thread', 'AI Guidance'],
+    capabilities: [
+      'Feature summaries and benefits',
+      'Target users and status tracking',
+      'Links to related capabilities',
+    ],
+  },
+];
 
+// Connection type descriptions and icons
+const CONNECTION_TYPES = {
+  'enhances': {
+    description: 'Improves functionality and adds capabilities',
+    icon: '✨',
+    color: 'hsl(142 76% 36%)'
+  },
+  'integrates': {
+    description: 'Seamlessly connects and shares data',
+    icon: '🔗',
+    color: 'hsl(217 91% 60%)'
+  },
+  'visualizes': {
+    description: 'Displays and represents data visually',
+    icon: '📊',
+    color: 'hsl(262 83% 58%)'
+  },
+  'sources': {
+    description: 'Provides data or information',
+    icon: '📥',
+    color: 'hsl(38 92% 50%)'
+  },
+  'guides': {
+    description: 'Provides direction and recommendations',
+    icon: '🧭',
+    color: 'hsl(199 89% 48%)'
+  },
+  'prioritizes': {
+    description: 'Ranks and orders by importance',
+    icon: '⭐',
+    color: 'hsl(45 93% 47%)'
+  },
+  'powers': {
+    description: 'Enables core functionality',
+    icon: '⚡',
+    color: 'hsl(0 84% 60%)'
+  },
+  'triggers': {
+    description: 'Initiates actions or workflows',
+    icon: '🚀',
+    color: 'hsl(142 76% 36%)'
+  },
+  'feeds': {
+    description: 'Supplies data or updates',
+    icon: '📡',
+    color: 'hsl(217 91% 60%)'
+  },
+  'updates': {
+    description: 'Refreshes or modifies information',
+    icon: '🔄',
+    color: 'hsl(199 89% 48%)'
+  },
+  'enriches': {
+    description: 'Adds context and additional details',
+    icon: '💎',
+    color: 'hsl(262 83% 58%)'
+  },
+  'maps': {
+    description: 'Creates associations and links',
+    icon: '🗺️',
+    color: 'hsl(38 92% 50%)'
+  },
+  'informs': {
+    description: 'Provides insights and knowledge',
+    icon: '💡',
+    color: 'hsl(199 89% 48%)'
+  },
+  'defines': {
+    description: 'Establishes structure and rules',
+    icon: '📋',
+    color: 'hsl(217 91% 60%)'
+  },
+  'provides': {
+    description: 'Supplies resources or capabilities',
+    icon: '📦',
+    color: 'hsl(38 92% 50%)'
+  },
+  'tracks': {
+    description: 'Monitors progress and status',
+    icon: '👁️',
+    color: 'hsl(199 89% 48%)'
+  },
+  'improves': {
+    description: 'Enhances performance or quality',
+    icon: '📈',
+    color: 'hsl(142 76% 36%)'
+  },
+  'uses': {
+    description: 'Leverages capabilities',
+    icon: '🔧',
+    color: 'hsl(38 92% 50%)'
+  },
+  'explains': {
+    description: 'Clarifies and educates',
+    icon: '📚',
+    color: 'hsl(199 89% 48%)'
+  },
+  'complements': {
+    description: 'Works alongside to enhance',
+    icon: '🤝',
+    color: 'hsl(262 83% 58%)'
+  },
+  'manages': {
+    description: 'Controls and administers',
+    icon: '⚙️',
+    color: 'hsl(217 91% 60%)'
+  },
+  'authorizes': {
+    description: 'Grants permissions and access',
+    icon: '🔐',
+    color: 'hsl(0 84% 60%)'
+  },
+  'measures': {
+    description: 'Quantifies and evaluates',
+    icon: '📏',
+    color: 'hsl(199 89% 48%)'
+  },
+  'monitors': {
+    description: 'Observes and watches',
+    icon: '👀',
+    color: 'hsl(199 89% 48%)'
+  },
+  'links': {
+    description: 'Connects and references',
+    icon: '🔗',
+    color: 'hsl(217 91% 60%)'
+  },
+  'documents': {
+    description: 'Records and catalogs',
+    icon: '📄',
+    color: 'hsl(38 92% 50%)'
+  }
+};
+
+// Feature Integration Map - Defines relationships between features
+const FEATURE_RELATIONSHIPS = [
+  // Core relationships based on PRODUCT_LIBRARY related fields
+  { from: 'golden-thread', to: 'ai-intelligence', type: 'enhances', strength: 'strong' },
+  { from: 'golden-thread', to: 'alert-drilldown', type: 'integrates', strength: 'strong' },
+  { from: 'golden-thread', to: 'dataflow', type: 'visualizes', strength: 'strong' },
+  { from: 'golden-thread', to: 'controls-matrix', type: 'sources', strength: 'medium' },
+  
+  { from: 'ai-intelligence', to: 'automation-playbook', type: 'guides', strength: 'strong' },
+  { from: 'ai-intelligence', to: 'controls-matrix', type: 'prioritizes', strength: 'strong' },
+  { from: 'ai-intelligence', to: 'golden-thread', type: 'powers', strength: 'strong' },
+  
+  { from: 'alert-drilldown', to: 'automation-playbook', type: 'triggers', strength: 'strong' },
+  { from: 'alert-drilldown', to: 'golden-thread', type: 'feeds', strength: 'strong' },
+  { from: 'alert-drilldown', to: 'realtime-compliance', type: 'updates', strength: 'medium' },
+  
+  { from: 'dataflow', to: 'golden-thread', type: 'enriches', strength: 'strong' },
+  { from: 'dataflow', to: 'controls-matrix', type: 'maps', strength: 'medium' },
+  { from: 'dataflow', to: 'automation-playbook', type: 'informs', strength: 'medium' },
+  
+  { from: 'controls-matrix', to: 'iam-console', type: 'defines', strength: 'strong' },
+  { from: 'controls-matrix', to: 'golden-thread', type: 'provides', strength: 'strong' },
+  { from: 'controls-matrix', to: 'automation-playbook', type: 'tracks', strength: 'medium' },
+  
+  { from: 'automation-playbook', to: 'realtime-compliance', type: 'improves', strength: 'strong' },
+  { from: 'automation-playbook', to: 'controls-matrix', type: 'updates', strength: 'strong' },
+  { from: 'automation-playbook', to: 'ai-intelligence', type: 'uses', strength: 'strong' },
+  
+  { from: 'framework-glossary', to: 'controls-matrix', type: 'explains', strength: 'medium' },
+  { from: 'framework-glossary', to: 'product-library', type: 'complements', strength: 'weak' },
+  
+  { from: 'iam-console', to: 'controls-matrix', type: 'manages', strength: 'strong' },
+  { from: 'iam-console', to: 'golden-thread', type: 'authorizes', strength: 'medium' },
+  
+  { from: 'realtime-compliance', to: 'controls-matrix', type: 'measures', strength: 'strong' },
+  { from: 'realtime-compliance', to: 'alert-drilldown', type: 'monitors', strength: 'medium' },
+  
+  { from: 'product-library', to: 'framework-glossary', type: 'links', strength: 'weak' },
+  { from: 'product-library', to: 'golden-thread', type: 'documents', strength: 'weak' },
+];
 
 // Extended framework library with NIST 800-171
 
@@ -86,7 +403,7 @@ const FRAMEWORK_GLOSSARY = [
     name: 'AICPA SOC 2 Trust Services Criteria',
     shortName: 'SOC 2',
     category: 'Service Organization Controls',
-    description: 'Framework for managing customer data based on five “trust service principles”: security, availability, processing integrity, confidentiality, and privacy.',
+    description: 'Framework for managing customer data based on five "trust service principles": security, availability, processing integrity, confidentiality, and privacy.',
     focusAreas: ['Logical & Physical Access', 'Change Management', 'Risk Mitigation', 'Privacy'],
     idealFor: ['SaaS vendors', 'Managed service providers', 'FinTech'],
     docLink: 'https://www.aicpa.org/resources/article/soc-2-frequently-asked-questions',
@@ -503,7 +820,6 @@ const getDefaultOwner = (category) => {
   };
   return ownerMappings[category] || "Unassigned";
 };
-
 const getControlFamily = (controlId) => {
   if (!controlId) return "Unknown";
   const prefix = controlId.split('-')[0];
@@ -592,6 +908,61 @@ const ComplianceMVP = () => {
   const [automationPlan, setAutomationPlan] = useState(null);
   const [showPlanGenerator, setShowPlanGenerator] = useState(false);
   const [frameworkGlossarySearch, setFrameworkGlossarySearch] = useState('');
+  const [showProductLibrary, setShowProductLibrary] = useState(false);
+  const [productLibrarySection, setProductLibrarySection] = useState(PRODUCT_LIBRARY[0]?.key ?? null);
+  const selectedProductFeature = useMemo(() => {
+    if (!productLibrarySection) return PRODUCT_LIBRARY[0] || null;
+    return PRODUCT_LIBRARY.find((feature) => feature.key === productLibrarySection) || PRODUCT_LIBRARY[0] || null;
+  }, [productLibrarySection]);
+
+  // Integration Map state
+  const [integrationMapSelectedFeature, setIntegrationMapSelectedFeature] = useState(null);
+  const [integrationMapHighlightedPath, setIntegrationMapHighlightedPath] = useState([]);
+  const [integrationMapFilterStrength, setIntegrationMapFilterStrength] = useState('all');
+  const [integrationMapSelectedConnection, setIntegrationMapSelectedConnection] = useState(null);
+  const integrationMapSvgRef = useRef(null);
+  const [integrationMapDimensions, setIntegrationMapDimensions] = useState({ width: 1200, height: 800 });
+
+  useEffect(() => {
+    if (showProductLibrary) {
+      if (!productLibrarySection && PRODUCT_LIBRARY.length > 0) {
+        setProductLibrarySection(PRODUCT_LIBRARY[0].key);
+      }
+    }
+  }, [showProductLibrary]);
+
+  // Integration Map resize handler
+  useEffect(() => {
+    if (activeView === 'integration-map') {
+      const handleResize = () => {
+        if (integrationMapSvgRef.current) {
+          const rect = integrationMapSvgRef.current.getBoundingClientRect();
+          const width = rect.width || 1200;
+          const height = rect.height || 800;
+          setIntegrationMapDimensions({ width, height });
+        } else {
+          // Fallback if ref not ready yet
+          setIntegrationMapDimensions({ width: 1200, height: 800 });
+        }
+      };
+      
+      // Initial resize with multiple attempts to ensure SVG is rendered
+      const timeout1 = setTimeout(handleResize, 50);
+      const timeout2 = setTimeout(handleResize, 200);
+      const timeout3 = setTimeout(handleResize, 500);
+      
+      window.addEventListener('resize', handleResize);
+      return () => {
+        clearTimeout(timeout1);
+        clearTimeout(timeout2);
+        clearTimeout(timeout3);
+        window.removeEventListener('resize', handleResize);
+      };
+    } else {
+      // Reset dimensions when leaving the view
+      setIntegrationMapDimensions({ width: 1200, height: 800 });
+    }
+  }, [activeView]);
   
   // Enterprise features
   const [entities, setEntities] = useState([]);
@@ -605,6 +976,13 @@ const ComplianceMVP = () => {
   const [automationChecklistState, setAutomationChecklistState] = useState({});
   const [automationEvidenceNotes, setAutomationEvidenceNotes] = useState('');
   const [automationEvidenceLink, setAutomationEvidenceLink] = useState('');
+  
+  // Self-Learning Automation System State
+  const [learnedPatterns, setLearnedPatterns] = useState([]);
+  const [autoPlaybooks, setAutoPlaybooks] = useState([]);
+  const [dataValueSummary, setDataValueSummary] = useState(null);
+  const [learningAnalysisRunning, setLearningAnalysisRunning] = useState(false);
+  const [selectedPlaybook, setSelectedPlaybook] = useState(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [commandQuery, setCommandQuery] = useState('');
   const [commandHighlightIndex, setCommandHighlightIndex] = useState(0);
@@ -745,8 +1123,166 @@ const ComplianceMVP = () => {
   const [expandedSections, setExpandedSections] = useState(new Set());
   
   // Control detail view
-  const [selectedControl, setSelectedControl] = useState(null);
-  const [showControlDetail, setShowControlDetail] = useState(false);
+const [selectedControl, setSelectedControl] = useState(null);
+const [showControlDetail, setShowControlDetail] = useState(false);
+const [controlGuidance, setControlGuidance] = useState(null);
+const [controlGuidanceLoading, setControlGuidanceLoading] = useState(false);
+const [controlGuidanceError, setControlGuidanceError] = useState(null);
+const [controlPatterns, setControlPatterns] = useState([]);
+const [controlPlaybooks, setControlPlaybooks] = useState([]);
+const [controlPatternsLoading, setControlPatternsLoading] = useState(false);
+const [threadNotification, setThreadNotification] = useState(null);
+const showControlDetailRef = useRef(false);
+const selectedControlRef = useRef(null);
+
+useEffect(() => {
+  showControlDetailRef.current = showControlDetail;
+  if (!showControlDetail) {
+    setControlGuidance(null);
+    setControlGuidanceError(null);
+    setControlGuidanceLoading(false);
+  }
+}, [showControlDetail]);
+
+useEffect(() => {
+  selectedControlRef.current = selectedControl;
+}, [selectedControl]);
+
+useEffect(() => {
+  if (!threadNotification) return;
+  const timeout = setTimeout(() => setThreadNotification(null), 5000);
+  return () => clearTimeout(timeout);
+}, [threadNotification]);
+
+const fetchControlGuidance = useCallback(async (controlId) => {
+  if (!backendConnected || !currentUser?.id || !controlId) {
+    return;
+  }
+  setControlGuidanceLoading(true);
+  setControlGuidanceError(null);
+  try {
+    const result = await api.getControlGuidance(currentUser.id, controlId);
+    setControlGuidance(result);
+  } catch (error) {
+    console.error('Error loading control guidance:', error);
+    const message = error?.detail || error?.message || (error instanceof Error ? error.message : 'Unable to load guidance');
+    setControlGuidanceError(message);
+  } finally {
+    setControlGuidanceLoading(false);
+  }
+}, [backendConnected, currentUser?.id]);
+
+// Fetch learned patterns and playbooks for a control
+const fetchControlPatterns = useCallback(async (controlId) => {
+  if (!backendConnected || !currentUser?.id || !controlId) {
+    return;
+  }
+  setControlPatternsLoading(true);
+  try {
+    const [patternsRes, playbooksRes] = await Promise.all([
+      api.getControlPatterns(currentUser.id, controlId),
+      api.getMatchingPlaybooks(currentUser.id, null, controlId),
+    ]);
+    setControlPatterns(patternsRes.patterns || []);
+    setControlPlaybooks(playbooksRes.playbooks || []);
+  } catch (error) {
+    console.error('Error loading control patterns:', error);
+    setControlPatterns([]);
+    setControlPlaybooks([]);
+  } finally {
+    setControlPatternsLoading(false);
+  }
+}, [backendConnected, currentUser?.id]);
+
+useEffect(() => {
+  const controlId = selectedControl?.id;
+  if (!showControlDetail || !controlId) {
+    return;
+  }
+  if (!backendConnected || !currentUser?.id) {
+    setControlGuidance(null);
+    setControlGuidanceError(null);
+    setControlGuidanceLoading(false);
+    setControlPatterns([]);
+    setControlPlaybooks([]);
+    return;
+  }
+  fetchControlGuidance(controlId);
+  fetchControlPatterns(controlId); // Fetch patterns proactively
+}, [showControlDetail, selectedControl?.id, backendConnected, currentUser?.id, fetchControlGuidance, fetchControlPatterns]);
+
+const openControlDetail = useCallback((control) => {
+  if (!control) return;
+  setSelectedControl(control);
+  setShowControlDetail(true);
+}, []);
+
+// Navigate to feature from Product Library
+const navigateToFeature = useCallback((featureKey) => {
+  // Close the Product Library modal
+  setShowProductLibrary(false);
+  
+  // Small delay to ensure modal closes smoothly
+  setTimeout(() => {
+    switch (featureKey) {
+      case 'golden-thread':
+        // Navigate to controls view and open first control if available
+        setActiveView('controls');
+        if (controls.length > 0) {
+          setTimeout(() => {
+            openControlDetail(controls[0]);
+          }, 100);
+        }
+        break;
+      case 'ai-intelligence':
+        // Navigate to controls view (AI guidance is shown in control detail)
+        setActiveView('controls');
+        break;
+      case 'alert-drilldown':
+        // Navigate to dashboard where alerts are shown
+        setActiveView('dashboard');
+        break;
+      case 'dataflow':
+        // Navigate to Data Flow Architecture view
+        setActiveView('architecture');
+        break;
+      case 'controls-matrix':
+        // Navigate to Controls Matrix view
+        setActiveView('controls');
+        break;
+      case 'automation-playbook':
+        // Navigate to Security-Compliance Alignment view (playbooks integrated)
+        setActiveView('csca');
+        break;
+      case 'framework-glossary':
+        // Navigate to Framework Glossary view
+        setActiveView('framework_glossary');
+        break;
+      case 'iam-console':
+        // Navigate to IAM & Permissions view
+        setActiveView('iam');
+        break;
+      case 'realtime-compliance':
+        // Navigate to Dashboard (shows compliance scores)
+        setActiveView('dashboard');
+        break;
+      case 'product-library':
+        // Already in Product Library, do nothing
+        break;
+      default:
+        // Default to dashboard
+        setActiveView('dashboard');
+    }
+  }, 150);
+}, [controls, openControlDetail]);
+
+const closeControlDetail = useCallback(() => {
+  setShowControlDetail(false);
+  setSelectedControl(null);
+  setControlGuidance(null);
+  setControlGuidanceError(null);
+  setControlGuidanceLoading(false);
+}, []);
   
   // Data import features
   const [importHistory, setImportHistory] = useState([]);
@@ -916,6 +1452,11 @@ const ComplianceMVP = () => {
   const [selectedAlertDetail, setSelectedAlertDetail] = useState(null);
   const [alertDetailLoading, setAlertDetailLoading] = useState(false);
   const [alertDetailError, setAlertDetailError] = useState(null);
+  const [matchingPlaybooks, setMatchingPlaybooks] = useState([]);
+  const [playbooksLoading, setPlaybooksLoading] = useState(false);
+  const [selectedPlaybookForAlert, setSelectedPlaybookForAlert] = useState(null);
+  const [playbookExecutionProgress, setPlaybookExecutionProgress] = useState(null);
+  const [alertPlaybooksMap, setAlertPlaybooksMap] = useState({}); // Map alert ID to available playbooks
   const [showAlertRemediation, setShowAlertRemediation] = useState(false);
   const [alertRemediationForm, setAlertRemediationForm] = useState({
     status: 'in_progress',
@@ -1037,6 +1578,74 @@ const ComplianceMVP = () => {
     return alertMap;
   }, [dataFlowNodes, actionableAlerts]);
 
+  const getControlTokens = useCallback((control) => {
+    const tokens = new Set();
+    if (!control) return tokens;
+    const normalize = (value) => {
+      if (value == null) return null;
+      return String(value).trim().toUpperCase();
+    };
+    const addToken = (value) => {
+      const normalized = normalize(value);
+      if (normalized) {
+        tokens.add(normalized);
+      }
+    };
+
+    addToken(control.id);
+    addToken(control.control_id);
+
+    if (Array.isArray(control.frameworks)) {
+      control.frameworks.forEach((frameworkTag) => {
+        addToken(frameworkTag);
+        if (typeof frameworkTag === 'string' && frameworkTag.includes(':')) {
+          const [, frameworkControl] = frameworkTag.split(':');
+          addToken(frameworkControl);
+        }
+      });
+    }
+
+    if (Array.isArray(control.related_controls)) {
+      control.related_controls.forEach(addToken);
+    }
+
+    return tokens;
+  }, []);
+
+  const alertMatchesControlTokens = useCallback((alert, tokens) => {
+    if (!alert || !(tokens instanceof Set) || tokens.size === 0) {
+      return false;
+    }
+    const normalize = (value) => {
+      if (value == null) return null;
+      return String(value).trim().toUpperCase();
+    };
+
+    if (tokens.has(normalize(alert.control_id))) {
+      return true;
+    }
+
+    if (Array.isArray(alert.remediation_guidance)) {
+      const matchesGuidance = alert.remediation_guidance.some((entry) =>
+        tokens.has(normalize(entry?.control_id))
+      );
+      if (matchesGuidance) {
+        return true;
+      }
+    }
+
+    if (Array.isArray(alert.linked_controls)) {
+      const matchesLinked = alert.linked_controls.some((entry) =>
+        tokens.has(normalize(entry?.id || entry?.control_id))
+      );
+      if (matchesLinked) {
+        return true;
+      }
+    }
+
+    return false;
+  }, []);
+
   const dataFlowAccessSummary = useMemo(() => {
     const existingNodeIds = new Set(dataFlowNodes.map((node) => String(node.id)));
     const perNode = new Map();
@@ -1135,6 +1744,152 @@ const ComplianceMVP = () => {
       readOnlyAccounts: Array.from(readOnlyAccounts),
     };
   }, [userPermissions, dataFlowNodes]);
+
+  const goldenThreadData = useMemo(() => {
+    if (!selectedControl) return null;
+
+    const normalize = (value) => {
+      if (value == null) return null;
+      return String(value).trim().toUpperCase();
+    };
+
+    const controlTokens = getControlTokens(selectedControl);
+
+    const nodeLookup = new Map();
+    (Array.isArray(dataFlowNodes) ? dataFlowNodes : []).forEach((node) => {
+      nodeLookup.set(node.id, node);
+    });
+
+    const relatedNodes = (Array.isArray(dataFlowNodes) ? dataFlowNodes : [])
+      .filter((node) => {
+        if (!Array.isArray(node.framework_controls) || node.framework_controls.length === 0) {
+          return false;
+        }
+        return node.framework_controls.some((ctrl) => controlTokens.has(normalize(ctrl)));
+      })
+      .map((node) => {
+        const mostRecentChange = Array.isArray(node.change_log) && node.change_log.length > 0
+          ? node.change_log[0]
+          : null;
+        return {
+          node,
+          id: node.id,
+          name: node.name,
+          type: node.node_type,
+          status: node.integration_status,
+          owner: node.responsible_party || node.owner,
+          lastSync: node.last_sync_at || node.updated_at || node.last_transfer_at,
+          changeSummary: mostRecentChange?.summary,
+          changeActor: mostRecentChange?.actor,
+          changeAt: mostRecentChange?.timestamp,
+          frameworks: node.framework_controls || [],
+        };
+      });
+
+    const relatedEdges = (Array.isArray(dataFlowEdges) ? dataFlowEdges : [])
+      .filter((edge) => {
+        if (!Array.isArray(edge.controls_impacted) || edge.controls_impacted.length === 0) {
+          return false;
+        }
+        return edge.controls_impacted.some((ctrl) => controlTokens.has(normalize(ctrl)));
+      })
+      .map((edge) => {
+        const sourceNode = nodeLookup.get(edge.source_node_id);
+        const targetNode = nodeLookup.get(edge.target_node_id);
+        return {
+          edge,
+          id: edge.id,
+          flowType: edge.flow_type,
+          status: edge.status,
+          transport: edge.transport,
+          sourceName: sourceNode?.name || `Node ${edge.source_node_id}`,
+          targetName: targetNode?.name || `Node ${edge.target_node_id}`,
+          lastValidatedAt: edge.last_validated_at,
+          dailyVolume: edge.daily_volume_gb,
+          latencyMs: edge.latency_ms,
+        };
+      });
+
+    const alertSources = [
+      ...(Array.isArray(actionableAlerts) ? actionableAlerts : []),
+      ...(Array.isArray(complianceAlerts) ? complianceAlerts : []),
+      ...(Array.isArray(patternAlerts) ? patternAlerts : []),
+    ];
+
+    const relatedAlerts = [];
+    const seenAlertIds = new Set();
+
+    alertSources.forEach((alert) => {
+      if (!alert) return;
+      const alertId = alert.id ?? alert.alert_id;
+      if (alertId != null && seenAlertIds.has(alertId)) {
+        return;
+      }
+
+      const alertControlToken = normalize(alert.control_id);
+      let matches = alertControlToken && controlTokens.has(alertControlToken);
+
+      if (!matches && Array.isArray(alert.remediation_guidance)) {
+        matches = alert.remediation_guidance.some((entry) =>
+          controlTokens.has(normalize(entry?.control_id))
+        );
+      }
+
+      if (!matches && Array.isArray(alert.linked_controls)) {
+        matches = alert.linked_controls.some((entry) =>
+          controlTokens.has(normalize(entry?.id || entry?.control_id))
+        );
+      }
+
+      if (matches) {
+        if (alertId != null) {
+          seenAlertIds.add(alertId);
+        }
+        relatedAlerts.push({
+          alert,
+          id: alertId,
+          title: alert.title,
+          severity: alert.severity,
+          status: alert.status,
+          createdAt: alert.created_at,
+          updatedAt: alert.updated_at || alert.resolved_at || alert.acknowledged_at,
+          description: alert.description,
+          framework: alert.framework,
+        });
+      }
+    });
+
+    relatedAlerts.sort((a, b) => {
+      const aTime = a.updatedAt || a.createdAt;
+      const bTime = b.updatedAt || b.createdAt;
+      if (!aTime && !bTime) return 0;
+      if (!aTime) return 1;
+      if (!bTime) return -1;
+      return new Date(bTime) - new Date(aTime);
+    });
+
+    const responsibilityEntry = Array.isArray(responsibilityMatrix)
+      ? responsibilityMatrix.find((entry) => normalize(entry.control_id) === normalize(selectedControl.id))
+      : null;
+
+    const automationEntries = Array.isArray(automationActivityLog)
+      ? automationActivityLog.filter((entry) => normalize(entry.control_id) === normalize(selectedControl.id))
+      : [];
+
+    const evidenceSegments = Array.isArray(selectedControl.api_data_segments)
+      ? selectedControl.api_data_segments.length
+      : 0;
+
+    return {
+      tokens: controlTokens,
+      nodes: relatedNodes,
+      edges: relatedEdges,
+      alerts: relatedAlerts,
+      responsibility: responsibilityEntry,
+      automation: automationEntries,
+      evidenceSegments,
+    };
+  }, [selectedControl, dataFlowNodes, dataFlowEdges, actionableAlerts, complianceAlerts, patternAlerts, responsibilityMatrix, automationActivityLog, getControlTokens]);
 
   const dataFlowNodeSignals = useMemo(() => {
     const signals = {};
@@ -2055,7 +2810,6 @@ const ComplianceMVP = () => {
       alert(`Unable to run drift check: ${message}`);
     }
   };
-
   const getDemoDataFlowGraph = () => {
     const now = new Date();
     const daysAgo = (days) => {
@@ -2693,7 +3447,6 @@ const ComplianceMVP = () => {
       setDataFlowError(error.message || 'Failed to delete data flow node');
     }
   };
-
   const handleDeleteDataFlowEdge = async (edge) => {
     if (!edge) return;
     const confirmation = window.confirm(`Remove flow from ${edge.source_node_id} to ${edge.target_node_id}?`);
@@ -2824,7 +3577,17 @@ const ComplianceMVP = () => {
     if (shouldClosePanel) {
       setShowAlertRemediation(false);
     }
-  }, [setShowAlertRemediation]);
+    if (showControlDetailRef.current && selectedControlRef.current) {
+      const tokens = getControlTokens(selectedControlRef.current);
+      if (alertMatchesControlTokens(incomingAlert, tokens)) {
+        setThreadNotification({
+          type: 'alert',
+          message: `Alert updated • ${incomingAlert.title || incomingAlert.severity || incomingAlert.id}`,
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }, [setShowAlertRemediation, getControlTokens, alertMatchesControlTokens]);
 
   const closeAlertRemediation = useCallback(() => {
     setShowAlertRemediation(false);
@@ -2916,6 +3679,50 @@ const ComplianceMVP = () => {
     };
   }, []);
 
+  // Fetch matching playbooks for an alert
+  const fetchMatchingPlaybooks = useCallback(async (alert) => {
+    if (!alert || !alert.id || !backendConnected || !currentUser?.id) return;
+    setPlaybooksLoading(true);
+    try {
+      const result = await api.getMatchingPlaybooks(currentUser.id, alert.id);
+      const playbooks = result.playbooks || [];
+      setMatchingPlaybooks(playbooks);
+      // Store playbooks for this alert in the map
+      setAlertPlaybooksMap(prev => ({
+        ...prev,
+        [alert.id]: playbooks
+      }));
+    } catch (error) {
+      console.error('Failed to fetch matching playbooks:', error);
+      setMatchingPlaybooks([]);
+    } finally {
+      setPlaybooksLoading(false);
+    }
+  }, [backendConnected, currentUser?.id]);
+  
+  // Pre-fetch playbooks for actionable alerts
+  useEffect(() => {
+    if (backendConnected && currentUser?.id && actionableAlerts.length > 0) {
+      // Fetch playbooks for first 5 alerts
+      actionableAlerts.slice(0, 5).forEach(async (alert) => {
+        if (!alertPlaybooksMap[alert.id]) {
+          try {
+            const result = await api.getMatchingPlaybooks(currentUser.id, alert.id);
+            const playbooks = result.playbooks || [];
+            if (playbooks.length > 0) {
+              setAlertPlaybooksMap(prev => ({
+                ...prev,
+                [alert.id]: playbooks
+              }));
+            }
+          } catch (error) {
+            // Silently fail - playbooks are optional
+          }
+        }
+      });
+    }
+  }, [actionableAlerts.length, backendConnected, currentUser?.id]); // Only depend on length to avoid infinite loops
+
   const fetchAlertDetails = useCallback(async (alert) => {
     if (!alert) {
       return;
@@ -2926,6 +3733,8 @@ const ComplianceMVP = () => {
       let detail = null;
       if (backendConnected && currentUser?.id) {
         detail = await api.getAlertDetails(currentUser.id, alert.id);
+        // Fetch matching playbooks proactively
+        fetchMatchingPlaybooks(alert);
       }
       if (!detail) {
         detail = buildDemoAlertDetail(alert);
@@ -2939,7 +3748,79 @@ const ComplianceMVP = () => {
     } finally {
       setAlertDetailLoading(false);
     }
-  }, [backendConnected, buildDemoAlertDetail, currentUser?.id]);
+  }, [backendConnected, buildDemoAlertDetail, currentUser?.id, fetchMatchingPlaybooks]);
+
+  // Execute a playbook for an alert
+  const executePlaybook = useCallback(async (playbook, alert) => {
+    if (!playbook || !alert) return;
+    
+    setPlaybookExecutionProgress({ playbookId: playbook.id, currentStep: 0, totalSteps: playbook.steps?.length || 0 });
+    
+    // Apply playbook steps to remediation form
+    const controlUpdates = {};
+    const actionsTaken = [];
+    const evidenceLinks = [];
+    
+    // Process each step
+    if (playbook.steps && Array.isArray(playbook.steps)) {
+      for (let i = 0; i < playbook.steps.length; i++) {
+        const step = playbook.steps[i];
+        setPlaybookExecutionProgress({ 
+          playbookId: playbook.id, 
+          currentStep: i + 1, 
+          totalSteps: playbook.steps.length,
+          currentAction: step.description 
+        });
+        
+        // Simulate step execution delay for visual feedback
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Map step actions to form fields
+        if (step.action === 'evidence_collected' && step.automation_ready) {
+          evidenceLinks.push(`Auto-collected: ${step.description}`);
+        }
+        
+        if (step.action === 'status_updated' || step.action === 'control_update') {
+          // Apply to control updates
+          const controlId = alert.control_id || (alert.remediation_guidance?.[0]?.control_id);
+          if (controlId) {
+            controlUpdates[controlId] = {
+              status: 'Implemented',
+              responsible_party: alert.responsible_party || 'System',
+              evidence_link: evidenceLinks[evidenceLinks.length - 1] || ''
+            };
+          }
+        }
+        
+        actionsTaken.push(step.description || step.action);
+      }
+    }
+    
+    // Update remediation form with playbook results
+    setAlertRemediationForm(prev => ({
+      ...prev,
+      status: 'in_progress',
+      notes: prev.notes ? `${prev.notes}\n\nExecuted playbook: ${playbook.playbook_name}` : `Executed playbook: ${playbook.playbook_name}`,
+      actionsTaken: [...(prev.actionsTaken ? prev.actionsTaken.split('\n') : []), ...actionsTaken].join('\n'),
+      evidenceLinks: [...(prev.evidenceLinks ? prev.evidenceLinks.split('\n') : []), ...evidenceLinks].join('\n'),
+      controlUpdates: { ...prev.controlUpdates, ...controlUpdates }
+    }));
+    
+    // Track playbook usage
+    if (backendConnected && currentUser?.id) {
+      try {
+        await api.trackPlaybookUsage(currentUser.id, playbook.id, alert.id);
+      } catch (error) {
+        console.error('Failed to track playbook usage:', error);
+      }
+    }
+    
+    setPlaybookExecutionProgress(null);
+    setSelectedPlaybookForAlert(null);
+    
+    // Show success notification
+    alert(`Playbook executed! Estimated time saved: ${playbook.estimated_time_minutes || 0} minutes`);
+  }, [backendConnected, currentUser?.id]);
 
   const openAlertRemediation = useCallback((alert) => {
     if (!alert) return;
@@ -3612,7 +4493,6 @@ const ComplianceMVP = () => {
       syncResponsibilityMatrixToBackend();
     }
   }, [responsibilityMatrix, backendConnected, currentUser.id]);
-
   // Component for rendering control data segments (handles backend fetching)
   const ControlDataSegments = ({ control, backendConnected, fetchControlSegments }) => {
     const [segments, setSegments] = useState([]);
@@ -3673,7 +4553,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-
   const loadData = () => {
     // Convert all framework controls to our format
     const nistControls = NIST_800_53_CONTROLS.map(ctrl => ({
@@ -4324,7 +5203,6 @@ const ComplianceMVP = () => {
     
     setRecommendations(recs.sort((a, b) => a.priority - b.priority));
   };
-
   const generateVendorRecommendations = (gapControls) => {
     // Vendor to control mapping
     const vendorControlMap = {
@@ -4380,7 +5258,6 @@ const ComplianceMVP = () => {
     const roi = ((riskReduction - annualCost) / annualCost * 100);
     return Math.round(roi);
   };
-
   const analyzeVendorCoverage = () => {
     const gaps = controls.filter(c => c.status === "Not Implemented" || c.status === "Partial");
     const vendorRecommendations = generateVendorRecommendations(gaps);
@@ -4964,28 +5841,6 @@ const ComplianceMVP = () => {
     return events;
   }, [selectedAlert, selectedAlertDetail]);
 
-  const alertLinkedControls = useMemo(() => {
-    if (selectedAlertDetail?.linked_controls?.length) {
-      return selectedAlertDetail.linked_controls;
-    }
-    if (!selectedAlert?.remediation_guidance?.length) {
-      return [];
-    }
-    return selectedAlert.remediation_guidance.map((guidance, index) => ({
-      id: guidance.control_id,
-      control_name: guidance.control_name,
-      framework: guidance.framework || selectedAlert.framework,
-      priority: guidance.priority,
-      status: guidance.status || guidance.current_status || 'Not Implemented',
-      target_status: guidance.target_status || 'Implemented',
-      owner: guidance.current_owner || guidance.recommended_owner || selectedAlert.responsible_party || 'Unassigned',
-      coverage_delta: guidance.coverage_delta ?? null,
-      evidence_links: guidance.evidence_links || [],
-      automation_ready: Boolean(guidance.automation_ready),
-      sequence: guidance.sequence || index + 1,
-    }));
-  }, [selectedAlert, selectedAlertDetail]);
-
   const alertQuickActions = useMemo(() => {
     if (selectedAlertDetail?.actions?.length) {
       return selectedAlertDetail.actions;
@@ -5118,7 +5973,6 @@ const ComplianceMVP = () => {
 
     return matchesFramework && matchesSearch && matchesOwner && matchesShared && matchesDataSource && matchesCoverage && matchesStatus;
   });
-
   const handleNavigateControl = useCallback(
     (controlId, targetView = 'controls') => {
       if (!controlId) return;
@@ -5202,7 +6056,6 @@ const ComplianceMVP = () => {
       setMobileMenuOpen
     ]
   );
-
   const updateControl = (id, field, value) => {
     setControls(controls.map(c => 
       c.id === id ? { ...c, [field]: value, last_updated: new Date().toISOString().split('T')[0] } : c
@@ -5549,7 +6402,6 @@ const ComplianceMVP = () => {
     setBulkStatus("");
     alert(`Updated ${selectedControls.size} controls`);
   };
-
   const generateReport = () => {
     const stats = {
       total: controls.length,
@@ -6452,10 +7304,10 @@ const ComplianceMVP = () => {
       },
       {
         id: 'open-automation',
-        title: 'Open Automation Plan',
-        subtitle: '90-day playbook with walkthroughs',
+        title: 'Open Security-Compliance Alignment',
+        subtitle: 'View AI playbooks and security event correlation',
         shortcut: 'P',
-        action: () => setActiveView('automation'),
+        action: () => setActiveView('csca'),
       },
       {
         id: 'generate-plan',
@@ -6522,7 +7374,6 @@ const ComplianceMVP = () => {
       setShowCommandPalette(false);
     }
   };
-
   const renderDashboard = () => {
     // Calculate stats and coverage
     const stats = {
@@ -6774,7 +7625,7 @@ const ComplianceMVP = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">Framework Oversight</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Track each framework’s health, drift risk, and remediation urgency.
+                    Track each framework's health, drift risk, and remediation urgency.
                   </p>
                 </div>
                 <DropdownMenu>
@@ -6946,6 +7797,19 @@ const ComplianceMVP = () => {
                           </div>
                         )}
                         
+                        {/* Playbook Availability Indicator */}
+                        {alertPlaybooksMap[alert.id] && alertPlaybooksMap[alert.id].length > 0 && (
+                          <div className="flex items-center gap-2 text-xs mb-2 mt-2">
+                            <div className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-500">
+                              <Sparkles className="w-3 h-3" />
+                              <span className="font-medium">{alertPlaybooksMap[alert.id].length} playbook{alertPlaybooksMap[alert.id].length === 1 ? '' : 's'} available</span>
+                            </div>
+                            <span className="text-muted-foreground">
+                              • Saves ~{alertPlaybooksMap[alert.id].reduce((sum, p) => sum + (p.estimated_time_minutes || 0), 0)} min
+                            </span>
+                          </div>
+                        )}
+                        
                         {alert.remediation_guidance && Array.isArray(alert.remediation_guidance) && alert.remediation_guidance.length > 0 && (
                           <div className="mt-3 p-2 bg-muted/50 rounded text-xs">
                             <div className="font-medium text-foreground mb-1">Top Priority Control:</div>
@@ -7013,88 +7877,50 @@ const ComplianceMVP = () => {
           </div>
         )}
 
-        {recentActivity.length > 0 && (
-          <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
-            <h3 className="text-lg font-semibold text-foreground mb-4">Alert & Automation Activity</h3>
-            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-              <ol className="relative flex flex-col gap-5">
-                {recentActivity.map((entry, idx) => {
-                  const isAlert = entry.type === 'alert';
-                  const accentColor =
-                    isAlert && entry.severity === 'critical'
-                      ? 'bg-red-500'
-                      : isAlert && entry.severity === 'high'
-                      ? 'bg-orange-500'
-                      : isAlert
-                      ? 'bg-blue-500'
-                      : 'bg-emerald-500';
-                  const statusLabel = entry.status
-                    ? entry.status.replace(/_/g, ' ')
-                    : isAlert
-                    ? 'open'
-                    : 'in progress';
-                  return (
-                    <li key={`${entry.id}-${idx}`} className="relative pl-8">
-                      <span className={`absolute left-0 top-1.5 h-3 w-3 rounded-full ${accentColor}`}></span>
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            {isAlert ? (
-                              <AlertTriangle className="w-4 h-4 text-muted-foreground" />
-                            ) : (
-                              <Sparkles className="w-4 h-4 text-muted-foreground" />
-                            )}
-                            <span className="text-sm font-semibold text-foreground">
-                              {entry.title}
-                            </span>
-                            <span className="text-[11px] uppercase text-muted-foreground tracking-wide">
-                              {statusLabel}
-                            </span>
-                          </div>
-                          {entry.description && (
-                            <p className="text-xs text-muted-foreground max-w-2xl">
-                              {entry.description}
-                            </p>
-                          )}
-                          {entry.phase && (
-                            <div className="text-[11px] text-muted-foreground">
-                              Phase: <span className="text-foreground">{entry.phase}</span>
-                            </div>
-                          )}
-                          {entry.notes && (
-                            <div className="text-[11px] text-muted-foreground">
-                              Notes: <span className="text-foreground">{entry.notes}</span>
-                            </div>
-                          )}
-                          {entry.evidenceLink && (
-                            <a
-                              href={entry.evidenceLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                            >
-                              <ExternalLink className="w-3 h-3" />
-                              Evidence link
-                            </a>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          {entry.framework && (
-                            <span className="px-2 py-1 bg-muted rounded-full text-[11px] border border-[hsl(var(--border))]">
-                              {entry.framework}
-                            </span>
-                          )}
-                          <span>{formatRelative(entry.timestamp)}</span>
-                        </div>
+      {/* Recent Activity - Compact */}
+      {recentActivity.length > 0 && (
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-foreground mb-3">Recent Activity</h3>
+          <div className="space-y-2">
+            {recentActivity.slice(0, 3).map((entry, idx) => {
+              const isAlert = entry.type === 'alert';
+              const accentColor =
+                isAlert && entry.severity === 'critical'
+                  ? 'bg-red-500'
+                  : isAlert && entry.severity === 'high'
+                  ? 'bg-orange-500'
+                  : isAlert
+                  ? 'bg-blue-500'
+                  : 'bg-emerald-500';
+              return (
+                <div key={`${entry.id}-${idx}`} className="flex items-start gap-2 text-xs">
+                  <span className={`w-2 h-2 rounded-full ${accentColor} mt-1.5 shrink-0`}></span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      {isAlert ? (
+                        <AlertTriangle className="w-3 h-3 text-muted-foreground shrink-0" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 text-muted-foreground shrink-0" />
+                      )}
+                      <span className="font-semibold text-foreground truncate">{entry.title}</span>
+                      {entry.framework && (
+                        <span className="px-1.5 py-0.5 bg-muted rounded text-[10px] border border-[hsl(var(--border))] shrink-0">
+                          {entry.framework}
+                        </span>
+                      )}
+                    </div>
+                    {entry.timestamp && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        {formatRelative(entry.timestamp)}
                       </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        )}
-        
+        </div>
+      )}
         {/* Historical Growth Chart */}
         {(() => {
           const ninetyDaysAgo = (() => {
@@ -7307,7 +8133,6 @@ const ComplianceMVP = () => {
           );
         })()}
       </div>
-
       {/* KPI Circular Metrics */}
       {(() => {
         const renderCircularStat = ({ label, displayValue, helperText, color, percentage }) => {
@@ -7429,10 +8254,10 @@ const ComplianceMVP = () => {
                     <div className="flex items-center justify-between mb-3">
                       <span className="text-sm font-semibold text-foreground">Spotlight Controls</span>
                       <button
-                        onClick={() => setActiveView('automation')}
+                        onClick={() => setActiveView('csca')}
                         className="text-xs text-primary hover:underline font-medium"
                       >
-                        Open automation playbook →
+                        View playbooks →
                       </button>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
@@ -7588,14 +8413,14 @@ const ComplianceMVP = () => {
                 <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
                   <div className="flex items-center gap-2 text-primary font-medium">
                     <ArrowUpRight className="w-3 h-3" />
-                    <span>Review automation playbooks to execute this recommendation.</span>
+                    <span>Review AI playbooks in Security-Compliance Alignment to execute this recommendation.</span>
                   </div>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => setActiveView('automation')}
+                      onClick={() => setActiveView('csca')}
                       className="px-3 py-2 rounded-md border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-medium"
                     >
-                      Open Automation Plan
+                      View Playbooks
                     </button>
                     <button
                       onClick={() => setActiveView('controls')}
@@ -8406,10 +9231,7 @@ const ComplianceMVP = () => {
                     <tr
                       key={control.id}
                       className="border-b border-[hsl(var(--border))] hover:bg-muted/40 transition-colors cursor-pointer"
-                      onClick={() => {
-                        setSelectedControl(control);
-                        setShowControlDetail(true);
-                      }}
+                      onClick={() => openControlDetail(control)}
                     >
                       <td className="py-3 px-4 align-top">
                         <div className="font-medium text-foreground">{control.id}</div>
@@ -8617,138 +9439,837 @@ const ComplianceMVP = () => {
           </div>
         </div>
 
-        {showControlDetail && selectedControl && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowControlDetail(false)}>
-            <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <div className="sticky top-0 bg-card border-b border-[hsl(var(--border))] p-6 flex items-center justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-foreground">{selectedControl.id}: {selectedControl.control_name}</h2>
-                  <p className="text-sm text-muted-foreground mt-1">{selectedControl.category} • Priority: {selectedControl.priority}</p>
+        {showControlDetail && selectedControl && (() => {
+          const thread = goldenThreadData;
+          const threadStats = [
+            {
+              key: 'systems',
+              label: 'Connected systems',
+              value: thread?.nodes?.length ?? 0,
+              icon: <Server className="w-3.5 h-3.5 text-sky-500" />,
+            },
+            {
+              key: 'flows',
+              label: 'Data flows',
+              value: thread?.edges?.length ?? 0,
+              icon: <Link2 className="w-3.5 h-3.5 text-indigo-500" />,
+            },
+            {
+              key: 'alerts',
+              label: 'Active signals',
+              value: thread?.alerts?.length ?? 0,
+              icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />,
+            },
+            {
+              key: 'evidence',
+              label: 'Evidence segments',
+              value: thread?.evidenceSegments ?? (selectedControl.api_data_segments?.length ?? 0),
+              icon: <FileCheck className="w-3.5 h-3.5 text-emerald-500" />,
+            },
+          ];
+
+          const exportGoldenThread = () => {
+            if (!thread) {
+              setThreadNotification({
+                type: 'export',
+                message: 'No Golden Thread data available to export',
+                timestamp: Date.now(),
+              });
+              return;
+            }
+
+            const rows = [];
+            const headers = ['Item Type', 'Name', 'Context', 'Owner / Scope', 'Status', 'Last Updated'];
+            const formatDateIso = (value) => {
+              if (!value) return '';
+              try {
+                return new Date(value).toISOString();
+              } catch {
+                return String(value);
+              }
+            };
+
+            if (Array.isArray(thread.alerts)) {
+              thread.alerts.forEach((entry) => {
+                rows.push([
+                  'Alert',
+                  entry.title || entry.id,
+                  entry.description || '',
+                  entry.framework || '',
+                  `${(entry.severity || '').toUpperCase()} / ${(entry.status || 'open').toUpperCase()}`,
+                  formatDateIso(entry.updatedAt || entry.createdAt),
+                ]);
+              });
+            }
+
+            if (Array.isArray(thread.nodes)) {
+              thread.nodes.forEach((entry) => {
+                rows.push([
+                  'System',
+                  entry.name || entry.id,
+                  entry.type || '',
+                  entry.owner || '',
+                  entry.status || '',
+                  formatDateIso(entry.lastSync || entry.changeAt),
+                ]);
+              });
+            }
+
+            if (Array.isArray(thread.edges)) {
+              thread.edges.forEach((edge) => {
+                rows.push([
+                  'Data Flow',
+                  `${edge.sourceName} -> ${edge.targetName}`,
+                  edge.flowType || '',
+                  edge.transport || '',
+                  edge.status || '',
+                  formatDateIso(edge.lastValidatedAt),
+                ]);
+              });
+            }
+
+            const evidenceSegments = Array.isArray(selectedControl.api_data_segments)
+              ? selectedControl.api_data_segments
+              : [];
+
+            evidenceSegments.forEach((segment) => {
+              rows.push([
+                'Evidence Segment',
+                segment.api_name || segment.control_id,
+                Array.isArray(segment.data_segment)
+                  ? segment.data_segment.join('; ')
+                  : Object.keys(segment.data_segment || {}).join('; '),
+                segment.responsible_party || '',
+                segment.coverage_type || '',
+                formatDateIso(segment.last_sync),
+              ]);
+            });
+
+            if (thread.responsibility) {
+              rows.push([
+                'Responsibility',
+                selectedControl.id,
+                (thread.responsibility.secondary_owners || []).join('; '),
+                thread.responsibility.ownership || '',
+                thread.responsibility.coverage_type || '',
+                '',
+              ]);
+            }
+
+            if (rows.length === 0) {
+              setThreadNotification({
+                type: 'export',
+                message: 'No Golden Thread data available to export',
+                timestamp: Date.now(),
+              });
+              return;
+            }
+
+            const escapeCell = (value) => {
+              if (value == null) return '';
+              const str = String(value).replace(/"/g, '""');
+              return /[",\n]/.test(str) ? `"${str}"` : str;
+            };
+
+            const csv = [headers, ...rows].map((row) => row.map(escapeCell).join(',')).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `${selectedControl.id}-golden-thread.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            setThreadNotification({
+              type: 'export',
+              message: 'Golden Thread exported to CSV',
+              timestamp: Date.now(),
+            });
+          };
+
+          const severityBadge = (severity) => {
+            const normalized = (severity || '').toLowerCase();
+            const palette = {
+              critical: 'bg-red-500/15 text-red-500 border border-red-500/30',
+              high: 'bg-orange-500/15 text-orange-500 border border-orange-500/30',
+              medium: 'bg-amber-500/15 text-amber-500 border border-amber-500/30',
+              low: 'bg-sky-500/15 text-sky-500 border border-sky-500/30',
+            };
+            return palette[normalized] || 'bg-muted text-muted-foreground border border-muted/30';
+          };
+
+          const handleNavigateToArchitecture = (target, type = 'node') => {
+            if (!target) return;
+            closeControlDetail();
+            setActiveView('architecture');
+            setTimeout(() => {
+              setSelectedDataFlowItem({ type, data: target });
+            }, 0);
+          };
+
+          const handleOpenAlert = (alert) => {
+            if (!alert) return;
+            closeControlDetail();
+            openAlertRemediation(alert);
+          };
+
+          return (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={closeControlDetail}>
+              {threadNotification && (
+                <div className="absolute top-6 right-6 z-[60]">
+                  <div className="rounded-lg border border-primary/30 bg-primary/10 text-primary px-4 py-2 text-sm font-medium shadow">
+                    {threadNotification.message}
+                  </div>
                 </div>
-                <button
-                  onClick={() => setShowControlDetail(false)}
-                  className="p-2 hover:bg-muted rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5 text-foreground" />
-                </button>
-              </div>
-              
-              <div className="p-6 space-y-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">Description</h3>
-                  <p className="text-muted-foreground">{selectedControl.description}</p>
-                </div>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
-                    <h4 className="text-sm font-semibold text-foreground mb-2">Status</h4>
-                    <select
-                      value={selectedControl.status}
-                      onChange={(e) => {
-                        updateControl(selectedControl.id, 'status', e.target.value);
-                        setSelectedControl({...selectedControl, status: e.target.value});
-                      }}
-                      className={`w-full px-3 py-2 rounded-lg text-sm font-medium border ${statusColors[selectedControl.status]}`}
+              )}
+              <div className="bg-card border border-[hsl(var(--border))] rounded-2xl shadow-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <div className="sticky top-0 bg-card/95 backdrop-blur border-b border-[hsl(var(--border))] px-6 py-5 flex flex-wrap items-start gap-4 justify-between">
+                  <div className="space-y-1">
+                    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                      <Network className="w-3.5 h-3.5" />
+                      Golden Thread
+                    </span>
+                    <h2 className="text-2xl font-semibold text-foreground">
+                      {selectedControl.id}: {selectedControl.control_name}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedControl.category} • Priority: {selectedControl.priority}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={exportGoldenThread}
+                      className="inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
                     >
-                      <option>Partial</option>
-                      <option>Implemented</option>
-                      <option>Compliant</option>
-                      <option>Non-Compliant</option>
-                      <option>Vendor Managed</option>
-                    </select>
-                  </div>
-                  
-                  <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
-                    <h4 className="text-sm font-semibold text-foreground mb-2">Responsible Party</h4>
-                    <input
-                      type="text"
-                      value={selectedControl.responsible_party}
-                      onChange={(e) => {
-                        updateControl(selectedControl.id, 'responsible_party', e.target.value);
-                        setSelectedControl({...selectedControl, responsible_party: e.target.value});
-                      }}
-                      className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg bg-card text-foreground"
-                    />
+                      <Download className="w-4 h-4" />
+                      Export
+                    </button>
+                    <button
+                      onClick={() => openAutomationWalkthrough(selectedControl, { name: 'Golden Thread' })}
+                      className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/15 transition-colors"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Playbook
+                    </button>
+                    <button
+                      onClick={closeControlDetail}
+                      className="p-2 rounded-lg hover:bg-muted transition-colors"
+                    >
+                      <X className="w-5 h-5 text-muted-foreground" />
+                    </button>
                   </div>
                 </div>
-                
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-3">Frameworks</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedControl.frameworks.map((fw, idx) => (
-                      <span key={idx} className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-full text-sm font-medium">
-                        {fw}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                
-                {selectedControl.mapped_fields && selectedControl.mapped_fields.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground mb-3">API Data Mapping</h3>
-                    <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
-                      <p className="text-sm text-muted-foreground mb-2">These fields can be auto-mapped from API integrations:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedControl.mapped_fields.map((field, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-card border border-[hsl(var(--border))] rounded text-xs text-foreground">
-                            {field}
-                          </span>
-                        ))}
+
+                <div className="p-6 space-y-6">
+                  <div className="flex flex-col gap-6 xl:grid xl:grid-cols-[320px,1fr]">
+                    <div className="space-y-5">
+                      <div className="rounded-xl border border-[hsl(var(--border))] bg-muted/20 p-5 space-y-3">
+                        <h3 className="text-sm font-semibold text-foreground">Control Snapshot</h3>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {selectedControl.description}
+                        </p>
+                        <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+                          <div className="rounded-lg border border-[hsl(var(--border))] bg-card px-3 py-2">
+                            <div className="uppercase tracking-wide text-[10px]">Status</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">{selectedControl.status}</div>
+                          </div>
+                          <div className="rounded-lg border border-[hsl(var(--border))] bg-card px-3 py-2">
+                            <div className="uppercase tracking-wide text-[10px]">Owner</div>
+                            <div className="mt-1 text-sm font-semibold text-foreground">
+                              {selectedControl.responsible_party || 'Unassigned'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="rounded-xl border border-[hsl(var(--border))] bg-card p-4 space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            Control Status
+                          </label>
+                          <select
+                            value={selectedControl.status}
+                            onChange={(e) => {
+                              updateControl(selectedControl.id, 'status', e.target.value);
+                              setSelectedControl({ ...selectedControl, status: e.target.value });
+                            }}
+                            className={`w-full px-3 py-2 rounded-lg text-sm font-medium border ${statusColors[selectedControl.status]}`}
+                          >
+                            <option>Partial</option>
+                            <option>Implemented</option>
+                            <option>Compliant</option>
+                            <option>Non-Compliant</option>
+                            <option>Vendor Managed</option>
+                          </select>
+                        </div>
+                        <div className="rounded-xl border border-[hsl(var(--border))] bg-card p-4 space-y-2">
+                          <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                            Responsible Owner
+                          </label>
+                          <input
+                            type="text"
+                            value={selectedControl.responsible_party}
+                            onChange={(e) => {
+                              updateControl(selectedControl.id, 'responsible_party', e.target.value);
+                              setSelectedControl({ ...selectedControl, responsible_party: e.target.value });
+                            }}
+                            placeholder="Add owner or team"
+                            className="w-full px-3 py-2 border border-[hsl(var(--border))] rounded-lg bg-card text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[hsl(var(--border))] bg-card p-4">
+                        <h4 className="text-sm font-semibold text-foreground mb-3">Golden Thread Metrics</h4>
+                        <div className="grid grid-cols-1 gap-3">
+                          {threadStats.map((stat) => (
+                            <div key={stat.key} className="flex items-center justify-between rounded-lg border border-[hsl(var(--border))] bg-muted/20 px-3 py-2">
+                              <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <span className="inline-flex items-center justify-center rounded-md bg-background px-1.5 py-1">
+                                  {stat.icon}
+                                </span>
+                                {stat.label}
+                              </span>
+                              <span className="text-base font-semibold text-foreground">{stat.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[hsl(var(--border))] bg-card p-4 space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground">Framework Coverage</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedControl.frameworks.map((fw, idx) => (
+                            <span key={idx} className="px-2.5 py-1 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-medium">
+                              {fw}
+                            </span>
+                          ))}
+                        </div>
+                        {selectedControl.mapped_fields?.length > 0 && (
+                          <div className="pt-2 border-t border-dashed border-[hsl(var(--border))]">
+                            <p className="text-xs text-muted-foreground mb-2">Auto-mapped fields</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {selectedControl.mapped_fields.map((field, idx) => (
+                                <span key={idx} className="text-[11px] px-2 py-1 bg-muted/40 rounded border border-[hsl(var(--border))] text-muted-foreground">
+                                  {field}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {thread?.responsibility && (
+                        <div className="rounded-xl border border-[hsl(var(--border))] bg-card p-4 space-y-3">
+                          <h4 className="text-sm font-semibold text-foreground">Responsibility Matrix</h4>
+                          <div className="text-xs text-muted-foreground space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="uppercase tracking-wide text-[10px] text-muted-foreground">Primary Owner</span>
+                              <span className="text-sm font-medium text-foreground">{thread.responsibility.ownership}</span>
+                            </div>
+                            {thread.responsibility.secondary_owners?.length > 0 && (
+                              <div className="flex items-start justify-between gap-3">
+                                <span className="uppercase tracking-wide text-[10px] text-muted-foreground">Shared</span>
+                                <span className="text-sm font-medium text-foreground text-right">
+                                  {thread.responsibility.secondary_owners.join(', ')}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="uppercase tracking-wide text-[10px] text-muted-foreground">Coverage</span>
+                              <span className="text-sm font-medium text-foreground">{thread.responsibility.coverage_type}</span>
+                            </div>
+                            {thread.responsibility.evidence_sources?.length > 0 && (
+                              <div className="flex items-start justify-between gap-3">
+                                <span className="uppercase tracking-wide text-[10px] text-muted-foreground">Evidence</span>
+                                <span className="text-sm font-medium text-foreground text-right">
+                                  {thread.responsibility.evidence_sources.join(', ')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {thread?.automation?.length > 0 && (
+                        <div className="rounded-xl border border-[hsl(var(--border))] bg-card p-4 space-y-3">
+                          <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-primary" />
+                            Recent Automation Activity
+                          </h4>
+                          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                            {thread.automation.map((entry) => (
+                              <div key={entry.id} className="rounded-lg border border-[hsl(var(--border))] bg-muted/20 px-3 py-2">
+                                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                  <span className="font-medium text-foreground">{entry.phase || 'Automation Plan'}</span>
+                                  <span>{formatRelative(entry.timestamp)}</span>
+                                </div>
+                                {entry.notes && (
+                                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{entry.notes}</p>
+                                )}
+                                <div className="text-[11px] uppercase tracking-wide mt-1 text-muted-foreground">
+                                  Status: {entry.status?.replace('_', ' ') || 'in progress'}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-6">
+                      <div className="rounded-2xl border border-[hsl(var(--border))] bg-card p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-foreground">AI Guidance</h3>
+                            <p className="text-xs text-muted-foreground">
+                              Targeted remediation playbook generated from live telemetry.
+                            </p>
+                          </div>
+                          {controlGuidanceLoading && (
+                            <span className="text-xs text-muted-foreground">Loading…</span>
+                          )}
+                        </div>
+                        {controlGuidanceError ? (
+                          <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                            {controlGuidanceError}
+                          </div>
+                        ) : controlGuidance ? (
+                          <div className="space-y-4">
+                            {controlGuidance.summary && (
+                              <p className="text-sm text-muted-foreground leading-relaxed">
+                                {controlGuidance.summary}
+                              </p>
+                            )}
+
+                            {Array.isArray(controlGuidance.recommended_actions) && controlGuidance.recommended_actions.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Recommended actions
+                                </div>
+                                <div className="space-y-2">
+                                  {controlGuidance.recommended_actions.map((action, idx) => (
+                                    <div key={`guidance-action-${idx}`} className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-3">
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div>
+                                          <div className="text-sm font-semibold text-foreground">{action.title}</div>
+                                          {action.summary && (
+                                            <p className="text-xs text-muted-foreground mt-1">{action.summary}</p>
+                                          )}
+                                        </div>
+                                        {action.impact && (
+                                          <span className="text-[11px] text-primary font-medium">{action.impact}</span>
+                                        )}
+                                      </div>
+                                      {Array.isArray(action.suggested_steps) && action.suggested_steps.length > 0 && (
+                                        <ul className="mt-2 text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                                          {action.suggested_steps.map((step, stepIdx) => (
+                                            <li key={`guidance-action-${idx}-step-${stepIdx}`}>{step}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {Array.isArray(controlGuidance.evidence_recommendations) && controlGuidance.evidence_recommendations.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Evidence reminders
+                                </div>
+                                <div className="space-y-2">
+                                  {controlGuidance.evidence_recommendations.map((item, idx) => (
+                                    <div key={`guidance-evidence-${idx}`} className="rounded-xl border border-amber-300/40 bg-amber-200/10 px-3 py-3">
+                                      <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                                      {item.summary && (
+                                        <p className="text-xs text-muted-foreground mt-1">{item.summary}</p>
+                                      )}
+                                      {Array.isArray(item.suggested_steps) && (
+                                        <ul className="mt-2 text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                                          {item.suggested_steps.map((step, stepIdx) => (
+                                            <li key={`guidance-evidence-${idx}-step-${stepIdx}`}>{step}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {Array.isArray(controlGuidance.automation_opportunities) && controlGuidance.automation_opportunities.length > 0 && (
+                              <div className="space-y-2">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                  Automation opportunities
+                                </div>
+                                <div className="space-y-2">
+                                  {controlGuidance.automation_opportunities.map((item, idx) => (
+                                    <div key={`guidance-automation-${idx}`} className="rounded-xl border border-emerald-400/40 bg-emerald-200/10 px-3 py-3">
+                                      <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                                      {item.summary && (
+                                        <p className="text-xs text-muted-foreground mt-1">{item.summary}</p>
+                                      )}
+                                      {Array.isArray(item.mapped_fields) && item.mapped_fields.length > 0 && (
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                          {item.mapped_fields.map((field, fieldIdx) => (
+                                            <span key={`guidance-automation-${idx}-field-${fieldIdx}`} className="text-[11px] px-2 py-1 rounded border border-emerald-400/40 bg-card text-emerald-500">
+                                              {field}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {Array.isArray(item.suggested_steps) && (
+                                        <ul className="mt-2 text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                                          {item.suggested_steps.map((step, stepIdx) => (
+                                            <li key={`guidance-automation-${idx}-step-${stepIdx}`}>{step}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {Array.isArray(controlGuidance.suggested_owners) && controlGuidance.suggested_owners.length > 0 && (
+                              <div className="pt-2 border-t border-dashed border-[hsl(var(--border))]">
+                                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
+                                  Suggested owners
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {controlGuidance.suggested_owners.map((owner, idx) => (
+                                    <span key={`guidance-owner-${idx}`} className="text-[11px] px-2 py-1 rounded-full border border-[hsl(var(--border))] bg-muted/30 text-muted-foreground">
+                                      {owner}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : !controlGuidanceLoading ? (
+                          <div className="rounded-lg border border-dashed border-[hsl(var(--border))] bg-muted/10 px-3 py-6 text-center text-xs text-muted-foreground">
+                            Guidance will appear once the control is synced with the backend.
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {/* Proactive Learned Patterns & Playbooks */}
+                      {(controlPlaybooks.length > 0 || controlPatterns.length > 0 || controlPatternsLoading) && (
+                        <div className="rounded-2xl border-2 border-primary/30 bg-gradient-to-r from-primary/10 to-purple-500/10 p-5 space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Sparkles className="w-5 h-5 text-primary" />
+                              <h3 className="text-sm font-semibold text-foreground">Learned Patterns & Playbooks</h3>
+                            </div>
+                            {controlPatternsLoading ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {controlPatterns.length} patterns • {controlPlaybooks.length} playbooks
+                              </span>
+                            )}
+                          </div>
+
+                          {controlPatternsLoading ? (
+                            <div className="text-xs text-muted-foreground text-center py-4">
+                              Loading learned patterns...
+                            </div>
+                          ) : (
+                            <>
+                              {/* Learned Patterns */}
+                              {controlPatterns.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Successful Remediation Patterns
+                                  </div>
+                                  <div className="space-y-2">
+                                    {controlPatterns.slice(0, 3).map((pattern) => (
+                                      <div
+                                        key={pattern.id}
+                                        className="rounded-xl border border-primary/20 bg-card px-3 py-3"
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="flex-1">
+                                            <div className="text-sm font-semibold text-foreground">{pattern.pattern_name}</div>
+                                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                              <span>Success: {(pattern.success_rate * 100).toFixed(0)}%</span>
+                                              <span>Used: {pattern.usage_count} times</span>
+                                              {pattern.avg_resolution_time_minutes && (
+                                                <span>Avg Time: {pattern.avg_resolution_time_minutes} min</span>
+                                              )}
+                                            </div>
+                                            {pattern.pattern_steps && pattern.pattern_steps.length > 0 && (
+                                              <div className="mt-2 text-xs text-muted-foreground">
+                                                Common steps: {pattern.pattern_steps.slice(0, 2).map(s => s.action?.replace('_', ' ')).join(', ')}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <span className={`px-2 py-1 rounded text-xs ${
+                                            pattern.confidence_score >= 0.7 ? 'bg-emerald-500/10 text-emerald-500' :
+                                            pattern.confidence_score >= 0.5 ? 'bg-yellow-500/10 text-yellow-500' :
+                                            'bg-gray-500/10 text-gray-500'
+                                          }`}>
+                                            {Math.round(pattern.confidence_score * 100)}% confidence
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Matching Playbooks */}
+                              {controlPlaybooks.length > 0 && (
+                                <div className="space-y-2 pt-2 border-t border-primary/20">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Suggested Playbooks
+                                  </div>
+                                  <div className="space-y-2">
+                                    {controlPlaybooks.slice(0, 2).map((playbook) => (
+                                      <div
+                                        key={playbook.id || playbook.playbook_name}
+                                        className="rounded-xl border border-primary/20 bg-card px-3 py-3 hover:border-primary/40 transition-colors cursor-pointer"
+                                        onClick={() => setSelectedPlaybook(playbook)}
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-1">
+                                              <span className="text-sm font-semibold text-foreground">{playbook.playbook_name}</span>
+                                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                                playbook.automation_level === 'fully_automated' ? 'bg-blue-500/10 text-blue-500' :
+                                                playbook.automation_level === 'semi_automated' ? 'bg-purple-500/10 text-purple-500' :
+                                                'bg-gray-500/10 text-gray-500'
+                                              }`}>
+                                                {playbook.automation_level?.replace('_', ' ')}
+                                              </span>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mb-1">{playbook.description}</p>
+                                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                              {playbook.success_metrics?.success_rate && (
+                                                <span>Success: {(playbook.success_metrics.success_rate * 100).toFixed(0)}%</span>
+                                              )}
+                                              {playbook.estimated_time_minutes && (
+                                                <span>Est. Time: {playbook.estimated_time_minutes} min</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setSelectedPlaybook(playbook);
+                                            }}
+                                            className="px-3 py-1 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-xs font-medium"
+                                          >
+                                            View
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {controlPatterns.length === 0 && controlPlaybooks.length === 0 && !controlPatternsLoading && (
+                                <div className="text-xs text-muted-foreground text-center py-4">
+                                  No learned patterns yet. The system will learn from your remediation actions.
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="rounded-2xl border border-[hsl(var(--border))] bg-card p-5">
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <h3 className="text-sm font-semibold text-foreground">Active Signals & Alerts</h3>
+                            <p className="text-xs text-muted-foreground">Drift, remediation and pattern detections linked to this control.</p>
+                          </div>
+                          {thread?.alerts?.length > 0 && (
+                            <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                              {thread.alerts.length} open
+                            </span>
+                          )}
+                        </div>
+                        {thread?.alerts?.length ? (
+                          <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                            {thread.alerts.map((entry) => (
+                              <button
+                                key={entry.id}
+                                onClick={() => handleOpenAlert(entry.alert)}
+                                className="w-full text-left rounded-xl border border-[hsl(var(--border))] bg-muted/20 px-4 py-3 hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${severityBadge(entry.severity)}`}>
+                                        <AlertCircle className="w-3 h-3" />
+                                        {(entry.severity || 'medium').toUpperCase()}
+                                      </span>
+                                      <span className="text-xs text-muted-foreground uppercase tracking-wide">{entry.status || 'open'}</span>
+                                    </div>
+                                    <div className="text-sm font-semibold text-foreground line-clamp-2">{entry.title}</div>
+                                    {entry.description && (
+                                      <p className="text-xs text-muted-foreground line-clamp-2">{entry.description}</p>
+                                    )}
+                                  </div>
+                                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                                    {formatRelative(entry.updatedAt || entry.createdAt)}
+                                  </span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-[hsl(var(--border))] bg-muted/10 px-4 py-6 text-center text-sm text-muted-foreground">
+                            No active alerts tied to this control.
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-2xl border border-[hsl(var(--border))] bg-card p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-foreground">Connected Systems & Flows</h3>
+                            <p className="text-xs text-muted-foreground">Nodes and pipelines contributing evidence for this control.</p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              closeControlDetail();
+                              setActiveView('architecture');
+                            }}
+                            className="inline-flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+                          >
+                            Open architecture <ChevronRight className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {thread?.nodes?.length ? (
+                          <div className="space-y-3">
+                            {thread.nodes.map((entry) => (
+                              <div key={entry.id} className="rounded-xl border border-[hsl(var(--border))] bg-muted/15 p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <div className="text-sm font-semibold text-foreground">{entry.name}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {entry.type?.toUpperCase()} • {entry.owner || 'Unassigned'}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => handleNavigateToArchitecture(entry.node, 'node')}
+                                    className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                                  >
+                                    View path <ChevronRight className="w-3 h-3" />
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground mt-3">
+                                  <div>Last sync: {entry.lastSync ? formatRelative(entry.lastSync) : 'Unknown'}</div>
+                                  <div>Status: {entry.status || 'Unknown'}</div>
+                                </div>
+                                {entry.changeSummary && (
+                                  <div className="mt-2 rounded-lg border border-[hsl(var(--border))] bg-card px-3 py-2 text-xs text-muted-foreground">
+                                    <div className="uppercase tracking-wide text-[10px] text-muted-foreground mb-1">
+                                      Recent change • {entry.changeActor || 'System'}
+                                    </div>
+                                    {entry.changeSummary}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-[hsl(var(--border))] bg-muted/10 px-4 py-6 text-center text-sm text-muted-foreground">
+                            No systems mapped to this control yet. Link data flows from the architecture view.
+                          </div>
+                        )}
+
+                        {thread?.edges?.length ? (
+                          <div className="pt-3 border-t border-dashed border-[hsl(var(--border))] space-y-2">
+                            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Supporting flows</div>
+                            <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                              {thread.edges.map((edge) => (
+                                <div key={edge.id} className="rounded-lg border border-[hsl(var(--border))] bg-muted/10 px-3 py-2 text-xs flex items-start justify-between gap-3">
+                                  <div>
+                                    <div className="font-semibold text-foreground">{edge.sourceName}</div>
+                                    <div className="text-muted-foreground">→ {edge.targetName}</div>
+                                    <div className="text-[11px] text-muted-foreground mt-1">
+                                      {edge.flowType} • {edge.transport || 'Unknown transport'}
+                                    </div>
+                                  </div>
+                                  <div className="text-right space-y-1">
+                                    <div className="text-[11px] text-muted-foreground">
+                                      Last validated {edge.lastValidatedAt ? formatRelative(edge.lastValidatedAt) : 'n/a'}
+                                    </div>
+                                    <button
+                                      onClick={() => handleNavigateToArchitecture(edge.edge, 'edge')}
+                                      className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                                    >
+                                      Inspect flow <ChevronRight className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="rounded-2xl border border-[hsl(var(--border))] bg-card p-5 space-y-4">
+                        <div>
+                          <h3 className="text-sm font-semibold text-foreground">Evidence & Data Attribution</h3>
+                          <p className="text-xs text-muted-foreground">
+                            Linked API segments, evidence vault entries, and reference documentation.
+                          </p>
+                        </div>
+
+                        <ControlDataSegments
+                          control={selectedControl}
+                          backendConnected={backendConnected}
+                          fetchControlSegments={fetchControlSegments}
+                        />
+
+                        {(selectedControl.nist_id || selectedControl.iso_id) && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {selectedControl.nist_id && (
+                              <a
+                                href="https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-500 hover:bg-blue-500/15 transition-colors flex items-center justify-between gap-3"
+                              >
+                                NIST 800-53 reference
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                            {selectedControl.iso_id && (
+                              <a
+                                href="https://hightable.io/iso-27001-annex-a-controls-list/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-500 hover:bg-emerald-500/15 transition-colors flex items-center justify-between gap-3"
+                              >
+                                ISO 27001 guidance
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {!selectedControl.nist_id && !selectedControl.iso_id && thread?.alerts?.length === 0 && !selectedControl.api_data_segments?.length && (
+                          <div className="rounded-xl border border-dashed border-[hsl(var(--border))] bg-muted/10 px-4 py-6 text-center text-sm text-muted-foreground">
+                            No evidence sources attached yet. Capture API segments or manual artifacts to complete the thread.
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-                )}
-                
-                <ControlDataSegments 
-                  control={selectedControl}
-                  backendConnected={backendConnected}
-                  fetchControlSegments={fetchControlSegments}
-                />
-                
-                {selectedControl.nist_id && (
-                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shield className="w-5 h-5 text-blue-500" />
-                      <h4 className="font-semibold text-foreground">NIST 800-53 Control</h4>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Control Family: {selectedControl.control_family || 'Unknown'}
-                    </p>
-                    <a 
-                      href={`https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline flex items-center gap-1 mt-2"
-                    >
-                      View NIST 800-53 Documentation <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                )}
-                
-                {selectedControl.iso_id && (
-                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shield className="w-5 h-5 text-green-500" />
-                      <h4 className="font-semibold text-foreground">ISO 27001:2022 Control</h4>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Category: {selectedControl.control_category || 'Unknown'}
-                    </p>
-                    <a 
-                      href={`https://hightable.io/iso-27001-annex-a-controls-list/`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-green-500 hover:underline flex items-center gap-1 mt-2"
-                    >
-                      View ISO 27001 Documentation <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-
+          );
+        })()}
         {showAlertRemediation && selectedAlert && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/60" onClick={closeAlertRemediation} />
@@ -8950,6 +10471,128 @@ const ComplianceMVP = () => {
                       )}
                     </div>
 
+                    {/* Proactive Playbook Suggestions */}
+                    {(matchingPlaybooks.length > 0 || playbooksLoading) && (
+                      <div className="bg-gradient-to-r from-primary/10 to-purple-500/10 border-2 border-primary/30 rounded-lg p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-primary" />
+                            <h4 className="text-sm font-semibold text-foreground">Suggested Playbooks</h4>
+                          </div>
+                          {playbooksLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {matchingPlaybooks.length} match{matchingPlaybooks.length === 1 ? '' : 'es'} found
+                            </span>
+                          )}
+                        </div>
+                        {playbooksLoading ? (
+                          <div className="text-xs text-muted-foreground text-center py-4">
+                            Finding matching playbooks...
+                          </div>
+                        ) : matchingPlaybooks.length > 0 ? (
+                          <div className="space-y-3">
+                            {matchingPlaybooks.map((playbook) => (
+                              <div
+                                key={playbook.id}
+                                className="bg-card border border-primary/20 rounded-lg p-4 hover:border-primary/40 transition-colors"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <h5 className="text-sm font-semibold text-foreground">{playbook.playbook_name}</h5>
+                                      <span className={`px-2 py-0.5 rounded text-xs ${
+                                        playbook.automation_level === 'fully_automated' ? 'bg-blue-500/10 text-blue-500' :
+                                        playbook.automation_level === 'semi_automated' ? 'bg-purple-500/10 text-purple-500' :
+                                        'bg-gray-500/10 text-gray-500'
+                                      }`}>
+                                        {playbook.automation_level?.replace('_', ' ')}
+                                      </span>
+                                      {playbook.match_confidence && (
+                                        <span className="px-2 py-0.5 rounded text-xs bg-primary/10 text-primary">
+                                          {Math.round(playbook.match_confidence * 100)}% match
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mb-2">{playbook.description}</p>
+                                    <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2">
+                                      <span>Success: {(playbook.success_metrics?.success_rate * 100 || 0).toFixed(0)}%</span>
+                                      <span>Used: {playbook.usage_count || 0} times</span>
+                                      <span>Est. Time: {playbook.estimated_time_minutes || 0} min</span>
+                                    </div>
+                                    {playbook.match_reason && (
+                                      <div className="text-xs text-primary mt-2 italic mb-2">
+                                        {playbook.match_reason}
+                                      </div>
+                                    )}
+                                    {/* Time Savings Indicator */}
+                                    <div className="flex items-center gap-2 mt-2 text-xs">
+                                      <TrendingDown className="w-3 h-3 text-emerald-500" />
+                                      <span className="text-emerald-500 font-medium">
+                                        Avg. {playbook.estimated_time_minutes || 0} min vs. {playbook.estimated_time_minutes ? playbook.estimated_time_minutes * 2 : 0} min manual
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col gap-2">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        executePlaybook(playbook, selectedAlert);
+                                      }}
+                                      disabled={playbookExecutionProgress?.playbookId === playbook.id}
+                                      className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                    >
+                                      {playbookExecutionProgress?.playbookId === playbook.id ? (
+                                        <>
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                          Running...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Sparkles className="w-3 h-3" />
+                                          Run Playbook
+                                        </>
+                                      )}
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedPlaybook(playbook);
+                                      }}
+                                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-xs font-medium"
+                                    >
+                                      View Details
+                                    </button>
+                                  </div>
+                                </div>
+                                {/* Playbook Execution Progress */}
+                                {playbookExecutionProgress?.playbookId === playbook.id && (
+                                  <div className="mt-3 pt-3 border-t border-primary/20">
+                                    <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+                                      <span>Executing step {playbookExecutionProgress.currentStep} of {playbookExecutionProgress.totalSteps}</span>
+                                      <span>{Math.round((playbookExecutionProgress.currentStep / playbookExecutionProgress.totalSteps) * 100)}%</span>
+                                    </div>
+                                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                      <div 
+                                        className="h-full bg-emerald-500 transition-all duration-500" 
+                                        style={{ width: `${(playbookExecutionProgress.currentStep / playbookExecutionProgress.totalSteps) * 100}%` }}
+                                      />
+                                    </div>
+                                    {playbookExecutionProgress.currentAction && (
+                                      <div className="text-xs text-muted-foreground mt-2">
+                                        {playbookExecutionProgress.currentAction}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+
                     {alertLinkedControls.length > 0 && (
                       <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-4">
                         <div className="flex items-center justify-between">
@@ -9117,6 +10760,62 @@ const ComplianceMVP = () => {
                   </div>
 
                   <div className="space-y-6">
+                    {/* Playbook Quick Run */}
+                    {matchingPlaybooks.length > 0 && (
+                      <div className="bg-gradient-to-r from-emerald-500/10 to-primary/10 border-2 border-emerald-500/30 rounded-lg p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-emerald-500" />
+                            <h4 className="text-sm font-semibold text-foreground">Quick Playbook Execution</h4>
+                          </div>
+                          <span className="text-xs text-muted-foreground">
+                            {matchingPlaybooks.length} available
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {matchingPlaybooks.slice(0, 2).map((playbook) => (
+                            <div
+                              key={playbook.id}
+                              className="bg-card border border-emerald-500/20 rounded-lg p-3"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-sm font-semibold text-foreground">{playbook.playbook_name}</span>
+                                    <span className="px-2 py-0.5 rounded text-xs bg-emerald-500/10 text-emerald-500">
+                                      {playbook.estimated_time_minutes || 0} min
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <span>{(playbook.success_metrics?.success_rate * 100 || 0).toFixed(0)}% success</span>
+                                    <span>•</span>
+                                    <span className="text-emerald-500">Saves ~{playbook.estimated_time_minutes || 0} min</span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => executePlaybook(playbook, selectedAlert)}
+                                  disabled={playbookExecutionProgress?.playbookId === playbook.id}
+                                  className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                                >
+                                  {playbookExecutionProgress?.playbookId === playbook.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      Running...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="w-3 h-3" />
+                                      Run Now
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-5 space-y-3">
                       <div className="flex items-center justify-between">
                         <h4 className="text-sm font-semibold text-foreground">Quick Actions</h4>
@@ -9221,21 +10920,456 @@ const ComplianceMVP = () => {
       </div>
     );
   };
+  // Load learned patterns and playbooks
+  const loadLearningData = async () => {
+    try {
+      const [patternsRes, playbooksRes, valueRes] = await Promise.all([
+        api.getLearnedPatterns(userId),
+        api.getAutoPlaybooks(userId),
+        api.getDataValueSummary(userId),
+      ]);
+      setLearnedPatterns(patternsRes.patterns || []);
+      setAutoPlaybooks(playbooksRes.playbooks || []);
+      setDataValueSummary(valueRes);
+    } catch (error) {
+      console.error('Failed to load learning data:', error);
+    }
+  };
+
+  // Run learning analysis
+  const runLearningAnalysis = async () => {
+    setLearningAnalysisRunning(true);
+    try {
+      const result = await api.runLearningAnalysis(userId);
+      await loadLearningData(); // Reload after analysis
+      alert(`Learning complete! ${result.message}`);
+    } catch (error) {
+      console.error('Learning analysis failed:', error);
+      alert('Learning analysis failed. Please try again.');
+    } finally {
+      setLearningAnalysisRunning(false);
+    }
+  };
+
+  // Approve a playbook
+  const approvePlaybook = async (playbookId) => {
+    try {
+      await api.approvePlaybook(userId, playbookId);
+      await loadLearningData();
+      alert('Playbook approved and activated!');
+    } catch (error) {
+      console.error('Failed to approve playbook:', error);
+      alert('Failed to approve playbook.');
+    }
+  };
+
+  // Generate demo learning data for showcase
+  const generateDemoLearningData = useCallback(() => {
+    const demoPatterns = [
+      {
+        id: 1,
+        pattern_name: 'Auto Pattern: Access Control - High',
+        pattern_type: 'control_remediation',
+        trigger_conditions: { control_id: 'AC-001', severity: 'high', priority: 'High', category: 'Access Control' },
+        success_rate: 0.92,
+        usage_count: 8,
+        avg_resolution_time_minutes: 45,
+        confidence_score: 0.85,
+        pattern_steps: [
+          { action: 'remediation_started', order: 1, frequency: 1.0 },
+          { action: 'evidence_collected', order: 2, frequency: 0.9 },
+          { action: 'status_updated', order: 3, frequency: 0.95 },
+        ],
+        evidence_requirements: ['MFA Configuration', 'Access Logs'],
+        automation_opportunities: ['Auto-enable MFA', 'Generate access report'],
+        related_controls: ['AC-001', 'AC-002'],
+      },
+      {
+        id: 2,
+        pattern_name: 'Auto Pattern: Endpoint Security - Critical',
+        pattern_type: 'control_remediation',
+        trigger_conditions: { control_id: 'EP-001', severity: 'critical', priority: 'Critical', category: 'Endpoint Security' },
+        success_rate: 0.88,
+        usage_count: 12,
+        avg_resolution_time_minutes: 60,
+        confidence_score: 0.92,
+        pattern_steps: [
+          { action: 'remediation_started', order: 1, frequency: 1.0 },
+          { action: 'evidence_collected', order: 2, frequency: 0.85 },
+          { action: 'control_update', order: 3, frequency: 0.9 },
+        ],
+        evidence_requirements: ['EDR Coverage Report', 'Vulnerability Scan'],
+        automation_opportunities: ['Deploy EDR agent', 'Run vulnerability scan'],
+        related_controls: ['EP-001', 'VM-001'],
+      },
+    ];
+
+    const demoPlaybooks = [
+      {
+        id: 1,
+        playbook_name: 'Auto: Access Control - High',
+        source_pattern_id: 1,
+        playbook_type: 'remediation',
+        description: 'Auto-generated playbook from 8 successful remediations. Success rate: 92%',
+        trigger_conditions: { control_id: 'AC-001', severity: 'high', priority: 'High' },
+        steps: [
+          { id: 'step_1', order: 1, action: 'remediation_started', description: 'Review access control configuration', required: true, automation_ready: false, estimated_minutes: 15 },
+          { id: 'step_2', order: 2, action: 'evidence_collected', description: 'Collect MFA configuration evidence', required: true, automation_ready: true, estimated_minutes: 10 },
+          { id: 'step_3', order: 3, action: 'status_updated', description: 'Update control status to Implemented', required: true, automation_ready: true, estimated_minutes: 5 },
+        ],
+        estimated_time_minutes: 45,
+        automation_level: 'semi_automated',
+        success_metrics: { success_rate: 0.92, avg_time_minutes: 45, usage_count: 8 },
+        status: 'active',
+        approval_status: 'approved',
+        usage_count: 8,
+      },
+      {
+        id: 2,
+        playbook_name: 'Auto: Endpoint Security - Critical',
+        source_pattern_id: 2,
+        playbook_type: 'remediation',
+        description: 'Auto-generated playbook from 12 successful remediations. Success rate: 88%',
+        trigger_conditions: { control_id: 'EP-001', severity: 'critical', priority: 'Critical' },
+        steps: [
+          { id: 'step_1', order: 1, action: 'remediation_started', description: 'Assess endpoint security coverage', required: true, automation_ready: false, estimated_minutes: 20 },
+          { id: 'step_2', order: 2, action: 'evidence_collected', description: 'Collect EDR coverage evidence', required: true, automation_ready: true, estimated_minutes: 15 },
+          { id: 'step_3', order: 3, action: 'control_update', description: 'Update control status and evidence links', required: true, automation_ready: true, estimated_minutes: 10 },
+        ],
+        estimated_time_minutes: 60,
+        automation_level: 'semi_automated',
+        success_metrics: { success_rate: 0.88, avg_time_minutes: 60, usage_count: 12 },
+        status: 'active',
+        approval_status: 'approved',
+        usage_count: 12,
+      },
+    ];
+
+    return { patterns: demoPatterns, playbooks: demoPlaybooks };
+  }, []);
+
+  // Load learning data when CSCA view or dashboard is active
+  useEffect(() => {
+    if (activeView === 'csca' || activeView === 'dashboard') {
+      if (backendConnected && currentUser?.id) {
+        loadLearningData();
+      } else {
+        // Use demo data for showcase
+        const demoData = generateDemoLearningData();
+        setLearnedPatterns(demoData.patterns);
+        setAutoPlaybooks(demoData.playbooks);
+      }
+    }
+  }, [activeView, backendConnected, currentUser?.id, loadLearningData, generateDemoLearningData]);
+
   const renderAutomationPlan = () => {
+
     if (!automationPlan) {
       return (
-        <div className="bg-card rounded-lg shadow p-12 text-center">
-          <Award className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-xl font-semibold mb-2">Generate Your Automation Plan</h3>
-          <p className="text-muted-foreground mb-6">
-            AI-powered prioritization based on risk, cost, and automation potential
-          </p>
-          <button
-            onClick={() => generateAutomationPlan()}
-            className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
-          >
-            Generate Plan Now
-          </button>
+        <div className="space-y-6">
+          <div className="bg-card rounded-lg shadow p-12 text-center">
+            <Award className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-xl font-semibold mb-2">Generate Your Automation Plan</h3>
+            <p className="text-muted-foreground mb-6">
+              AI-powered prioritization based on risk, cost, and automation potential
+            </p>
+            <button
+              onClick={() => generateAutomationPlan()}
+              className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+            >
+              Generate Plan Now
+            </button>
+          </div>
+
+          {/* Self-Learning System Section */}
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-primary" />
+                  Self-Learning Automation System
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  The platform learns from your remediation actions and creates reusable playbooks automatically
+                </p>
+              </div>
+              {backendConnected ? (
+                <button
+                  onClick={runLearningAnalysis}
+                  disabled={learningAnalysisRunning}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {learningAnalysisRunning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Run Learning Analysis
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="px-4 py-2 bg-muted/50 border border-[hsl(var(--border))] rounded-lg text-sm text-muted-foreground flex items-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  Demo Mode - Showing Sample Data
+                </div>
+              )}
+            </div>
+
+            {/* Learning Activity Feed */}
+            <div className="mb-6 bg-gradient-to-r from-primary/5 to-purple-500/5 border border-primary/20 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="w-4 h-4 text-primary" />
+                <h4 className="text-sm font-semibold text-foreground">Recent Learning Activity</h4>
+              </div>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span>Pattern discovered: Access Control remediation (92% success rate)</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">2 hours ago</span>
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span>Playbook generated: Endpoint Security - Critical (88% success)</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">5 hours ago</span>
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  <span>Pattern confidence increased: Access Control (85% → 92%)</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">1 day ago</span>
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <span>8 successful remediations learned from historical data</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">2 days ago</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Learning Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Learned Patterns</div>
+                <div className="text-2xl font-bold text-foreground">{learnedPatterns.length}</div>
+              </div>
+              <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Auto Playbooks</div>
+                <div className="text-2xl font-bold text-foreground">{autoPlaybooks.length}</div>
+              </div>
+              <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Active Playbooks</div>
+                <div className="text-2xl font-bold text-emerald-500">
+                  {autoPlaybooks.filter(p => p.status === 'active').length}
+                </div>
+              </div>
+              <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Data Utilization</div>
+                <div className="text-2xl font-bold text-primary">
+                  {dataValueSummary ? `${(dataValueSummary.overall_utilization * 100).toFixed(0)}%` : '0%'}
+                </div>
+              </div>
+            </div>
+
+            {/* Learning Progress Visualization */}
+            <div className="mb-6 bg-muted/20 border border-[hsl(var(--border))] rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-foreground mb-3">Learning Progress</h4>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-primary mb-1">{learnedPatterns.length}</div>
+                  <div className="text-xs text-muted-foreground">Patterns Learned</div>
+                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary transition-all duration-1000" 
+                      style={{ width: `${Math.min(100, (learnedPatterns.length / 10) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-emerald-500 mb-1">
+                    {autoPlaybooks.filter(p => p.status === 'active').length}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Active Playbooks</div>
+                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-500 transition-all duration-1000" 
+                      style={{ width: `${Math.min(100, (autoPlaybooks.filter(p => p.status === 'active').length / 5) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-purple-500 mb-1">
+                    {learnedPatterns.length > 0 
+                      ? Math.round(learnedPatterns.reduce((sum, p) => sum + (p.success_rate || 0), 0) / learnedPatterns.length * 100)
+                      : 0}%
+                  </div>
+                  <div className="text-xs text-muted-foreground">Avg Success Rate</div>
+                  <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-purple-500 transition-all duration-1000" 
+                      style={{ width: `${learnedPatterns.length > 0 
+                        ? Math.round(learnedPatterns.reduce((sum, p) => sum + (p.success_rate || 0), 0) / learnedPatterns.length * 100)
+                        : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Auto-Generated Playbooks */}
+            {autoPlaybooks.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-foreground">Auto-Generated Playbooks</h4>
+                  <span className="text-xs text-muted-foreground">
+                    {autoPlaybooks.filter(p => p.status === 'active').length} active • {autoPlaybooks.filter(p => p.approval_status === 'pending').length} pending
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {autoPlaybooks.slice(0, 5).map((playbook) => (
+                    <div
+                      key={playbook.id}
+                      className="border border-[hsl(var(--border))] rounded-lg p-4 bg-muted/20 hover:bg-muted/30 transition-colors cursor-pointer"
+                      onClick={() => setSelectedPlaybook(playbook)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h5 className="font-semibold text-foreground">{playbook.playbook_name}</h5>
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              playbook.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' :
+                              playbook.approval_status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
+                              'bg-gray-500/10 text-gray-500'
+                            }`}>
+                              {playbook.status === 'active' ? 'Active' : playbook.approval_status}
+                            </span>
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              playbook.automation_level === 'fully_automated' ? 'bg-blue-500/10 text-blue-500' :
+                              playbook.automation_level === 'semi_automated' ? 'bg-purple-500/10 text-purple-500' :
+                              'bg-gray-500/10 text-gray-500'
+                            }`}>
+                              {playbook.automation_level?.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">{playbook.description}</p>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span>Success Rate: {(playbook.success_metrics?.success_rate * 100 || 0).toFixed(0)}%</span>
+                            <span>Used: {playbook.usage_count || 0} times</span>
+                            <span>Est. Time: {playbook.estimated_time_minutes || 0} min</span>
+                          </div>
+                        </div>
+                        {playbook.approval_status === 'pending' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              approvePlaybook(playbook.id);
+                            }}
+                            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium"
+                          >
+                            Approve
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* How It Works - Showcase */}
+            <div className="mt-6 bg-gradient-to-br from-primary/10 via-purple-500/10 to-emerald-500/10 border-2 border-primary/30 rounded-lg p-6">
+              <h4 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                How The Learning System Works
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                  <div className="text-3xl mb-2">1️⃣</div>
+                  <h5 className="text-sm font-semibold text-foreground mb-2">Observes</h5>
+                  <p className="text-xs text-muted-foreground">
+                    Tracks every remediation action, evidence collection, and outcome
+                  </p>
+                </div>
+                <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                  <div className="text-3xl mb-2">2️⃣</div>
+                  <h5 className="text-sm font-semibold text-foreground mb-2">Learns</h5>
+                  <p className="text-xs text-muted-foreground">
+                    Identifies successful patterns from historical remediation data
+                  </p>
+                </div>
+                <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                  <div className="text-3xl mb-2">3️⃣</div>
+                  <h5 className="text-sm font-semibold text-foreground mb-2">Suggests</h5>
+                  <p className="text-xs text-muted-foreground">
+                    Proactively recommends playbooks when similar alerts occur
+                  </p>
+                </div>
+              </div>
+              <div className="pt-4 border-t border-primary/20">
+                <div className="flex items-start gap-3">
+                  <div className="bg-primary/20 rounded-lg p-2">
+                    <TrendingUp className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h5 className="text-sm font-semibold text-foreground mb-1">Continuous Improvement</h5>
+                    <p className="text-xs text-muted-foreground">
+                      Each remediation makes the system smarter. Success rates improve over time as patterns are refined and validated.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Data Value Tracking */}
+            {dataValueSummary ? (
+              <div className="mt-6">
+                <h4 className="text-lg font-semibold text-foreground mb-4">Data Value Tracking</h4>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Every piece of data in the platform is tracked and used. Nothing goes to waste.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {Object.entries(dataValueSummary.by_type || {}).map(([type, stats]) => (
+                    <div key={type} className="bg-muted/20 border border-[hsl(var(--border))] rounded-lg p-4">
+                      <div className="text-sm font-semibold text-foreground mb-2 capitalize">{type}</div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Items:</span>
+                          <span className="text-foreground font-medium">{stats.total_items}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Uses:</span>
+                          <span className="text-foreground font-medium">{stats.total_uses}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Utilization:</span>
+                          <span className="text-foreground font-medium">{(stats.utilization_rate * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Avg Value:</span>
+                          <span className="text-foreground font-medium">{(stats.avg_value_score * 100).toFixed(0)}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6">
+                <h4 className="text-lg font-semibold text-foreground mb-4">Data Value Tracking</h4>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Every piece of data in the platform is tracked and used. Nothing goes to waste.
+                </p>
+                <div className="bg-muted/20 border border-dashed border-[hsl(var(--border))] rounded-lg p-6 text-center">
+                  <Database className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Data value tracking will appear once you start using the platform
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -9244,6 +11378,42 @@ const ComplianceMVP = () => {
 
     return (
       <div className="space-y-6">
+        {/* Self-Learning System Banner */}
+        <div className="bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="bg-primary/20 rounded-lg p-3">
+                <Sparkles className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Self-Learning Automation</h3>
+                <p className="text-sm text-muted-foreground">
+                  {learnedPatterns.length} patterns learned • {autoPlaybooks.filter(p => p.status === 'active').length} active playbooks
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={runLearningAnalysis}
+                disabled={learningAnalysisRunning}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {learningAnalysisRunning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Run Analysis
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
           <div className="flex items-center justify-between">
             <div>
@@ -9383,9 +11553,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-
-
-
   const renderEntities = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Entity Management</h2><p className="text-muted-foreground mt-2">Manage subsidiaries and regional entities</p></div>;
   const renderDataImport = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Data Import Center</h2><p className="text-muted-foreground mt-2">Connect your security tools and import data seamlessly</p></div>;
   const renderVendors = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Vendor Risk Management</h2><p className="text-muted-foreground mt-2">Track third-party compliance and inherited controls</p></div>;
@@ -9487,13 +11654,12 @@ const ComplianceMVP = () => {
 
         {filteredFrameworks.length === 0 && (
           <div className="bg-muted/30 border border-[hsl(var(--border))] rounded-lg p-8 text-center text-sm text-muted-foreground">
-            No framework matches your search. Try keywords like “cloud”, “healthcare”, or “risk”.
+            No framework matches your search. Try keywords like "cloud", "healthcare", or "risk".
           </div>
         )}
       </div>
     );
   };
-  
   const renderResponsibilityMatrix = () => {
     const filteredMatrix = responsibilityMatrix.filter(m => {
       const categoryMatch = matrixFilterCategory === "ALL" || m.category === matrixFilterCategory;
@@ -10000,7 +12166,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-  
   // ============================================================================
   // IAM (Identity & Access Management) RENDER FUNCTIONS
   // ============================================================================
@@ -10986,6 +13151,189 @@ const ComplianceMVP = () => {
           </div>
         </div>
 
+        {/* AI-Powered Self-Learning Playbooks */}
+        <div className="bg-gradient-to-br from-emerald-500/10 via-primary/10 to-purple-500/10 border-2 border-emerald-500/30 rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="w-6 h-6 text-emerald-500" />
+                <h3 className="text-xl font-semibold text-foreground">AI-Powered Self-Learning Playbooks</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Automatically generated remediation playbooks that learn from your security event responses and compliance actions
+              </p>
+            </div>
+            {backendConnected ? (
+              <button
+                onClick={runLearningAnalysis}
+                disabled={learningAnalysisRunning}
+                className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {learningAnalysisRunning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Run Learning Analysis
+                  </>
+                )}
+              </button>
+            ) : (
+              <div className="px-4 py-2 bg-muted/50 border border-[hsl(var(--border))] rounded-lg text-sm text-muted-foreground flex items-center gap-2">
+                <Sparkles className="w-4 h-4" />
+                Demo Mode
+              </div>
+            )}
+          </div>
+
+          {/* Playbook Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-card border border-emerald-500/20 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Active Playbooks</span>
+                <Sparkles className="w-4 h-4 text-emerald-500" />
+              </div>
+              <div className="text-3xl font-bold text-emerald-500 mb-1">
+                {autoPlaybooks.filter(p => p.status === 'active').length}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {autoPlaybooks.length} total generated
+              </div>
+            </div>
+
+            <div className="bg-card border border-primary/20 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Time Saved</span>
+                <TrendingDown className="w-4 h-4 text-primary" />
+              </div>
+              <div className="text-3xl font-bold text-primary mb-1">
+                {autoPlaybooks.reduce((sum, p) => sum + ((p.estimated_time_minutes || 0) * (p.usage_count || 0)), 0)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                minutes saved this month
+              </div>
+            </div>
+
+            <div className="bg-card border border-purple-500/20 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Success Rate</span>
+                <TrendingUp className="w-4 h-4 text-purple-500" />
+              </div>
+              <div className="text-3xl font-bold text-purple-500 mb-1">
+                {autoPlaybooks.length > 0 
+                  ? Math.round(autoPlaybooks.reduce((sum, p) => sum + ((p.success_metrics?.success_rate || 0) * 100), 0) / autoPlaybooks.length)
+                  : 0}%
+              </div>
+              <div className="text-xs text-muted-foreground">
+                average across all playbooks
+              </div>
+            </div>
+
+            <div className="bg-card border border-blue-500/20 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide">Patterns Learned</span>
+                <Activity className="w-4 h-4 text-blue-500" />
+              </div>
+              <div className="text-3xl font-bold text-blue-500 mb-1">
+                {learnedPatterns.length}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                from security events
+              </div>
+            </div>
+          </div>
+
+          {/* Auto-Generated Playbooks */}
+          {autoPlaybooks.length > 0 && (
+            <div className="mb-4">
+              <h4 className="text-sm font-semibold text-foreground mb-3">Available Playbooks for Security Events</h4>
+              <div className="space-y-3">
+                {autoPlaybooks
+                  .filter(p => p.status === 'active')
+                  .sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0))
+                  .slice(0, 5)
+                  .map((playbook) => (
+                    <div
+                      key={playbook.id}
+                      className="bg-card border border-[hsl(var(--border))] rounded-lg p-4 hover:border-emerald-500/40 transition-colors cursor-pointer"
+                      onClick={() => setSelectedPlaybook(playbook)}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h5 className="font-semibold text-foreground">{playbook.playbook_name}</h5>
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              playbook.status === 'active' ? 'bg-emerald-500/10 text-emerald-500' :
+                              playbook.approval_status === 'pending' ? 'bg-yellow-500/10 text-yellow-500' :
+                              'bg-gray-500/10 text-gray-500'
+                            }`}>
+                              {playbook.status === 'active' ? 'Active' : playbook.approval_status}
+                            </span>
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              playbook.automation_level === 'fully_automated' ? 'bg-blue-500/10 text-blue-500' :
+                              playbook.automation_level === 'semi_automated' ? 'bg-purple-500/10 text-purple-500' :
+                              'bg-gray-500/10 text-gray-500'
+                            }`}>
+                              {playbook.automation_level?.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">{playbook.description}</p>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span>Success: {(playbook.success_metrics?.success_rate * 100 || 0).toFixed(0)}%</span>
+                            <span>Used: {playbook.usage_count || 0} times</span>
+                            <span>Est. Time: {playbook.estimated_time_minutes || 0} min</span>
+                            <span className="text-emerald-500 font-medium">
+                              Saves ~{playbook.estimated_time_minutes || 0} min per use
+                            </span>
+                          </div>
+                        </div>
+                        {playbook.approval_status === 'pending' && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              approvePlaybook(playbook.id);
+                            }}
+                            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium"
+                          >
+                            Approve
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* Learning Activity Feed */}
+          <div className="bg-card/50 border border-primary/20 rounded-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity className="w-4 h-4 text-primary" />
+              <h4 className="text-sm font-semibold text-foreground">Recent Learning Activity</h4>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Pattern discovered: Access Control remediation (92% success rate)</span>
+                <span className="text-[10px] text-muted-foreground ml-auto">2 hours ago</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-2 h-2 rounded-full bg-blue-500" />
+                <span>Playbook generated: Endpoint Security - Critical (88% success)</span>
+                <span className="text-[10px] text-muted-foreground ml-auto">5 hours ago</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="w-2 h-2 rounded-full bg-purple-500" />
+                <span>Pattern confidence increased: Access Control (85% → 92%)</span>
+                <span className="text-[10px] text-muted-foreground ml-auto">1 day ago</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Demo Mode Notice */}
         {!backendConnected && (
           <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
@@ -11478,7 +13826,6 @@ const ComplianceMVP = () => {
       </div>
     );
   };
-
   const renderAuditDetail = () => {
     if (!selectedAudit) return null;
 
@@ -12093,7 +14440,6 @@ const ComplianceMVP = () => {
       alert('Failed to create finding: ' + error.message);
     }
   };
-
   const renderFindingCreateModal = () => {
 
     return (
@@ -12581,7 +14927,8 @@ const ComplianceMVP = () => {
       'responsibility': 'Responsibility Matrix',
       'audits': 'Audits & Certifications',
       'iam': 'IAM & Permissions',
-      'framework_glossary': 'Framework Glossary'
+      'framework_glossary': 'Framework Glossary',
+      'integration-map': 'Feature Integration Map'
     };
     return viewNames[view] || 'Controls';
   };
@@ -12599,10 +14946,534 @@ const ComplianceMVP = () => {
       'responsibility': Database,
       'audits': ClipboardList,
       'iam': UserCheck,
-      'framework_glossary': BookOpen
+      'framework_glossary': BookOpen,
+      'integration-map': Network
     };
     const IconComponent = icons[view] || Shield;
     return <IconComponent className="w-4 h-4" />;
+  };
+
+  // Calculate node positions for Integration Map
+  const integrationMapNodePositions = useMemo(() => {
+    if (!integrationMapDimensions.width || !integrationMapDimensions.height) return {};
+    const centerX = integrationMapDimensions.width / 2;
+    const centerY = integrationMapDimensions.height / 2;
+    const radius = Math.min(integrationMapDimensions.width, integrationMapDimensions.height) * 0.35;
+    const angleStep = (2 * Math.PI) / PRODUCT_LIBRARY.length;
+    
+    return PRODUCT_LIBRARY.reduce((acc, feature, index) => {
+      const angle = index * angleStep - Math.PI / 2; // Start from top
+      acc[feature.key] = {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle),
+        feature
+      };
+      return acc;
+    }, {});
+  }, [integrationMapDimensions]);
+
+  // Filter relationships based on strength
+  const integrationMapFilteredRelationships = useMemo(() => {
+    if (integrationMapFilterStrength === 'all') return FEATURE_RELATIONSHIPS;
+    if (integrationMapFilterStrength === 'medium') {
+      return FEATURE_RELATIONSHIPS.filter(rel => rel.strength === 'strong' || rel.strength === 'medium');
+    }
+    return FEATURE_RELATIONSHIPS.filter(rel => rel.strength === integrationMapFilterStrength);
+  }, [integrationMapFilterStrength]);
+
+  // Render Integration Map View
+  const renderIntegrationMap = () => {
+    const nodePositions = integrationMapNodePositions;
+    const filteredRelationships = integrationMapFilteredRelationships;
+
+    // Early return if no node positions calculated
+    if (!nodePositions || Object.keys(nodePositions).length === 0) {
+      return (
+        <div className="space-y-6">
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Network className="w-6 h-6 text-primary" />
+              Feature Integration Map
+            </h2>
+            <p className="text-sm text-muted-foreground mt-2">Calculating node positions...</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Get relationships for a specific feature
+    const getFeatureRelationships = (featureKey) => {
+      return filteredRelationships.filter(rel => 
+        rel.from === featureKey || rel.to === featureKey
+      );
+    };
+
+    // Find path between two features
+    const findPath = (fromKey, toKey) => {
+      const visited = new Set();
+      const queue = [[fromKey]];
+      
+      while (queue.length > 0) {
+        const path = queue.shift();
+        const current = path[path.length - 1];
+        
+        if (current === toKey) return path;
+        if (visited.has(current)) continue;
+        visited.add(current);
+        
+        filteredRelationships
+          .filter(rel => rel.from === current || rel.to === current)
+          .forEach(rel => {
+            const next = rel.from === current ? rel.to : rel.from;
+            if (!visited.has(next)) {
+              queue.push([...path, next]);
+            }
+          });
+      }
+      return null;
+    };
+
+    // Handle feature click
+    const handleFeatureClick = (featureKey) => {
+      if (integrationMapSelectedFeature === featureKey) {
+        setIntegrationMapSelectedFeature(null);
+        setIntegrationMapHighlightedPath([]);
+        setIntegrationMapSelectedConnection(null); // Clear connection when deselecting feature
+      } else {
+        setIntegrationMapSelectedFeature(featureKey);
+        const rels = getFeatureRelationships(featureKey);
+        setIntegrationMapHighlightedPath(rels.map(rel => rel.from === featureKey ? rel.to : rel.from));
+        // Don't clear selected connection - allow both to be visible
+      }
+    };
+
+    // Handle feature navigation
+    const handleNavigateToFeature = (featureKey) => {
+      navigateToFeature(featureKey);
+    };
+
+    const strengthColors = {
+      strong: 'hsl(142 76% 36%)',
+      medium: 'hsl(38 92% 50%)',
+      weak: 'hsl(0 0% 63%)'
+    };
+
+    const strengthWidths = {
+      strong: 3,
+      medium: 2,
+      weak: 1
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* Header and Controls */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <Network className="w-6 h-6 text-primary" />
+                Feature Integration Map
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Visualize how platform features connect and work together
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Filter by strength:</span>
+                <select
+                  value={integrationMapFilterStrength}
+                  onChange={(e) => setIntegrationMapFilterStrength(e.target.value)}
+                  className="px-3 py-1.5 bg-card border border-[hsl(var(--border))] rounded-lg text-sm text-foreground"
+                >
+                  <option value="all">All Connections</option>
+                  <option value="strong">Strong Only</option>
+                  <option value="medium">Medium & Strong</option>
+                  <option value="weak">Include Weak</option>
+                </select>
+              </div>
+              {integrationMapSelectedFeature && (
+                <button
+                  onClick={() => handleNavigateToFeature(integrationMapSelectedFeature)}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  Go to Feature
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+          <div className="flex flex-wrap items-center gap-6 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-1 bg-green-500 rounded"></div>
+              <span className="text-muted-foreground">Strong Connection</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-1 bg-yellow-500 rounded"></div>
+              <span className="text-muted-foreground">Medium Connection</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-1 bg-gray-500 rounded"></div>
+              <span className="text-muted-foreground">Weak Connection</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full bg-primary/20 border-2 border-primary"></div>
+              <span className="text-muted-foreground">Selected Feature</span>
+            </div>
+          </div>
+        </div>
+
+        {/* SVG Graph */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6 overflow-auto">
+          <svg
+            ref={integrationMapSvgRef}
+            width="100%"
+            height="800"
+            viewBox={`0 0 ${integrationMapDimensions.width || 1200} ${integrationMapDimensions.height || 800}`}
+            className="w-full"
+            style={{ minHeight: '800px', display: 'block' }}
+            preserveAspectRatio="xMidYMid meet"
+          >
+            {/* Render connections/edges */}
+            {filteredRelationships.map((rel, idx) => {
+              const fromPos = nodePositions[rel.from];
+              const toPos = nodePositions[rel.to];
+              if (!fromPos || !toPos) return null;
+
+              const isHighlighted = integrationMapSelectedFeature && 
+                (rel.from === integrationMapSelectedFeature || rel.to === integrationMapSelectedFeature);
+              const isSelected = integrationMapSelectedConnection && 
+                integrationMapSelectedConnection.from === rel.from && 
+                integrationMapSelectedConnection.to === rel.to;
+              
+              const connectionType = CONNECTION_TYPES[rel.type] || { description: rel.type, icon: '🔗', color: strengthColors.medium };
+              const opacity = isSelected ? 1 : isHighlighted ? 0.7 : 0.25;
+              const strokeColor = isSelected ? connectionType.color : (strengthColors[rel.strength] || strengthColors.medium);
+              const strokeWidth = isSelected ? (strengthWidths[rel.strength] || 2) + 2 : (strengthWidths[rel.strength] || 2);
+              
+              // Calculate midpoint for connection label
+              const midX = (fromPos.x + toPos.x) / 2;
+              const midY = (fromPos.y + toPos.y) / 2;
+
+              return (
+                <g key={`edge-${idx}`}>
+                  {/* Invisible wider line for easier clicking */}
+                  <line
+                    x1={fromPos.x}
+                    y1={fromPos.y}
+                    x2={toPos.x}
+                    y2={toPos.y}
+                    stroke="transparent"
+                    strokeWidth="20"
+                    opacity="0"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setIntegrationMapSelectedConnection(rel)}
+                  />
+                  {/* Visible connection line */}
+                  <line
+                    x1={fromPos.x}
+                    y1={fromPos.y}
+                    x2={toPos.x}
+                    y2={toPos.y}
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    opacity={opacity}
+                    markerEnd="url(#arrowhead)"
+                    className={isSelected ? "animate-pulse" : ""}
+                    style={{ cursor: 'pointer', transition: 'all 0.3s ease' }}
+                    onClick={() => setIntegrationMapSelectedConnection(rel)}
+                    onMouseEnter={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.opacity = '0.9';
+                        e.currentTarget.style.strokeWidth = String(strokeWidth + 1);
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isSelected) {
+                        e.currentTarget.style.opacity = String(opacity);
+                        e.currentTarget.style.strokeWidth = String(strokeWidth);
+                      }
+                    }}
+                  />
+                  {/* Connection type icon at midpoint (show when highlighted or selected) */}
+                  {(isHighlighted || isSelected) && (
+                    <g>
+                      <circle
+                        cx={midX}
+                        cy={midY}
+                        r="20"
+                        fill="hsl(var(--card))"
+                        stroke={strokeColor}
+                        strokeWidth={isSelected ? "3" : "2"}
+                        opacity="0.95"
+                        style={{ cursor: 'pointer', filter: isSelected ? 'drop-shadow(0 0 8px ' + strokeColor + ')' : 'none' }}
+                        onClick={() => setIntegrationMapSelectedConnection(rel)}
+                      />
+                      <text
+                        x={midX}
+                        y={midY + 6}
+                        textAnchor="middle"
+                        fontSize="16"
+                        fill={strokeColor}
+                        style={{ cursor: 'pointer', pointerEvents: 'none', fontWeight: isSelected ? 'bold' : 'normal' }}
+                      >
+                        {connectionType.icon}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Arrow marker definition */}
+            <defs>
+              <marker
+                id="arrowhead"
+                markerWidth="10"
+                markerHeight="10"
+                refX="9"
+                refY="3"
+                orient="auto"
+              >
+                <polygon
+                  points="0 0, 10 3, 0 6"
+                  fill="hsl(142 76% 36%)"
+                  opacity="0.6"
+                />
+              </marker>
+            </defs>
+
+            {/* Render nodes */}
+            {Object.entries(nodePositions).map(([key, pos]) => {
+              const feature = pos.feature;
+              const isSelected = integrationMapSelectedFeature === key;
+              const isHighlighted = integrationMapHighlightedPath.includes(key);
+              
+              return (
+                <g key={`node-${key}`}>
+                  {/* Node circle */}
+                  <circle
+                    cx={pos.x}
+                    cy={pos.y}
+                    r={isSelected ? 35 : isHighlighted ? 30 : 25}
+                    fill={isSelected ? 'hsl(var(--primary))' : isHighlighted ? 'hsl(var(--primary) / 0.2)' : 'hsl(var(--card))'}
+                    stroke={isSelected ? 'hsl(var(--primary))' : 'hsl(var(--border))'}
+                    strokeWidth={isSelected ? 3 : 2}
+                    className="cursor-pointer transition-all"
+                    onClick={() => handleFeatureClick(key)}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.fill = isSelected ? 'hsl(var(--primary))' : 'hsl(var(--primary) / 0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.fill = isSelected ? 'hsl(var(--primary))' : isHighlighted ? 'hsl(var(--primary) / 0.2)' : 'hsl(var(--card))';
+                    }}
+                  />
+                  {/* Feature name */}
+                  <text
+                    x={pos.x}
+                    y={pos.y + 50}
+                    textAnchor="middle"
+                    className="text-xs font-medium fill-foreground pointer-events-none"
+                    style={{ fontSize: '12px' }}
+                  >
+                    {feature.name.split(' ').slice(0, 2).join(' ')}
+                  </text>
+                  {/* Status badge */}
+                  <circle
+                    cx={pos.x + 20}
+                    cy={pos.y - 20}
+                    r={6}
+                    fill={feature.status === 'Live' ? '#22c55e' : '#f59e0b'}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+
+        {/* Connection Details Panel */}
+        {integrationMapSelectedConnection && (() => {
+          const rel = integrationMapSelectedConnection;
+          const fromFeature = PRODUCT_LIBRARY.find(f => f.key === rel.from);
+          const toFeature = PRODUCT_LIBRARY.find(f => f.key === rel.to);
+          const connectionType = CONNECTION_TYPES[rel.type] || { description: rel.type, icon: '🔗', color: '#666' };
+          
+          if (!fromFeature || !toFeature) return null;
+          
+          return (
+            <div className="bg-card border-2 border-primary/30 rounded-lg p-6 shadow-lg">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-4xl">{connectionType.icon}</div>
+                  <div>
+                    <h3 className="text-xl font-bold text-foreground">Connection Details</h3>
+                    <p className="text-sm text-muted-foreground">How these features work together</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIntegrationMapSelectedConnection(null)}
+                  className="p-2 rounded-lg hover:bg-muted transition-colors"
+                >
+                  <X className="w-5 h-5 text-muted-foreground" />
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                {/* From Feature */}
+                <div className="bg-muted/30 rounded-lg p-4 border border-[hsl(var(--border))]">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">From</div>
+                  <div className="text-sm font-semibold text-foreground mb-1">{fromFeature.name}</div>
+                  <button
+                    onClick={() => handleFeatureClick(rel.from)}
+                    className="text-xs text-primary hover:underline mt-2"
+                  >
+                    View feature →
+                  </button>
+                </div>
+                
+                {/* Connection Type */}
+                <div className="bg-primary/10 rounded-lg p-4 border-2 border-primary/30">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Connection Type</div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">{connectionType.icon}</span>
+                    <span className="text-sm font-semibold text-foreground capitalize">{rel.type}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{connectionType.description}</p>
+                  <div className="mt-3">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      rel.strength === 'strong' ? 'bg-green-500/20 text-green-600' :
+                      rel.strength === 'medium' ? 'bg-yellow-500/20 text-yellow-600' :
+                      'bg-gray-500/20 text-gray-600'
+                    }`}>
+                      {rel.strength} connection
+                    </span>
+                  </div>
+                </div>
+                
+                {/* To Feature */}
+                <div className="bg-muted/30 rounded-lg p-4 border border-[hsl(var(--border))]">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">To</div>
+                  <div className="text-sm font-semibold text-foreground mb-1">{toFeature.name}</div>
+                  <button
+                    onClick={() => handleFeatureClick(rel.to)}
+                    className="text-xs text-primary hover:underline mt-2"
+                  >
+                    View feature →
+                  </button>
+                </div>
+              </div>
+              
+              {/* Detailed Explanation */}
+              <div className="bg-muted/20 rounded-lg p-4 border border-[hsl(var(--border))]">
+                <h4 className="text-sm font-semibold text-foreground mb-2">How This Connection Works</h4>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  <strong>{fromFeature.name}</strong> {connectionType.description.toLowerCase()} <strong>{toFeature.name}</strong>. 
+                  This {rel.strength} connection means {rel.strength === 'strong' ? 'these features are tightly integrated and work closely together' : rel.strength === 'medium' ? 'these features complement each other with moderate integration' : 'these features have a loose relationship'}. 
+                  When you use {fromFeature.name}, it directly impacts {toFeature.name} by {connectionType.description.toLowerCase()}.
+                </p>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={() => {
+                    handleNavigateToFeature(rel.from);
+                    setIntegrationMapSelectedConnection(null);
+                  }}
+                  className="px-4 py-2 bg-muted text-foreground rounded-lg text-sm font-medium hover:bg-muted/80 transition-colors flex items-center gap-2"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  Go to {fromFeature.name.split(' ')[0]}
+                </button>
+                <button
+                  onClick={() => {
+                    handleNavigateToFeature(rel.to);
+                    setIntegrationMapSelectedConnection(null);
+                  }}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2"
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  Go to {toFeature.name.split(' ')[0]}
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Feature Details Panel */}
+        {integrationMapSelectedFeature && !integrationMapSelectedConnection && (() => {
+          const feature = PRODUCT_LIBRARY.find(f => f.key === integrationMapSelectedFeature);
+          const rels = getFeatureRelationships(integrationMapSelectedFeature);
+          
+          return (
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground mb-2">{feature.name}</h3>
+                  <p className="text-sm text-muted-foreground mb-4">{feature.summary}</p>
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-xs text-muted-foreground">Status:</span>
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      feature.status === 'Live' ? 'bg-green-500/10 text-green-500' : 'bg-yellow-500/10 text-yellow-500'
+                    }`}>
+                      {feature.status}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleNavigateToFeature(integrationMapSelectedFeature)}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors flex items-center gap-2"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    Navigate to {feature.name}
+                  </button>
+                </div>
+                <div>
+                  <h4 className="text-sm font-semibold text-foreground mb-3">Connected Features ({rels.length})</h4>
+                  <div className="space-y-2">
+                    {rels.map((rel, idx) => {
+                      const connectedKey = rel.from === integrationMapSelectedFeature ? rel.to : rel.from;
+                      const connectedFeature = PRODUCT_LIBRARY.find(f => f.key === connectedKey);
+                      if (!connectedFeature) return null;
+                      const connectionType = CONNECTION_TYPES[rel.type] || { icon: '🔗', description: rel.type };
+                      
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-[hsl(var(--border))] hover:bg-muted/50 transition-colors cursor-pointer"
+                          onClick={() => {
+                            setIntegrationMapSelectedConnection(rel);
+                            handleFeatureClick(connectedKey);
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">{connectionType.icon}</span>
+                            <div>
+                              <div className="text-sm font-medium text-foreground">{connectedFeature.name}</div>
+                              <div className="text-xs text-muted-foreground">{connectionType.description}</div>
+                            </div>
+                          </div>
+                          <div className={`px-2 py-1 rounded text-xs ${
+                            rel.strength === 'strong' ? 'bg-green-500/10 text-green-500' :
+                            rel.strength === 'medium' ? 'bg-yellow-500/10 text-yellow-500' :
+                            'bg-gray-500/10 text-gray-500'
+                          }`}>
+                            {rel.strength}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    );
   };
   return (
     <div className="min-h-screen bg-background">
@@ -12669,6 +15540,21 @@ const ComplianceMVP = () => {
                       <FileCheck className="w-4 h-4 mr-2" />
                       <span>Audits & Certifications</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={() => {
+                        setShowProductLibrary(true);
+                      }}
+                    >
+                      <ListTree className="w-4 h-4 mr-2" />
+                      <span>Product Library</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem 
+                      onClick={() => setActiveView('integration-map')}
+                    >
+                      <Network className="w-4 h-4 mr-2" />
+                      <span>Integration Map</span>
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
 
@@ -12704,7 +15590,7 @@ const ComplianceMVP = () => {
                 {/* Planning & Analysis Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['tco', 'timeline', 'automation'].includes(activeView)
+                    ['tco', 'timeline'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -12722,10 +15608,6 @@ const ComplianceMVP = () => {
                     <DropdownMenuItem onClick={() => setActiveView('timeline')}>
                       <TrendingUp className="w-4 h-4 mr-2" />
                       <span>Timeline</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setActiveView('automation')}>
-                      <Award className="w-4 h-4 mr-2" />
-                      <span>Automation Plan</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -12754,6 +15636,19 @@ const ComplianceMVP = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowProductLibrary(true);
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                >
+                  <ListTree className="w-4 h-4" />
+                  <span>Product Library</span>
+                </button>
               </nav>
             </div>
 
@@ -12819,6 +15714,17 @@ const ComplianceMVP = () => {
                     <FileCheck className="w-4 h-4 mr-2" />
                     <span>Audits & Certifications</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowProductLibrary(true);
+                      setMobileMenuOpen(false);
+                    }}
+                  >
+                    <ListTree className="w-4 h-4 mr-2" />
+                    <span>Product Library</span>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -12863,10 +15769,6 @@ const ComplianceMVP = () => {
                     <TrendingUp className="w-4 h-4 mr-2" />
                     <span>Timeline</span>
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => { setActiveView('automation'); setMobileMenuOpen(false); }}>
-                    <Award className="w-4 h-4 mr-2" />
-                    <span>Automation Plan</span>
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -12889,6 +15791,20 @@ const ComplianceMVP = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowProductLibrary(true);
+                  setMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+              >
+                <ListTree className="w-4 h-4" />
+                <span>Product Library</span>
+              </button>
             </div>
           )}
         </header>
@@ -12993,6 +15909,7 @@ const ComplianceMVP = () => {
                activeView === 'vendors' ? renderVendors() :
                activeView === 'timeline' ? renderTimeline() :
                activeView === 'responsibility' ? renderResponsibilityMatrix() :
+               activeView === 'integration-map' ? renderIntegrationMap() :
                renderControls()}
             </div>
           </main>
@@ -13192,6 +16109,126 @@ const ComplianceMVP = () => {
             <div className="border-t border-[hsl(var(--border))] px-4 py-3 text-[11px] text-muted-foreground flex items-center justify-between">
               <span>Use ↑ ↓ to navigate • Enter to run</span>
               <span>Press Esc to close</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product Library Modal - Global */}
+      {showProductLibrary && (
+        <div 
+          className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" 
+          onClick={() => setShowProductLibrary(false)}
+          style={{ zIndex: 200 }}
+        >
+          <div 
+            className="relative bg-card border border-[hsl(var(--border))] rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-6 py-4 bg-card/90 backdrop-blur">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <HelpCircle className="w-5 h-5 text-primary" />
+                  Product Library
+                </h2>
+                <p className="text-xs text-muted-foreground">Explore platform capabilities, value, and related workflows.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProductLibrary(false)}
+                className="p-2 rounded-lg hover:bg-muted transition-colors"
+              >
+                <X className="w-5 h-5 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[240px,1fr] gap-0 md:gap-6 h-full">
+              <div className="border-b md:border-b-0 md:border-r border-[hsl(var(--border))] bg-muted/20">
+                <div className="p-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feature Catalogue</div>
+                <div className="max-h-[60vh] overflow-y-auto">
+                  {PRODUCT_LIBRARY.map((feature) => {
+                    const isActive = selectedProductFeature?.key === feature.key;
+                    return (
+                      <button
+                        key={feature.key}
+                        type="button"
+                        onClick={() => setProductLibrarySection(feature.key)}
+                        className={`w-full text-left px-4 py-3 border-b border-[hsl(var(--border))] transition-colors ${
+                          isActive ? 'bg-primary/10 text-primary font-medium' : 'hover:bg-muted/40 text-muted-foreground'
+                        }`}
+                      >
+                        <div className="text-sm">{feature.name}</div>
+                        <div className="text-[11px] uppercase tracking-wide">
+                          {feature.status}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="bg-card max-h-[70vh] overflow-y-auto p-6 space-y-4">
+                {selectedProductFeature ? (
+                  <>
+                    <div className="space-y-2">
+                      <h3 className="text-xl font-semibold text-foreground">{selectedProductFeature.name}</h3>
+                      <div className="text-sm text-muted-foreground leading-relaxed">{selectedProductFeature.summary}</div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-muted-foreground">
+                      <div className="rounded-lg border border-[hsl(var(--border))] bg-muted/20 px-3 py-2">
+                        <div className="uppercase tracking-wide text-[10px]">Key Value</div>
+                        <div className="mt-1 text-sm text-foreground">{selectedProductFeature.value}</div>
+                      </div>
+                      <div className="rounded-lg border border-[hsl(var(--border))] bg-muted/20 px-3 py-2">
+                        <div className="uppercase tracking-wide text-[10px]">Primary Users</div>
+                        <div className="mt-1 text-sm text-foreground">{selectedProductFeature.users}</div>
+                      </div>
+                      <div className="rounded-lg border border-[hsl(var(--border))] bg-muted/20 px-3 py-2">
+                        <div className="uppercase tracking-wide text-[10px]">Status</div>
+                        <div className="mt-1 text-sm text-foreground">{selectedProductFeature.status}</div>
+                      </div>
+                      <div className="rounded-lg border border-[hsl(var(--border))] bg-muted/20 px-3 py-2">
+                        <div className="uppercase tracking-wide text-[10px]">Related Features</div>
+                        <div className="mt-1 text-sm text-foreground">
+                          {selectedProductFeature.related.join(', ')}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Capabilities</div>
+                      <ul className="space-y-2">
+                        {selectedProductFeature.capabilities.map((item, idx) => (
+                          <li key={`capability-${selectedProductFeature.key}-${idx}`} className="flex items-start gap-2 text-sm text-muted-foreground">
+                            <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary"></span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="pt-4 border-t border-[hsl(var(--border))] space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => navigateToFeature(selectedProductFeature.key)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                        <span>Go to {selectedProductFeature.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowProductLibrary(false);
+                          setTimeout(() => setActiveView('integration-map'), 150);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-muted text-foreground rounded-lg text-sm font-medium hover:bg-muted/80 transition-colors"
+                      >
+                        <Network className="w-4 h-4" />
+                        <span>View Integration Map</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-muted-foreground">Select a feature to view details.</div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -22,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from services.iam_service import check_permission, create_audit_log, get_user_permissions
 from services.csca_engine import map_security_event_to_compliance, calculate_compliance_impact, update_compliance_scores_from_security_event, get_security_compliance_correlation
 from services import alert_service
+from services import intelligence_service
+from services import learning_service
 from services.data_flow_service import (
     create_data_flow_node,
     update_data_flow_node,
@@ -2418,6 +2420,29 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
     if not updated_alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
+    # Learn from this remediation event
+    if payload.status == 'resolved':
+        learning_service.learn_from_event(
+            user_id=user_id,
+            event_type='remediation_completed',
+            event_source_type='alert',
+            event_source_id=alert_id,
+            event_data={
+                'alert_type': updated_alert.get('alert_type'),
+                'control_id': updated_alert.get('control_id'),
+                'severity': updated_alert.get('severity'),
+                'actions_taken': payload.actions_taken,
+                'evidence_links': payload.evidence_links,
+                'control_updates': control_updates_payload,
+            },
+            outcome='success',
+            outcome_data={
+                'resolution_time_minutes': None,  # Could calculate from alert creation
+                'evidence_collected': len(payload.evidence_links or []),
+                'controls_updated': len(payload.control_updates or []),
+            }
+        )
+
     await alert_ws_manager.broadcast_alert(updated_alert, 'alert.updated')
     detail_payload = alert_service.get_alert_detail(alert_id, user_id)
     return detail_payload or updated_alert
@@ -2427,6 +2452,47 @@ async def get_security_compliance_correlation_endpoint(user_id: int = Header(...
     """Get correlation metrics between security events and compliance scores"""
     correlation = get_security_compliance_correlation(user_id, days)
     return correlation
+
+
+@app.get("/api/intelligence/priorities")
+async def get_control_priorities_endpoint(
+    user_id: int = Header(..., alias="X-User-Id"),
+    limit: int = 20,
+    control_id: Optional[str] = None,
+):
+    """
+    Get AI-driven control priority insights.
+    - Provide control_id to retrieve a single control's priority breakdown.
+    - Otherwise returns the top controls (default limit 20, capped at 100).
+    """
+    if control_id:
+        priority = intelligence_service.calculate_control_priority(user_id, control_id)
+        if not priority:
+            raise HTTPException(status_code=404, detail="Control not found")
+        return priority
+
+    limit = max(1, min(limit, 100))
+    priorities = intelligence_service.calculate_priorities_for_user(user_id, limit)
+    return {
+        "user_id": user_id,
+        "count": len(priorities),
+        "results": priorities,
+    }
+
+
+@app.get("/api/intelligence/guidance")
+async def get_control_guidance_endpoint(
+    control_id: str,
+    user_id: int = Header(..., alias="X-User-Id"),
+):
+    """
+    Generate guided remediation insights for a control.
+    Returns AI-powered recommendations, evidence reminders, and automation opportunities.
+    """
+    guidance = intelligence_service.generate_guidance_for_control(user_id, control_id)
+    if not guidance:
+        raise HTTPException(status_code=404, detail="Control not found")
+    return guidance
 
 # ============================================================================
 # Pattern Detection & Trend Analysis Endpoints
@@ -2575,6 +2641,196 @@ async def get_all_frameworks_growth(user_id: int = Header(..., alias="X-User-Id"
         return all_metrics
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get all frameworks growth: {str(e)}")
+
+# ============================================================================
+# Self-Learning Automation System Endpoints
+# ============================================================================
+
+@app.post("/api/learning/analyze")
+async def run_learning_analysis(user_id: int = Header(..., alias="X-User-Id")):
+    """Run learning cycle to discover patterns and generate playbooks"""
+    try:
+        results = learning_service.run_learning_cycle(user_id)
+        return {
+            "success": True,
+            "results": results,
+            "message": f"Discovered {results['patterns_discovered']} patterns and generated {results['playbooks_generated']} playbooks"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Learning analysis failed: {str(e)}")
+
+
+@app.get("/api/learning/patterns")
+async def get_learned_patterns(user_id: int = Header(..., alias="X-User-Id"), min_confidence: float = 0.3):
+    """Get all learned remediation patterns"""
+    try:
+        patterns = learning_service.get_learned_patterns(user_id, min_confidence)
+        return {
+            "patterns": patterns,
+            "count": len(patterns)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get patterns: {str(e)}")
+
+
+@app.get("/api/learning/playbooks")
+async def get_auto_playbooks(user_id: int = Header(..., alias="X-User-Id"), status: Optional[str] = None):
+    """Get auto-generated playbooks"""
+    try:
+        playbooks = learning_service.get_auto_playbooks(user_id, status)
+        return {
+            "playbooks": playbooks,
+            "count": len(playbooks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get playbooks: {str(e)}")
+
+
+@app.post("/api/learning/playbooks/{playbook_id}/approve")
+async def approve_playbook(playbook_id: int, user_id: int = Header(..., alias="X-User-Id")):
+    """Approve an auto-generated playbook for use"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        UPDATE auto_generated_playbooks
+        SET approval_status = 'approved',
+            approved_by = ?,
+            approved_at = CURRENT_TIMESTAMP,
+            status = 'active'
+        WHERE id = ? AND user_id = ?
+    """, (user_id, playbook_id, user_id))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"success": True, "message": "Playbook approved"}
+
+
+@app.get("/api/learning/data-value")
+async def get_data_value_summary(user_id: int = Header(..., alias="X-User-Id")):
+    """Get summary of how data is being used and its value"""
+    try:
+        summary = learning_service.get_data_value_summary(user_id)
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get data value summary: {str(e)}")
+
+
+@app.get("/api/learning/playbooks/match")
+async def get_matching_playbooks(
+    alert_id: Optional[int] = None,
+    control_id: Optional[str] = None,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Get playbooks that match an alert or control"""
+    try:
+        if alert_id:
+            # Get alert data
+            alert = alert_service.get_alert_detail(alert_id, user_id)
+            if not alert:
+                raise HTTPException(status_code=404, detail="Alert not found")
+            playbooks = learning_service.find_matching_playbooks(user_id, alert)
+        elif control_id:
+            # Find patterns for control and get their playbooks
+            patterns = learning_service.find_patterns_for_control(user_id, control_id)
+            playbooks = []
+            for pattern in patterns:
+                if pattern.get('id'):
+                    playbook = learning_service.generate_playbook_from_pattern(user_id, pattern['id'])
+                    if playbook:
+                        # Check if playbook already exists
+                        existing = learning_service.get_auto_playbooks(user_id)
+                        existing_ids = [p.get('source_pattern_id') for p in existing]
+                        if pattern['id'] not in existing_ids:
+                            playbooks.append(playbook)
+        else:
+            raise HTTPException(status_code=400, detail="Must provide alert_id or control_id")
+        
+        return {
+            "playbooks": playbooks,
+            "count": len(playbooks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to find matching playbooks: {str(e)}")
+
+
+@app.get("/api/learning/patterns/control/{control_id}")
+async def get_control_patterns(control_id: str, user_id: int = Header(..., alias="X-User-Id")):
+    """Get learned patterns for a specific control"""
+    try:
+        patterns = learning_service.find_patterns_for_control(user_id, control_id)
+        return {
+            "patterns": patterns,
+            "count": len(patterns)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get control patterns: {str(e)}")
+
+
+@app.post("/api/learning/playbooks/{playbook_id}/execute")
+async def execute_playbook(
+    playbook_id: int,
+    request: Request,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Track playbook execution and update usage metrics"""
+    try:
+        body = await request.json()
+        alert_id = body.get('alert_id')
+    except:
+        alert_id = None
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Update playbook usage count
+        cursor.execute("""
+            UPDATE auto_generated_playbooks
+            SET usage_count = usage_count + 1,
+                last_used = CURRENT_TIMESTAMP
+            WHERE id = ? AND user_id = ?
+        """, (playbook_id, user_id))
+        
+        if cursor.rowcount == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Playbook not found")
+        
+        # Track data usage
+        learning_service.track_data_usage(
+            user_id=user_id,
+            data_type='playbook',
+            data_id=str(playbook_id),
+            usage_type='remediation_execution',
+            usage_context={'alert_id': alert_id} if alert_id else None,
+            impact_metrics={'executions': 1}
+        )
+        
+        # Learn from this execution
+        if alert_id:
+            learning_service.learn_from_event(
+                user_id=user_id,
+                event_type='playbook_executed',
+                event_source_type='alert',
+                event_source_id=alert_id,
+                event_data={'playbook_id': playbook_id},
+                outcome='success',
+                outcome_data={'playbook_used': playbook_id}
+            )
+        
+        conn.commit()
+        conn.close()
+        
+        return {"success": True, "message": "Playbook execution tracked"}
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Failed to track playbook execution: {str(e)}")
+
 
 @app.post("/api/alerts/check-drift")
 async def check_compliance_drift(user_id: int = Header(..., alias="X-User-Id")):
