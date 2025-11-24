@@ -358,6 +358,99 @@ class ComplianceAPI {
     });
   }
 
+  // IAM Access Tracking Endpoints
+  async createLoginSession(userId, ipAddress = null, userAgent = null) {
+    return this.request('/api/iam/login', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: {
+        ip_address: ipAddress,
+        user_agent: userAgent,
+      },
+    });
+  }
+
+  async endLoginSession(sessionToken) {
+    return this.request('/api/iam/logout', {
+      method: 'POST',
+      headers: {
+        'X-Session-Token': sessionToken,
+      },
+    });
+  }
+
+  async logUserAccess(userId, accessData) {
+    return this.request('/api/iam/access-log', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: accessData,
+    });
+  }
+
+  async getUserAccessSummary(userId, targetUserId, days = 30) {
+    return this.request(`/api/iam/access-summary/${targetUserId}?days=${days}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getUserAccessLogs(userId, targetUserId, filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.limit) params.append('limit', filters.limit);
+    if (filters.resource_type) params.append('resource_type', filters.resource_type);
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    
+    const queryString = params.toString();
+    const url = queryString 
+      ? `/api/iam/access-logs/${targetUserId}?${queryString}`
+      : `/api/iam/access-logs/${targetUserId}`;
+    
+    return this.request(url, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getMappedPermissions(userId, targetUserId) {
+    return this.request(`/api/iam/mapped-permissions/${targetUserId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async triggerAutoMapPermissions(userId, targetUserId) {
+    return this.request(`/api/iam/auto-map-permissions/${targetUserId}`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getComplianceMapping(userId, targetUserId, framework = 'NIST_800-53') {
+    return this.request(`/api/iam/compliance-mapping/${targetUserId}?framework=${framework}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async listAllUsers(userId) {
+    return this.request('/api/iam/users', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
   // ============================================================================
   // CSCA (Continuous Security-Compliance Alignment) Endpoints
   // ============================================================================

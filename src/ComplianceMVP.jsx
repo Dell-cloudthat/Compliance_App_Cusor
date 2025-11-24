@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2 } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import { CIS_CONTROLS } from './frameworks/cis-controls';
@@ -1319,7 +1319,11 @@ const closeControlDetail = useCallback(() => {
   const [auditFindings, setAuditFindings] = useState([]);
   const [auditEvidence, setAuditEvidence] = useState([]);
   const [auditReadiness, setAuditReadiness] = useState(null);
+  const [preAuditReadiness, setPreAuditReadiness] = useState([]);
   const [showAuditCreate, setShowAuditCreate] = useState(false);
+  const [auditorMode, setAuditorMode] = useState(false); // Toggle for auditor view
+  const [selectedEvidenceForReview, setSelectedEvidenceForReview] = useState(null);
+  const [auditComments, setAuditComments] = useState([]); // Comments/notes on audits
   const [showFindingCreate, setShowFindingCreate] = useState(false);
   const [showEvidenceUpload, setShowEvidenceUpload] = useState(false);
   const [certifications, setCertifications] = useState([]);
@@ -1358,6 +1362,32 @@ const closeControlDetail = useCallback(() => {
   const [showPermissionGrant, setShowPermissionGrant] = useState(false);
   const [showVendorProfile, setShowVendorProfile] = useState(false);
   const [selectedUserForPermissions, setSelectedUserForPermissions] = useState(null);
+  
+  // IAM Access Tracking State
+  const [allUsers, setAllUsers] = useState([]);
+  const [selectedUserForTracking, setSelectedUserForTracking] = useState(null);
+  const [userAccessSummary, setUserAccessSummary] = useState(null);
+  const [userAccessLogs, setUserAccessLogs] = useState([]);
+  const [mappedPermissions, setMappedPermissions] = useState([]);
+  const [complianceMapping, setComplianceMapping] = useState([]);
+  const [accessTrackingLoading, setAccessTrackingLoading] = useState(false);
+  const [sessionToken, setSessionToken] = useState(null);
+  const [accessByArea, setAccessByArea] = useState([]); // Access grouped by area/resource type
+  const [selectedAreaForDetails, setSelectedAreaForDetails] = useState(null); // Selected area to show details
+  const [selectedUserForDetails, setSelectedUserForDetails] = useState(null); // Selected user to show full details
+  const [expandedArea, setExpandedArea] = useState(null); // Expanded area index
+  
+  // Collapsible sections state for IAM view
+  const [iamSectionsExpanded, setIamSectionsExpanded] = useState({
+    graphs: true,
+    userList: false,
+    accessSummary: false,
+    permissions: false,
+    compliance: false,
+    accessByArea: false,
+    accessLogs: false
+  });
+  
   const [permissionFormData, setPermissionFormData] = useState({
     user_id: null,
     resource_type: 'control',
@@ -2229,10 +2259,25 @@ const closeControlDetail = useCallback(() => {
 
   // Load IAM data
   useEffect(() => {
-    if (activeView === 'iam' && backendConnected && currentUser.id) {
-      loadIAMData();
+    if (activeView === 'iam') {
+      console.log('IAM view active, loading data...');
+      if (currentUser.id) {
+        loadIAMData();
+      } else {
+        // Even without user ID, load demo data for visualization
+        console.log('No user ID, loading demo data anyway');
+        loadDemoIAMData();
+      }
     }
   }, [activeView, backendConnected, currentUser.id]);
+  
+  // Also ensure demo data loads when view is active and no users exist
+  useEffect(() => {
+    if (activeView === 'iam' && (!allUsers || allUsers.length === 0) && !backendConnected) {
+      console.log('Force loading demo IAM data - no users found');
+      loadDemoIAMData();
+    }
+  }, [activeView, allUsers, backendConnected]);
 
   // Load CSCA data
   useEffect(() => {
@@ -4275,16 +4320,899 @@ const closeControlDetail = useCallback(() => {
   }, [backendConnected, currentUser.id, upsertActionableAlert, fetchAlertDetails]);
 
   const loadIAMData = async () => {
-    if (!backendConnected || !currentUser.id) return;
+    if (!currentUser.id) {
+      console.log('No current user ID, skipping IAM data load');
+      return;
+    }
+    
+    console.log('Loading IAM data, backendConnected:', backendConnected);
+    
+    if (!backendConnected) {
+      // Load demo data when backend is not connected
+      console.log('Backend not connected, loading demo IAM data');
+      loadDemoIAMData();
+      return;
+    }
+    
     try {
       const permissions = await api.getUserPermissions(currentUser.id, currentUser.id);
       setUserPermissions(permissions || []);
       
       const auditLog = await api.getAuditLog(currentUser.id);
       setPermissionAuditLog(auditLog || []);
+      
+      // Load access tracking data
+      await loadAccessTrackingData();
     } catch (error) {
       console.error('Error loading IAM data:', error);
+      // Fallback to demo data on error
+      loadDemoIAMData();
     }
+  };
+
+  const loadDemoIAMData = () => {
+    console.log('=== loadDemoIAMData START ===');
+    // Generate demo users with different roles and access patterns
+    const demoUsers = [
+      {
+        id: 1,
+        name: 'Sarah Chen',
+        email: 'sarah.chen@company.com',
+        role: 'admin',
+        created_at: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 142,
+        total_accesses: 3847,
+        last_access: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 2,
+        name: 'Michael Rodriguez',
+        email: 'michael.rodriguez@company.com',
+        role: 'security_analyst',
+        created_at: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 98,
+        total_accesses: 2156,
+        last_access: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 3,
+        name: 'Emily Watson',
+        email: 'emily.watson@company.com',
+        role: 'compliance_manager',
+        created_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 76,
+        total_accesses: 1892,
+        last_access: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 4,
+        name: 'David Kim',
+        email: 'david.kim@company.com',
+        role: 'control_owner',
+        created_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 54,
+        total_accesses: 892,
+        last_access: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 5,
+        name: 'Jessica Martinez',
+        email: 'jessica.martinez@company.com',
+        role: 'auditor',
+        created_at: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 32,
+        total_accesses: 456,
+        last_access: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 6,
+        name: 'Robert Thompson',
+        email: 'robert.thompson@company.com',
+        role: 'viewer',
+        created_at: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 18,
+        total_accesses: 234,
+        last_access: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        id: 7,
+        name: 'Lisa Anderson',
+        email: 'lisa.anderson@company.com',
+        role: 'vendor',
+        created_at: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+        total_logins: 12,
+        total_accesses: 178,
+        last_access: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+      }
+    ];
+    console.log('Setting demo users:', demoUsers.length, demoUsers);
+    setAllUsers(demoUsers);
+
+    // Generate demo access summary for current user (Sarah Chen - admin)
+    const demoAccessSummary = {
+      user_id: 1,
+      period_days: 30,
+      sessions: {
+        total_logins: 142,
+        active_sessions: 1,
+        total_session_time_seconds: 284700 // ~79 hours
+      },
+      access: {
+        total_accesses: 3847,
+        read_actions: 2456,
+        write_actions: 892,
+        execute_actions: 389,
+        delete_actions: 110,
+        unique_resource_types: 8,
+        unique_resources: 156
+      },
+      mapped_permissions: [
+        {
+          resource_type: 'all',
+          resource_id: null,
+          read: true,
+          write: true,
+          execute: true,
+          delete: true,
+          confidence: 1.0,
+          observation_count: 3847
+        },
+        {
+          resource_type: 'control',
+          resource_id: 'AC-1',
+          read: true,
+          write: true,
+          execute: false,
+          delete: false,
+          confidence: 0.95,
+          observation_count: 234
+        },
+        {
+          resource_type: 'audit',
+          resource_id: '1',
+          read: true,
+          write: true,
+          execute: true,
+          delete: false,
+          confidence: 0.98,
+          observation_count: 156
+        },
+        {
+          resource_type: 'report',
+          resource_id: null,
+          read: true,
+          write: true,
+          execute: true,
+          delete: true,
+          confidence: 0.92,
+          observation_count: 89
+        }
+      ],
+      daily_statistics: Array.from({ length: 30 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (29 - i));
+        const dayOfWeek = date.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const baseLogins = isWeekend ? 2 : 5;
+        const baseAccesses = isWeekend ? 50 : 130;
+        
+        return {
+          date: date.toISOString().split('T')[0],
+          logins: baseLogins + Math.floor(Math.random() * 3),
+          accesses: baseAccesses + Math.floor(Math.random() * 50),
+          read: Math.floor((baseAccesses + Math.random() * 50) * 0.65),
+          write: Math.floor((baseAccesses + Math.random() * 50) * 0.23),
+          execute: Math.floor((baseAccesses + Math.random() * 50) * 0.10),
+          delete: Math.floor((baseAccesses + Math.random() * 50) * 0.02),
+          session_time_seconds: (baseLogins + Math.floor(Math.random() * 3)) * 3600
+        };
+      })
+    };
+    setUserAccessSummary(demoAccessSummary);
+
+    // Generate demo mapped permissions for different users
+    const demoMappedPermissions = [
+      // Admin user (full access)
+      {
+        resource_type: 'all',
+        resource_id: null,
+        read: true,
+        write: true,
+        execute: true,
+        delete: true,
+        discovered_from: 'role',
+        source_id: null,
+        confidence_score: 1.0,
+        observation_count: 3847,
+        first_observed_at: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      },
+      // Control-specific permissions
+      {
+        resource_type: 'control',
+        resource_id: 'AC-1',
+        read: true,
+        write: true,
+        execute: false,
+        delete: false,
+        discovered_from: 'direct_permission',
+        source_id: 1,
+        confidence_score: 0.95,
+        observation_count: 234,
+        first_observed_at: new Date(Date.now() - 150 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        resource_type: 'control',
+        resource_id: 'AC-2',
+        read: true,
+        write: true,
+        execute: true,
+        delete: false,
+        discovered_from: 'direct_permission',
+        source_id: 2,
+        confidence_score: 0.92,
+        observation_count: 189,
+        first_observed_at: new Date(Date.now() - 140 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        resource_type: 'control',
+        resource_id: 'AC-3',
+        read: true,
+        write: false,
+        execute: false,
+        delete: false,
+        discovered_from: 'vendor_profile',
+        source_id: 1,
+        confidence_score: 0.88,
+        observation_count: 156,
+        first_observed_at: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString()
+      },
+      // Audit permissions
+      {
+        resource_type: 'audit',
+        resource_id: '1',
+        read: true,
+        write: true,
+        execute: true,
+        delete: false,
+        discovered_from: 'direct_permission',
+        source_id: 3,
+        confidence_score: 0.98,
+        observation_count: 156,
+        first_observed_at: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      {
+        resource_type: 'audit',
+        resource_id: '2',
+        read: true,
+        write: false,
+        execute: false,
+        delete: false,
+        discovered_from: 'role',
+        source_id: null,
+        confidence_score: 0.85,
+        observation_count: 89,
+        first_observed_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      // Report permissions
+      {
+        resource_type: 'report',
+        resource_id: null,
+        read: true,
+        write: true,
+        execute: true,
+        delete: true,
+        discovered_from: 'role',
+        source_id: null,
+        confidence_score: 0.92,
+        observation_count: 89,
+        first_observed_at: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
+      },
+      // Evidence permissions
+      {
+        resource_type: 'evidence',
+        resource_id: null,
+        read: true,
+        write: true,
+        execute: false,
+        delete: false,
+        discovered_from: 'direct_permission',
+        source_id: 4,
+        confidence_score: 0.90,
+        observation_count: 234,
+        first_observed_at: new Date(Date.now() - 110 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+      },
+      // Dashboard permissions
+      {
+        resource_type: 'dashboard',
+        resource_id: null,
+        read: true,
+        write: false,
+        execute: false,
+        delete: false,
+        discovered_from: 'role',
+        source_id: null,
+        confidence_score: 0.99,
+        observation_count: 567,
+        first_observed_at: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString(),
+        last_observed_at: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString()
+      }
+    ];
+    setMappedPermissions(demoMappedPermissions);
+
+    // Generate demo access logs
+    const resourceTypesList = ['control', 'audit', 'report', 'evidence', 'dashboard', 'api'];
+    const actions = {
+      read: ['read', 'view', 'list', 'export'],
+      write: ['write', 'create', 'update', 'edit', 'modify'],
+      execute: ['execute', 'run', 'trigger', 'start', 'stop'],
+      delete: ['delete', 'remove']
+    };
+    
+    const demoAccessLogs = [];
+    const now = Date.now();
+    
+    // Generate logs for last 7 days
+    for (let day = 0; day < 7; day++) {
+      const dayStart = now - (day * 24 * 60 * 60 * 1000);
+      const logsPerDay = day === 0 ? 45 : (day === 1 ? 38 : Math.floor(30 - day * 3));
+      
+      for (let i = 0; i < logsPerDay; i++) {
+        const logTime = dayStart - (i * (24 * 60 * 60 * 1000 / logsPerDay));
+        const resourceType = resourceTypesList[Math.floor(Math.random() * resourceTypesList.length)];
+        const permType = Math.random() < 0.65 ? 'read' : 
+                        Math.random() < 0.85 ? 'write' : 
+                        Math.random() < 0.95 ? 'execute' : 'delete';
+        const actionList = actions[permType];
+        const action = actionList[Math.floor(Math.random() * actionList.length)];
+        const resourceId = resourceType === 'control' ? 
+          ['AC-1', 'AC-2', 'AC-3', 'SI-3', 'IR-1'][Math.floor(Math.random() * 5)] :
+          resourceType === 'audit' ? String(Math.floor(Math.random() * 3) + 1) :
+          null;
+        
+        demoAccessLogs.push({
+          id: demoAccessLogs.length + 1,
+          user_id: 1,
+          session_id: Math.floor(Math.random() * 10) + 1,
+          resource_type: resourceType,
+          resource_id: resourceId,
+          action_type: action,
+          permission_used: permType,
+          ip_address: `192.168.1.${Math.floor(Math.random() * 255)}`,
+          user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+          access_timestamp: new Date(logTime).toISOString(),
+          access_duration_ms: Math.floor(Math.random() * 2000) + 100,
+          success: Math.random() > 0.05, // 95% success rate
+          failure_reason: null,
+          metadata_json: JSON.stringify({
+            endpoint: `/api/${resourceType}s${resourceId ? `/${resourceId}` : ''}`,
+            method: permType === 'read' ? 'GET' : permType === 'write' ? 'POST' : 'PUT'
+          })
+        });
+      }
+    }
+    
+    // Generate access logs for ALL users across different areas
+    const allUsersAccessLogs = [];
+    const resourceTypes = ['control', 'audit', 'report', 'evidence', 'dashboard', 'api', 'csca', 'golden-thread'];
+    const areaLabels = {
+      'control': 'Controls & Compliance',
+      'audit': 'Audit Management',
+      'report': 'Reports & Analytics',
+      'evidence': 'Evidence Management',
+      'dashboard': 'Dashboard',
+      'api': 'API Access',
+      'csca': 'Security-Compliance Alignment',
+      'golden-thread': 'Golden Thread Workspace'
+    };
+    
+    // Generate access logs for each user
+    demoUsers.forEach(user => {
+      const userAccessCount = user.total_accesses || 100;
+      const now = Date.now();
+      
+      // Generate logs for last 14 days for this user
+      for (let day = 0; day < 14; day++) {
+        const dayStart = now - (day * 24 * 60 * 60 * 1000);
+        const logsPerDay = Math.max(Math.floor(userAccessCount / 14), 5); // Ensure at least 5 logs per day
+        const dayOfWeek = new Date(dayStart).getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const actualLogsPerDay = isWeekend ? Math.max(Math.floor(logsPerDay * 0.3), 2) : logsPerDay; // At least 2 on weekends
+        
+        for (let i = 0; i < actualLogsPerDay; i++) {
+          const logTime = dayStart - (i * (24 * 60 * 60 * 1000 / Math.max(actualLogsPerDay, 1)));
+          const resourceType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)];
+          const permType = Math.random() < 0.70 ? 'read' : 
+                          Math.random() < 0.90 ? 'write' : 
+                          Math.random() < 0.98 ? 'execute' : 'delete';
+          const actionList = actions[permType];
+          const action = actionList[Math.floor(Math.random() * actionList.length)];
+          const resourceId = resourceType === 'control' ? 
+            ['AC-1', 'AC-2', 'AC-3', 'SI-3', 'IR-1'][Math.floor(Math.random() * 5)] :
+            resourceType === 'audit' ? String(Math.floor(Math.random() * 3) + 1) :
+            null;
+          
+          allUsersAccessLogs.push({
+            id: allUsersAccessLogs.length + 1,
+            user_id: user.id,
+            user_name: user.name,
+            user_email: user.email,
+            user_role: user.role,
+            session_id: Math.floor(Math.random() * 10) + 1,
+            resource_type: resourceType,
+            resource_id: resourceId,
+            action_type: action,
+            permission_used: permType,
+            ip_address: `192.168.1.${Math.floor(Math.random() * 255)}`,
+            user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            access_timestamp: new Date(logTime).toISOString(),
+            access_duration_ms: Math.floor(Math.random() * 2000) + 100,
+            success: Math.random() > 0.05,
+            failure_reason: null,
+            metadata_json: JSON.stringify({
+              endpoint: `/api/${resourceType}s${resourceId ? `/${resourceId}` : ''}`,
+              method: permType === 'read' ? 'GET' : permType === 'write' ? 'POST' : 'PUT'
+            })
+          });
+        }
+      }
+    });
+    
+    // Group access by area/resource type
+    console.log('Total access logs generated:', allUsersAccessLogs.length);
+    const accessByAreaMap = {};
+    allUsersAccessLogs.forEach(log => {
+      const area = log.resource_type;
+      if (!accessByAreaMap[area]) {
+        accessByAreaMap[area] = {
+          area_name: areaLabels[area] || area,
+          resource_type: area,
+          total_accesses: 0,
+          unique_users: new Set(),
+          accesses: []
+        };
+      }
+      accessByAreaMap[area].total_accesses++;
+      accessByAreaMap[area].unique_users.add(log.user_id);
+      accessByAreaMap[area].accesses.push({
+        user_id: log.user_id,
+        user_name: log.user_name,
+        user_email: log.user_email,
+        user_role: log.user_role,
+        timestamp: log.access_timestamp,
+        action: log.action_type,
+        permission: log.permission_used,
+        resource_id: log.resource_id,
+        success: log.success
+      });
+    });
+    
+    // Convert to array and sort accesses by timestamp
+    const accessByAreaArray = Object.values(accessByAreaMap).map(area => ({
+      ...area,
+      unique_users: Array.from(area.unique_users).length,
+      accesses: area.accesses.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    }));
+    
+    // Sort areas by total accesses
+    accessByAreaArray.sort((a, b) => b.total_accesses - a.total_accesses);
+    
+    // Debug: Log the data to console
+    console.log('Access by Area Data Generated:', {
+      totalAreas: accessByAreaArray.length,
+      totalAccesses: accessByAreaArray.reduce((sum, area) => sum + area.total_accesses, 0),
+      allUsersAccessLogsCount: allUsersAccessLogs.length,
+      areas: accessByAreaArray.map(a => ({ name: a.area_name, accesses: a.total_accesses, users: a.unique_users }))
+    });
+    
+    // Ensure we have data before setting
+    if (accessByAreaArray.length > 0) {
+      setAccessByArea(accessByAreaArray);
+    } else {
+      console.warn('No access by area data generated!');
+      // Set empty array to show the "no data" message
+      setAccessByArea([]);
+    }
+    
+    // Sort by timestamp descending
+    demoAccessLogs.sort((a, b) => new Date(b.access_timestamp) - new Date(a.access_timestamp));
+    setUserAccessLogs(demoAccessLogs.slice(0, 100)); // Show last 100
+
+    // Generate demo compliance mappings
+    const demoComplianceMapping = [
+      {
+        control_id: 'AC-2',
+        framework: 'NIST_800-53',
+        permission_type: 'read',
+        resource_type: 'all',
+        resource_id: null,
+        compliance_status: 'compliant',
+        last_verified_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        verification_notes: 'Account management tracking enabled'
+      },
+      {
+        control_id: 'AC-3',
+        framework: 'NIST_800-53',
+        permission_type: 'write',
+        resource_type: 'control',
+        resource_id: 'AC-1',
+        compliance_status: 'compliant',
+        last_verified_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        verification_notes: 'Access enforcement policies implemented'
+      },
+      {
+        control_id: 'AC-6',
+        framework: 'NIST_800-53',
+        permission_type: 'execute',
+        resource_type: 'audit',
+        resource_id: '1',
+        compliance_status: 'compliant',
+        last_verified_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        verification_notes: 'Least privilege principle applied'
+      },
+      {
+        control_id: 'AC-7',
+        framework: 'NIST_800-53',
+        permission_type: 'read',
+        resource_type: 'dashboard',
+        resource_id: null,
+        compliance_status: 'compliant',
+        last_verified_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+        verification_notes: 'Unsuccessful login attempts logged'
+      },
+      {
+        control_id: 'AU-2',
+        framework: 'NIST_800-53',
+        permission_type: 'read',
+        resource_type: 'all',
+        resource_id: null,
+        compliance_status: 'compliant',
+        last_verified_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        verification_notes: 'Audit events captured for all access'
+      },
+      {
+        control_id: 'AU-3',
+        framework: 'NIST_800-53',
+        permission_type: 'read',
+        resource_type: 'all',
+        resource_id: null,
+        compliance_status: 'compliant',
+        last_verified_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+        verification_notes: 'Content of audit records verified'
+      }
+    ];
+    setComplianceMapping(demoComplianceMapping);
+
+    // Set session token for demo
+    setSessionToken('demo_session_token_' + Date.now());
+  };
+
+  const loadAccessTrackingData = async () => {
+    if (!currentUser.id) return;
+    
+    if (!backendConnected) {
+      // Demo data already loaded in loadDemoIAMData
+      return;
+    }
+    
+    setAccessTrackingLoading(true);
+    try {
+      // Load all users
+      const users = await api.listAllUsers(currentUser.id);
+      setAllUsers(users || []);
+      
+      // Load mapped permissions for current user
+      const mapped = await api.getMappedPermissions(currentUser.id, currentUser.id);
+      setMappedPermissions(mapped || []);
+      
+      // Load access summary for current user
+      const summary = await api.getUserAccessSummary(currentUser.id, currentUser.id, 30);
+      setUserAccessSummary(summary);
+      
+      // Load compliance mapping
+      const compliance = await api.getComplianceMapping(currentUser.id, currentUser.id, 'NIST_800-53');
+      setComplianceMapping(compliance || []);
+      
+      // Create login session if not exists
+      if (!sessionToken) {
+        const loginResult = await api.createLoginSession(currentUser.id);
+        if (loginResult?.session_token) {
+          setSessionToken(loginResult.session_token);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading access tracking data:', error);
+      // Fallback to demo data on error
+      loadDemoIAMData();
+    } finally {
+      setAccessTrackingLoading(false);
+    }
+  };
+
+  const loadUserAccessDetails = async (userId) => {
+    if (!currentUser.id) return;
+    
+    if (!backendConnected) {
+      // Generate demo data for selected user
+      loadDemoUserAccessDetails(userId);
+      return;
+    }
+    
+    try {
+      const summary = await api.getUserAccessSummary(currentUser.id, userId, 30);
+      setUserAccessSummary(summary);
+      
+      const logs = await api.getUserAccessLogs(currentUser.id, userId, { limit: 100 });
+      setUserAccessLogs(logs || []);
+      
+      const mapped = await api.getMappedPermissions(currentUser.id, userId);
+      setMappedPermissions(mapped || []);
+      
+      const compliance = await api.getComplianceMapping(currentUser.id, userId, 'NIST_800-53');
+      setComplianceMapping(compliance || []);
+    } catch (error) {
+      console.error('Error loading user access details:', error);
+      // Fallback to demo data
+      loadDemoUserAccessDetails(userId);
+    }
+  };
+
+  const loadDemoUserAccessDetails = (userId) => {
+    const user = allUsers.find(u => u.id === userId);
+    if (!user) return;
+
+    // Generate different access patterns based on user role
+    const rolePatterns = {
+      admin: {
+        read: 0.65,
+        write: 0.23,
+        execute: 0.10,
+        delete: 0.02,
+        totalAccesses: 3847,
+        uniqueResources: 156
+      },
+      security_analyst: {
+        read: 0.70,
+        write: 0.20,
+        execute: 0.08,
+        delete: 0.02,
+        totalAccesses: 2156,
+        uniqueResources: 98
+      },
+      compliance_manager: {
+        read: 0.75,
+        write: 0.18,
+        execute: 0.05,
+        delete: 0.02,
+        totalAccesses: 1892,
+        uniqueResources: 87
+      },
+      control_owner: {
+        read: 0.80,
+        write: 0.15,
+        execute: 0.04,
+        delete: 0.01,
+        totalAccesses: 892,
+        uniqueResources: 45
+      },
+      auditor: {
+        read: 0.95,
+        write: 0.03,
+        execute: 0.02,
+        delete: 0.00,
+        totalAccesses: 456,
+        uniqueResources: 23
+      },
+      viewer: {
+        read: 1.0,
+        write: 0.0,
+        execute: 0.0,
+        delete: 0.0,
+        totalAccesses: 234,
+        uniqueResources: 12
+      },
+      vendor: {
+        read: 0.90,
+        write: 0.08,
+        execute: 0.02,
+        delete: 0.00,
+        totalAccesses: 178,
+        uniqueResources: 8
+      }
+    };
+
+    const pattern = rolePatterns[user.role] || rolePatterns.viewer;
+
+    // Generate access summary
+    const demoSummary = {
+      user_id: userId,
+      period_days: 30,
+      sessions: {
+        total_logins: user.total_logins || 0,
+        active_sessions: userId === 1 ? 1 : 0,
+        total_session_time_seconds: (user.total_logins || 0) * 2000 // ~33 min per session
+      },
+      access: {
+        total_accesses: pattern.totalAccesses,
+        read_actions: Math.floor(pattern.totalAccesses * pattern.read),
+        write_actions: Math.floor(pattern.totalAccesses * pattern.write),
+        execute_actions: Math.floor(pattern.totalAccesses * pattern.execute),
+        delete_actions: Math.floor(pattern.totalAccesses * pattern.delete),
+        unique_resource_types: 6,
+        unique_resources: pattern.uniqueResources
+      },
+      mapped_permissions: generateDemoPermissionsForRole(user.role),
+      daily_statistics: Array.from({ length: 30 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (29 - i));
+        const dayOfWeek = date.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const baseLogins = isWeekend ? 1 : Math.floor((user.total_logins || 0) / 30);
+        const baseAccesses = isWeekend ? 
+          Math.floor(pattern.totalAccesses / 60) : 
+          Math.floor(pattern.totalAccesses / 20);
+        
+        return {
+          date: date.toISOString().split('T')[0],
+          logins: baseLogins + Math.floor(Math.random() * 2),
+          accesses: baseAccesses + Math.floor(Math.random() * 20),
+          read: Math.floor((baseAccesses + Math.random() * 20) * pattern.read),
+          write: Math.floor((baseAccesses + Math.random() * 20) * pattern.write),
+          execute: Math.floor((baseAccesses + Math.random() * 20) * pattern.execute),
+          delete: Math.floor((baseAccesses + Math.random() * 20) * pattern.delete),
+          session_time_seconds: (baseLogins + Math.floor(Math.random() * 2)) * 2000
+        };
+      })
+    };
+    setUserAccessSummary(demoSummary);
+
+    // Generate permissions based on role
+    setMappedPermissions(generateDemoPermissionsForRole(user.role));
+
+    // Generate access logs
+    const resourceTypes = ['control', 'audit', 'report', 'evidence', 'dashboard', 'api'];
+    const actions = {
+      read: ['read', 'view', 'list', 'export'],
+      write: ['write', 'create', 'update', 'edit', 'modify'],
+      execute: ['execute', 'run', 'trigger', 'start', 'stop'],
+      delete: ['delete', 'remove']
+    };
+    
+    const demoLogs = [];
+    const now = Date.now();
+    const logsToGenerate = Math.min(pattern.totalAccesses, 100);
+    
+    for (let i = 0; i < logsToGenerate; i++) {
+      const logTime = now - (i * (7 * 24 * 60 * 60 * 1000 / logsToGenerate));
+      const resourceType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)];
+      const rand = Math.random();
+      const permType = rand < pattern.read ? 'read' : 
+                      rand < (pattern.read + pattern.write) ? 'write' : 
+                      rand < (pattern.read + pattern.write + pattern.execute) ? 'execute' : 'delete';
+      const actionList = actions[permType];
+      const action = actionList[Math.floor(Math.random() * actionList.length)];
+      const resourceId = resourceType === 'control' ? 
+        ['AC-1', 'AC-2', 'AC-3', 'SI-3', 'IR-1'][Math.floor(Math.random() * 5)] :
+        resourceType === 'audit' ? String(Math.floor(Math.random() * 3) + 1) :
+        null;
+      
+      demoLogs.push({
+        id: i + 1,
+        user_id: userId,
+        session_id: Math.floor(Math.random() * 10) + 1,
+        resource_type: resourceType,
+        resource_id: resourceId,
+        action_type: action,
+        permission_used: permType,
+        ip_address: `192.168.1.${Math.floor(Math.random() * 255)}`,
+        user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        access_timestamp: new Date(logTime).toISOString(),
+        access_duration_ms: Math.floor(Math.random() * 2000) + 100,
+        success: Math.random() > 0.05,
+        failure_reason: null,
+        metadata_json: JSON.stringify({
+          endpoint: `/api/${resourceType}s${resourceId ? `/${resourceId}` : ''}`,
+          method: permType === 'read' ? 'GET' : permType === 'write' ? 'POST' : 'PUT'
+        })
+      });
+    }
+    
+    demoLogs.sort((a, b) => new Date(b.access_timestamp) - new Date(a.access_timestamp));
+    setUserAccessLogs(demoLogs);
+
+    // Generate compliance mapping based on permissions
+    const complianceMappings = [];
+    const permissions = generateDemoPermissionsForRole(user.role);
+    
+    permissions.forEach(perm => {
+      if (perm.read) {
+        complianceMappings.push({
+          control_id: 'AC-2',
+          framework: 'NIST_800-53',
+          permission_type: 'read',
+          resource_type: perm.resource_type,
+          resource_id: perm.resource_id,
+          compliance_status: 'compliant',
+          last_verified_at: new Date(Date.now() - Math.floor(Math.random() * 7) * 24 * 60 * 60 * 1000).toISOString(),
+          verification_notes: 'Account management tracking enabled'
+        });
+      }
+      if (perm.write || perm.execute) {
+        complianceMappings.push({
+          control_id: 'AC-3',
+          framework: 'NIST_800-53',
+          permission_type: perm.write ? 'write' : 'execute',
+          resource_type: perm.resource_type,
+          resource_id: perm.resource_id,
+          compliance_status: 'compliant',
+          last_verified_at: new Date(Date.now() - Math.floor(Math.random() * 7) * 24 * 60 * 60 * 1000).toISOString(),
+          verification_notes: 'Access enforcement policies implemented'
+        });
+      }
+      if (perm.execute || perm.delete) {
+        complianceMappings.push({
+          control_id: 'AC-6',
+          framework: 'NIST_800-53',
+          permission_type: perm.execute ? 'execute' : 'delete',
+          resource_type: perm.resource_type,
+          resource_id: perm.resource_id,
+          compliance_status: 'compliant',
+          last_verified_at: new Date(Date.now() - Math.floor(Math.random() * 7) * 24 * 60 * 60 * 1000).toISOString(),
+          verification_notes: 'Least privilege principle applied'
+        });
+      }
+    });
+    
+    setComplianceMapping(complianceMappings);
+  };
+
+  const generateDemoPermissionsForRole = (role) => {
+    const rolePermissions = {
+      admin: [
+        { resource_type: 'all', resource_id: null, read: true, write: true, execute: true, delete: true, discovered_from: 'role', confidence: 1.0, observation_count: 3847 },
+        { resource_type: 'control', resource_id: null, read: true, write: true, execute: true, delete: true, discovered_from: 'role', confidence: 0.98, observation_count: 1234 },
+        { resource_type: 'audit', resource_id: null, read: true, write: true, execute: true, delete: true, discovered_from: 'role', confidence: 0.97, observation_count: 567 },
+        { resource_type: 'report', resource_id: null, read: true, write: true, execute: true, delete: true, discovered_from: 'role', confidence: 0.95, observation_count: 234 }
+      ],
+      security_analyst: [
+        { resource_type: 'control', resource_id: null, read: true, write: true, execute: true, delete: false, discovered_from: 'role', confidence: 0.95, observation_count: 892 },
+        { resource_type: 'audit', resource_id: null, read: true, write: true, execute: false, delete: false, discovered_from: 'role', confidence: 0.93, observation_count: 456 },
+        { resource_type: 'dashboard', resource_id: null, read: true, write: false, execute: false, delete: false, discovered_from: 'role', confidence: 0.99, observation_count: 567 }
+      ],
+      compliance_manager: [
+        { resource_type: 'control', resource_id: null, read: true, write: true, execute: false, delete: false, discovered_from: 'role', confidence: 0.92, observation_count: 678 },
+        { resource_type: 'audit', resource_id: null, read: true, write: true, execute: false, delete: false, discovered_from: 'role', confidence: 0.90, observation_count: 456 },
+        { resource_type: 'report', resource_id: null, read: true, write: true, execute: true, delete: false, discovered_from: 'role', confidence: 0.88, observation_count: 234 }
+      ],
+      control_owner: [
+        { resource_type: 'control', resource_id: 'AC-1', read: true, write: true, execute: false, delete: false, discovered_from: 'direct_permission', confidence: 0.85, observation_count: 234 },
+        { resource_type: 'control', resource_id: 'AC-2', read: true, write: true, execute: false, delete: false, discovered_from: 'direct_permission', confidence: 0.83, observation_count: 189 },
+        { resource_type: 'evidence', resource_id: null, read: true, write: true, execute: false, delete: false, discovered_from: 'role', confidence: 0.80, observation_count: 156 }
+      ],
+      auditor: [
+        { resource_type: 'control', resource_id: null, read: true, write: false, execute: false, delete: false, discovered_from: 'role', confidence: 0.95, observation_count: 234 },
+        { resource_type: 'audit', resource_id: null, read: true, write: false, execute: false, delete: false, discovered_from: 'role', confidence: 0.93, observation_count: 189 },
+        { resource_type: 'report', resource_id: null, read: true, write: false, execute: true, delete: false, discovered_from: 'role', confidence: 0.90, observation_count: 123 }
+      ],
+      viewer: [
+        { resource_type: 'dashboard', resource_id: null, read: true, write: false, execute: false, delete: false, discovered_from: 'role', confidence: 0.99, observation_count: 178 },
+        { resource_type: 'control', resource_id: null, read: true, write: false, execute: false, delete: false, discovered_from: 'role', confidence: 0.97, observation_count: 56 }
+      ],
+      vendor: [
+        { resource_type: 'control', resource_id: 'AC-1', read: true, write: false, execute: false, delete: false, discovered_from: 'vendor_profile', confidence: 0.88, observation_count: 89 },
+        { resource_type: 'audit', resource_id: '1', read: true, write: false, execute: false, delete: false, discovered_from: 'vendor_profile', confidence: 0.85, observation_count: 67 },
+        { resource_type: 'evidence', resource_id: null, read: true, write: true, execute: false, delete: false, discovered_from: 'vendor_profile', confidence: 0.82, observation_count: 45 }
+      ]
+    };
+
+    return rolePermissions[role] || rolePermissions.viewer;
   };
   const loadAudits = async () => {
     if (!backendConnected || !currentUser.id) {
@@ -12171,6 +13099,11 @@ const closeControlDetail = useCallback(() => {
   // ============================================================================
   
   const renderIAM = () => {
+    console.log('renderIAM called, allUsers:', allUsers?.length, 'accessByArea:', accessByArea?.length, 'backendConnected:', backendConnected);
+    
+    // Ensure demo data is loaded if we don't have users (use useEffect instead of here)
+    // This check runs on every render, so we'll use useEffect for loading
+    
     const totalRoles = roles.length;
     const privilegedRoles = roles.filter((role) => role.permissions.includes('*'));
     const privilegedRolesCount = privilegedRoles.length;
@@ -12520,6 +13453,766 @@ const closeControlDetail = useCallback(() => {
             </table>
           </div>
         </div>
+
+        {/* User Access Tracking Section */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">User Access Tracking & Auto-Mapping</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Automatically track user access, login sessions, and map permissions with r/w/x breakdown
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (currentUser.id) {
+                  api.triggerAutoMapPermissions(currentUser.id, currentUser.id).then(() => {
+                    loadAccessTrackingData();
+                  });
+                }
+              }}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Re-map Permissions
+            </button>
+          </div>
+
+          {/* User Statistics Graphs */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* Users by Login Count - Bar Chart */}
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+              <h4 className="text-md font-semibold text-foreground mb-4">Users by Login Count</h4>
+              {allUsers && allUsers.length > 0 ? (
+                <div className="space-y-3">
+                  {allUsers
+                    .sort((a, b) => (b.total_logins || 0) - (a.total_logins || 0))
+                    .slice(0, 7)
+                    .map((user) => {
+                    const maxLogins = Math.max(...allUsers.map(u => u.total_logins || 0), 1);
+                    const percentage = ((user.total_logins || 0) / maxLogins) * 100;
+                    return (
+                      <div
+                        key={user.id}
+                        onClick={() => {
+                          setSelectedUserForDetails(user);
+                          setSelectedUserForTracking(user.id);
+                          loadUserAccessDetails(user.id);
+                        }}
+                        className="cursor-pointer hover:bg-muted/30 p-2 rounded transition-colors border border-[hsl(var(--border))]"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-foreground">{user.name}</span>
+                          <span className="text-sm font-bold text-primary">{user.total_logins || 0}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-3">
+                          <div
+                            className="bg-primary h-3 rounded-full transition-all"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Loading user data...</p>
+                </div>
+              )}
+            </div>
+
+            {/* Users by Access Level - Role Distribution */}
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
+              <h4 className="text-md font-semibold text-foreground mb-4">Users by Access Level</h4>
+              {allUsers && allUsers.length > 0 ? (
+                <div className="space-y-3">
+                  {Object.entries(
+                    allUsers.reduce((acc, user) => {
+                      const role = user.role || 'viewer';
+                      acc[role] = (acc[role] || 0) + 1;
+                      return acc;
+                    }, {})
+                  )
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([role, count]) => {
+                      const totalUsers = allUsers.length || 1;
+                      const percentage = (count / totalUsers) * 100;
+                      const roleColors = {
+                        admin: 'bg-red-500',
+                        security_analyst: 'bg-blue-500',
+                        compliance_manager: 'bg-purple-500',
+                        control_owner: 'bg-green-500',
+                        auditor: 'bg-yellow-500',
+                        viewer: 'bg-gray-500',
+                        vendor: 'bg-orange-500'
+                      };
+                      return (
+                        <div
+                          key={role}
+                          onClick={() => {
+                            const usersInRole = allUsers.filter(u => (u.role || 'viewer') === role);
+                            if (usersInRole.length > 0) {
+                              setSelectedUserForDetails(usersInRole[0]);
+                              setSelectedUserForTracking(usersInRole[0].id);
+                              loadUserAccessDetails(usersInRole[0].id);
+                            }
+                          }}
+                          className="cursor-pointer hover:bg-muted/30 p-2 rounded transition-colors border border-[hsl(var(--border))]"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-3 h-3 rounded-full ${roleColors[role] || 'bg-gray-500'}`} />
+                              <span className="text-sm font-medium text-foreground capitalize">{role.replace('_', ' ')}</span>
+                            </div>
+                            <span className="text-sm font-bold text-primary">{count}</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-3">
+                            <div
+                              className={`${roleColors[role] || 'bg-gray-500'} h-3 rounded-full transition-all`}
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Shield className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Loading role data...</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* User List with Access Stats - Collapsible */}
+          <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+            <button
+              onClick={() => setIamSectionsExpanded(prev => ({ ...prev, userList: !prev.userList }))}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+            >
+              <h4 className="text-md font-semibold text-foreground flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                All Users ({allUsers?.length || 0})
+              </h4>
+              {iamSectionsExpanded.userList ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {iamSectionsExpanded.userList && (
+              <div className="p-6 pt-0 space-y-4">
+            <h4 className="text-md font-semibold text-foreground">All Users</h4>
+            {allUsers && allUsers.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allUsers.map((user) => (
+                <div
+                  key={user.id}
+                  onClick={() => {
+                    setSelectedUserForDetails(user);
+                    setSelectedUserForTracking(user.id);
+                    loadUserAccessDetails(user.id);
+                  }}
+                  className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                    selectedUserForTracking === user.id
+                      ? 'border-primary bg-primary/5'
+                      : 'border-[hsl(var(--border))] hover:bg-muted/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className="font-semibold text-foreground">{user.name || user.email}</div>
+                      <div className="text-xs text-muted-foreground">{user.email}</div>
+                    </div>
+                    <span className="px-2 py-1 text-xs bg-muted rounded">{user.role || 'viewer'}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                    <div>
+                      <div className="text-muted-foreground">Logins</div>
+                      <div className="font-semibold text-foreground">{user.total_logins || 0}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Accesses</div>
+                      <div className="font-semibold text-foreground">{user.total_accesses || 0}</div>
+                    </div>
+                  </div>
+                  {user.last_access && (
+                    <div className="text-xs text-muted-foreground mt-2">
+                      Last: {new Date(user.last_access).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
+                <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading user data...</p>
+              </div>
+            )}
+              </div>
+            )}
+          </div>
+
+          {/* Access Summary - Collapsible */}
+          {userAccessSummary && (
+            <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+              <button
+                onClick={() => setIamSectionsExpanded(prev => ({ ...prev, accessSummary: !prev.accessSummary }))}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+              >
+                <h4 className="text-md font-semibold text-foreground flex items-center gap-2">
+                  <Activity className="w-4 h-4" />
+                  Access Summary (Last 30 Days)
+                </h4>
+                {iamSectionsExpanded.accessSummary ? (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                )}
+              </button>
+              {iamSectionsExpanded.accessSummary && (
+                <div className="p-6 pt-0 space-y-4">
+              <h4 className="text-md font-semibold text-foreground">Access Summary (Last 30 Days)</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Total Logins</div>
+                  <div className="text-xl font-bold text-foreground">{userAccessSummary.sessions?.total_logins || 0}</div>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Total Accesses</div>
+                  <div className="text-xl font-bold text-foreground">{userAccessSummary.access?.total_accesses || 0}</div>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Unique Resources</div>
+                  <div className="text-xl font-bold text-foreground">{userAccessSummary.access?.unique_resources || 0}</div>
+                </div>
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Session Time</div>
+                  <div className="text-xl font-bold text-foreground">
+                    {userAccessSummary.sessions?.total_session_time_seconds
+                      ? Math.round(userAccessSummary.sessions.total_session_time_seconds / 3600)
+                      : 0}h
+                  </div>
+                </div>
+              </div>
+              
+              {/* Permission Breakdown */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                  <div className="text-xs text-blue-500 mb-1">Read Actions</div>
+                  <div className="text-xl font-bold text-blue-500">{userAccessSummary.access?.read_actions || 0}</div>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                  <div className="text-xs text-green-500 mb-1">Write Actions</div>
+                  <div className="text-xl font-bold text-green-500">{userAccessSummary.access?.write_actions || 0}</div>
+                </div>
+                <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                  <div className="text-xs text-purple-500 mb-1">Execute Actions</div>
+                  <div className="text-xl font-bold text-purple-500">{userAccessSummary.access?.execute_actions || 0}</div>
+                </div>
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                  <div className="text-xs text-red-500 mb-1">Delete Actions</div>
+                  <div className="text-xl font-bold text-red-500">{userAccessSummary.access?.delete_actions || 0}</div>
+                </div>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* Auto-Mapped Permissions - Collapsible */}
+          {mappedPermissions.length > 0 && (
+            <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+              <button
+                onClick={() => setIamSectionsExpanded(prev => ({ ...prev, permissions: !prev.permissions }))}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+              >
+                <h4 className="text-md font-semibold text-foreground flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  Auto-Mapped Permissions ({mappedPermissions.length})
+                </h4>
+                {iamSectionsExpanded.permissions ? (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                )}
+              </button>
+              {iamSectionsExpanded.permissions && (
+                <div className="p-6 pt-0 space-y-4">
+              <h4 className="text-md font-semibold text-foreground">Auto-Mapped Permissions (r/w/x)</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-muted/30">
+                    <tr>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Resource Type</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Resource ID</th>
+                      <th className="text-center py-2 px-3 text-sm font-semibold text-foreground">Read</th>
+                      <th className="text-center py-2 px-3 text-sm font-semibold text-foreground">Write</th>
+                      <th className="text-center py-2 px-3 text-sm font-semibold text-foreground">Execute</th>
+                      <th className="text-center py-2 px-3 text-sm font-semibold text-foreground">Delete</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Source</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Confidence</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mappedPermissions.map((perm, idx) => (
+                      <tr key={idx} className="border-b border-[hsl(var(--border))] hover:bg-muted/30">
+                        <td className="py-2 px-3 text-sm text-foreground font-medium">{perm.resource_type}</td>
+                        <td className="py-2 px-3 text-sm text-muted-foreground">{perm.resource_id || 'All'}</td>
+                        <td className="py-2 px-3 text-center">
+                          {perm.read ? (
+                            <span className="inline-block w-6 h-6 rounded-full bg-blue-500/20 border-2 border-blue-500 flex items-center justify-center">
+                              <Check className="w-3 h-3 text-blue-500" />
+                            </span>
+                          ) : (
+                            <span className="inline-block w-6 h-6 rounded-full bg-muted border-2 border-[hsl(var(--border))]" />
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {perm.write ? (
+                            <span className="inline-block w-6 h-6 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center">
+                              <Check className="w-3 h-3 text-green-500" />
+                            </span>
+                          ) : (
+                            <span className="inline-block w-6 h-6 rounded-full bg-muted border-2 border-[hsl(var(--border))]" />
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {perm.execute ? (
+                            <span className="inline-block w-6 h-6 rounded-full bg-purple-500/20 border-2 border-purple-500 flex items-center justify-center">
+                              <Check className="w-3 h-3 text-purple-500" />
+                            </span>
+                          ) : (
+                            <span className="inline-block w-6 h-6 rounded-full bg-muted border-2 border-[hsl(var(--border))]" />
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {perm.delete ? (
+                            <span className="inline-block w-6 h-6 rounded-full bg-red-500/20 border-2 border-red-500 flex items-center justify-center">
+                              <Check className="w-3 h-3 text-red-500" />
+                            </span>
+                          ) : (
+                            <span className="inline-block w-6 h-6 rounded-full bg-muted border-2 border-[hsl(var(--border))]" />
+                          )}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-muted-foreground">{perm.discovered_from || 'unknown'}</td>
+                        <td className="py-2 px-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-muted rounded-full h-2">
+                              <div
+                                className="bg-primary h-2 rounded-full"
+                                style={{ width: `${(perm.confidence_score || 0) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-muted-foreground w-8">
+                              {Math.round((perm.confidence_score || 0) * 100)}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* Compliance Control Mapping - Collapsible */}
+          {complianceMapping.length > 0 && (
+            <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+              <button
+                onClick={() => setIamSectionsExpanded(prev => ({ ...prev, compliance: !prev.compliance }))}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+              >
+                <h4 className="text-md font-semibold text-foreground flex items-center gap-2">
+                  <CheckSquare className="w-4 h-4" />
+                  Compliance Control Mapping ({complianceMapping.length})
+                </h4>
+                {iamSectionsExpanded.compliance ? (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                )}
+              </button>
+              {iamSectionsExpanded.compliance && (
+                <div className="p-6 pt-0 space-y-4">
+              <h4 className="text-md font-semibold text-foreground">Compliance Control Mapping (NIST 800-53)</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {complianceMapping.map((mapping, idx) => (
+                  <div
+                    key={idx}
+                    className="border border-[hsl(var(--border))] rounded-lg p-3 bg-muted/10"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-foreground">{mapping.control_id}</span>
+                      <span
+                        className={`px-2 py-1 rounded text-xs ${
+                          mapping.compliance_status === 'compliant'
+                            ? 'bg-green-500/10 text-green-500'
+                            : 'bg-yellow-500/10 text-yellow-500'
+                        }`}
+                      >
+                        {mapping.compliance_status}
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-1">
+                      <div>Permission: {mapping.permission_type}</div>
+                      <div>Resource: {mapping.resource_type} {mapping.resource_id ? `(${mapping.resource_id})` : ''}</div>
+                      {mapping.last_verified_at && (
+                        <div>Verified: {new Date(mapping.last_verified_at).toLocaleDateString()}</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                </div>
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* Access by Area - Collapsible */}
+          {accessByArea && accessByArea.length > 0 ? (
+            <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+              <button
+                onClick={() => setIamSectionsExpanded(prev => ({ ...prev, accessByArea: !prev.accessByArea }))}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+              >
+                <h4 className="text-md font-semibold text-foreground flex items-center gap-2">
+                  <Network className="w-4 h-4" />
+                  Access by Area ({accessByArea.length} areas)
+                </h4>
+                {iamSectionsExpanded.accessByArea ? (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                )}
+              </button>
+              {iamSectionsExpanded.accessByArea && (
+                <div className="p-6 pt-0 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-md font-semibold text-foreground">Access by Area - User Access Timeline</h4>
+                <span className="text-xs text-muted-foreground bg-muted/60 border border-[hsl(var(--border))] rounded-lg px-3 py-1">
+                  {accessByArea.reduce((sum, area) => sum + area.total_accesses, 0)} total accesses across {accessByArea.length} areas
+                </span>
+              </div>
+              
+              <div className="space-y-6">
+                {accessByArea.map((area, areaIdx) => {
+                  const isExpanded = expandedArea === areaIdx;
+                  return (
+                    <div key={areaIdx} className="border border-[hsl(var(--border))] rounded-lg p-4 bg-card">
+                      <div 
+                        className="flex items-center justify-between mb-4 cursor-pointer"
+                        onClick={() => setExpandedArea(isExpanded ? null : areaIdx)}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <h5 className="text-lg font-semibold text-foreground">{area.area_name}</h5>
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Users className="w-4 h-4" />
+                              {area.unique_users} users
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Activity className="w-4 h-4" />
+                              {area.total_accesses} accesses
+                            </span>
+                          </div>
+                        </div>
+                        <span className="px-3 py-1 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium">
+                          {area.resource_type}
+                        </span>
+                      </div>
+                      
+                      {/* User Access Timeline - Expandable */}
+                      {isExpanded && (
+                        <div className="space-y-3 max-h-96 overflow-y-auto">
+                          {area.accesses.slice(0, 50).map((access, accessIdx) => {
+                        const accessDate = new Date(access.timestamp);
+                        const isToday = accessDate.toDateString() === new Date().toDateString();
+                        const isYesterday = accessDate.toDateString() === new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString();
+                        
+                        return (
+                          <div
+                            key={accessIdx}
+                            onClick={() => {
+                              const user = allUsers.find(u => u.id === access.user_id);
+                              if (user) {
+                                setSelectedUserForDetails(user);
+                                setSelectedUserForTracking(user.id);
+                                loadUserAccessDetails(user.id);
+                              }
+                            }}
+                            className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors border border-[hsl(var(--border))] cursor-pointer"
+                          >
+                            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary/10 border-2 border-primary/20 flex items-center justify-center">
+                              <span className="text-xs font-semibold text-primary">
+                                {access.user_name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-foreground text-sm">{access.user_name}</span>
+                                  <span className="text-xs text-muted-foreground">({access.user_email})</span>
+                                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                    access.user_role === 'admin' ? 'bg-red-500/10 text-red-500' :
+                                    access.user_role === 'security_analyst' ? 'bg-blue-500/10 text-blue-500' :
+                                    access.user_role === 'compliance_manager' ? 'bg-purple-500/10 text-purple-500' :
+                                    access.user_role === 'auditor' ? 'bg-yellow-500/10 text-yellow-500' :
+                                    'bg-muted text-muted-foreground'
+                                  }`}>
+                                    {access.user_role}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    access.permission === 'read' ? 'bg-blue-500/10 text-blue-500 border border-blue-500/20' :
+                                    access.permission === 'write' ? 'bg-green-500/10 text-green-500 border border-green-500/20' :
+                                    access.permission === 'execute' ? 'bg-purple-500/10 text-purple-500 border border-purple-500/20' :
+                                    'bg-red-500/10 text-red-500 border border-red-500/20'
+                                  }`}>
+                                    {access.permission}
+                                  </span>
+                                  {access.success ? (
+                                    <CheckCircle className="w-4 h-4 text-green-500" />
+                                  ) : (
+                                    <XCircle className="w-4 h-4 text-red-500" />
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <span className="font-medium">{access.action}</span>
+                                {access.resource_id && (
+                                  <span className="text-muted-foreground">• Resource: {access.resource_id}</span>
+                                )}
+                                <span className="ml-auto">
+                                  {isToday ? 'Today' : isYesterday ? 'Yesterday' : accessDate.toLocaleDateString()} at {accessDate.toLocaleTimeString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                          {area.accesses.length > 50 && (
+                            <div className="text-center text-sm text-muted-foreground py-2">
+                              ... and {area.accesses.length - 50} more accesses
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                </div>
+              </div>
+            )}
+          </div>
+          ) : (
+            <div className="text-center py-8 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
+              <Activity className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+              <h4 className="text-md font-semibold text-foreground mb-2">No Access Data Available</h4>
+              <p className="text-sm text-muted-foreground">
+                Access tracking data will appear here once users start accessing the platform.
+              </p>
+            </div>
+          )}
+
+          {/* Access Logs - Collapsible */}
+          {userAccessLogs.length > 0 && (
+            <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+              <button
+                onClick={() => setIamSectionsExpanded(prev => ({ ...prev, accessLogs: !prev.accessLogs }))}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+              >
+                <h4 className="text-md font-semibold text-foreground flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Recent Access Logs ({userAccessLogs.length})
+                </h4>
+                {iamSectionsExpanded.accessLogs ? (
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                )}
+              </button>
+              {iamSectionsExpanded.accessLogs && (
+                <div className="p-6 pt-0 space-y-4">
+              <h4 className="text-md font-semibold text-foreground">Recent Access Logs</h4>
+              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                <table className="w-full">
+                  <thead className="bg-muted/30 sticky top-0">
+                    <tr>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Timestamp</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Resource</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Action</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Permission</th>
+                      <th className="text-left py-2 px-3 text-sm font-semibold text-foreground">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userAccessLogs.slice(0, 50).map((log, idx) => (
+                      <tr key={idx} className="border-b border-[hsl(var(--border))] hover:bg-muted/30">
+                        <td className="py-2 px-3 text-xs text-foreground">
+                          {new Date(log.access_timestamp).toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-foreground">
+                          {log.resource_type} {log.resource_id ? `(${log.resource_id})` : ''}
+                        </td>
+                        <td className="py-2 px-3 text-sm text-foreground">{log.action_type}</td>
+                        <td className="py-2 px-3">
+                          <span
+                            className={`px-2 py-1 rounded text-xs font-semibold ${
+                              log.permission_used === 'read'
+                                ? 'bg-blue-500/10 text-blue-500'
+                                : log.permission_used === 'write'
+                                ? 'bg-green-500/10 text-green-500'
+                                : log.permission_used === 'execute'
+                                ? 'bg-purple-500/10 text-purple-500'
+                                : 'bg-red-500/10 text-red-500'
+                            }`}
+                          >
+                            {log.permission_used}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <span
+                            className={`px-2 py-1 rounded text-xs ${
+                              log.success ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                            }`}
+                          >
+                            {log.success ? 'Success' : 'Failed'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </div>
+              </div>
+            )}
+          </div>
+          )}
+        </div>
+
+        {/* User Detail Modal */}
+        {selectedUserForDetails && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedUserForDetails(null)}>
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="sticky top-0 bg-card border-b border-[hsl(var(--border))] p-6 flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold text-foreground">{selectedUserForDetails.name}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">{selectedUserForDetails.email}</p>
+                </div>
+                <button
+                  onClick={() => setSelectedUserForDetails(null)}
+                  className="p-2 hover:bg-muted rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                {/* User Stats */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="bg-muted/30 rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground mb-1">Total Logins</div>
+                    <div className="text-2xl font-bold text-foreground">{selectedUserForDetails.total_logins || 0}</div>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground mb-1">Total Accesses</div>
+                    <div className="text-2xl font-bold text-foreground">{selectedUserForDetails.total_accesses || 0}</div>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground mb-1">Role</div>
+                    <div className="text-lg font-semibold text-foreground capitalize">{(selectedUserForDetails.role || 'viewer').replace('_', ' ')}</div>
+                  </div>
+                  <div className="bg-muted/30 rounded-lg p-4">
+                    <div className="text-xs text-muted-foreground mb-1">Last Access</div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {selectedUserForDetails.last_access 
+                        ? new Date(selectedUserForDetails.last_access).toLocaleString()
+                        : 'Never'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Access Summary */}
+                {userAccessSummary && (
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-foreground">Access Summary (Last 30 Days)</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                        <div className="text-xs text-blue-500 mb-1">Read Actions</div>
+                        <div className="text-xl font-bold text-blue-500">{userAccessSummary.access?.read_actions || 0}</div>
+                      </div>
+                      <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                        <div className="text-xs text-green-500 mb-1">Write Actions</div>
+                        <div className="text-xl font-bold text-green-500">{userAccessSummary.access?.write_actions || 0}</div>
+                      </div>
+                      <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                        <div className="text-xs text-purple-500 mb-1">Execute Actions</div>
+                        <div className="text-xl font-bold text-purple-500">{userAccessSummary.access?.execute_actions || 0}</div>
+                      </div>
+                      <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                        <div className="text-xs text-red-500 mb-1">Delete Actions</div>
+                        <div className="text-xl font-bold text-red-500">{userAccessSummary.access?.delete_actions || 0}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Access Logs */}
+                {userAccessLogs.length > 0 && (
+                  <div className="space-y-4">
+                    <h4 className="text-lg font-semibold text-foreground">Recent Access Logs</h4>
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {userAccessLogs.slice(0, 20).map((log, idx) => (
+                        <div key={idx} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border border-[hsl(var(--border))]">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-foreground">{log.resource_type}</span>
+                              {log.resource_id && (
+                                <span className="text-sm text-muted-foreground">({log.resource_id})</span>
+                              )}
+                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                log.permission_used === 'read' ? 'bg-blue-500/10 text-blue-500' :
+                                log.permission_used === 'write' ? 'bg-green-500/10 text-green-500' :
+                                log.permission_used === 'execute' ? 'bg-purple-500/10 text-purple-500' :
+                                'bg-red-500/10 text-red-500'
+                              }`}>
+                                {log.permission_used}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {log.action_type} • {new Date(log.access_timestamp).toLocaleString()}
+                            </div>
+                          </div>
+                          {log.success ? (
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <XCircle className="w-5 h-5 text-red-500" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modals */}
         {showPermissionGrant && renderPermissionGrantModal()}
@@ -13641,6 +15334,239 @@ const closeControlDetail = useCallback(() => {
           </div>
         </div>
 
+        {/* Pre-Audit Readiness Engine - NEW ACCELERATION FEATURE */}
+        <div className="bg-gradient-to-r from-primary/10 to-primary/5 border-2 border-primary/20 rounded-lg shadow-lg p-6">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <Sparkles className="w-6 h-6 text-primary" />
+                Pre-Audit Readiness Engine
+              </h3>
+              <p className="text-sm text-muted-foreground mt-2">
+                Know if you're audit-ready before you start. Get real-time readiness scores and AI-powered gap analysis.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                // Calculate readiness for all frameworks
+                const frameworks = Object.keys(FRAMEWORK_LIBRARY);
+                const readinessScores = frameworks.map(fw => {
+                  const fwControls = controls.filter(c => 
+                    (c.frameworks || []).some(f => f.startsWith(fw))
+                  );
+                  const implemented = fwControls.filter(c => 
+                    c.status === 'Implemented' || c.status === 'Compliant'
+                  ).length;
+                  return {
+                    framework: fw,
+                    score: fwControls.length > 0 ? Math.round((implemented / fwControls.length) * 100) : 0,
+                    total: fwControls.length,
+                    implemented
+                  };
+                });
+                setPreAuditReadiness(readinessScores);
+              }}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Calculate Readiness
+            </button>
+          </div>
+
+          {/* Readiness Score Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {(() => {
+              const frameworks = Object.keys(FRAMEWORK_LIBRARY).slice(0, 3);
+              return frameworks.map(fw => {
+                const fwControls = controls.filter(c => 
+                  (c.frameworks || []).some(f => f.startsWith(fw))
+                );
+                const implemented = fwControls.filter(c => 
+                  c.status === 'Implemented' || c.status === 'Compliant'
+                ).length;
+                const score = fwControls.length > 0 ? Math.round((implemented / fwControls.length) * 100) : 0;
+                const hasEvidence = fwControls.filter(c => c.evidence_link).length;
+                const evidencePercent = fwControls.length > 0 ? Math.round((hasEvidence / fwControls.length) * 100) : 0;
+                
+                return (
+                  <div key={fw} className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-semibold text-foreground">
+                        {FRAMEWORK_LIBRARY[fw]?.name || fw}
+                      </span>
+                      <span className={`text-lg font-bold ${
+                        score >= 80 ? 'text-green-500' :
+                        score >= 60 ? 'text-yellow-500' :
+                        'text-red-500'
+                      }`}>
+                        {score}%
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-muted-foreground">Controls</span>
+                          <span className="text-foreground font-medium">{implemented}/{fwControls.length}</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              score >= 80 ? 'bg-green-500' :
+                              score >= 60 ? 'bg-yellow-500' :
+                              'bg-red-500'
+                            }`}
+                            style={{ width: `${score}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-muted-foreground">Evidence</span>
+                          <span className="text-foreground font-medium">{evidencePercent}%</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-2">
+                          <div
+                            className="bg-blue-500 h-2 rounded-full transition-all"
+                            style={{ width: `${evidencePercent}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-[hsl(var(--border))]">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Status</span>
+                        <span className={`font-semibold ${
+                          score >= 80 ? 'text-green-500' : 'text-yellow-500'
+                        }`}>
+                          {score >= 80 ? '✓ Audit Ready' : '⚠ Needs Work'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+
+          {/* Gap Analysis & Recommendations */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Gap Analysis */}
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                Critical Gaps
+              </h4>
+              <div className="space-y-2">
+                {controls
+                  .filter(c => c.status !== 'Implemented' && c.status !== 'Compliant')
+                  .slice(0, 5)
+                  .map(control => (
+                    <div key={control.id} className="flex items-start gap-2 p-2 bg-muted/30 rounded text-xs">
+                      <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground">{control.id}</div>
+                        <div className="text-muted-foreground truncate">{control.control_name}</div>
+                      </div>
+                    </div>
+                  ))}
+                {controls.filter(c => c.status !== 'Implemented' && c.status !== 'Compliant').length === 0 && (
+                  <div className="text-xs text-muted-foreground text-center py-4">
+                    <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+                    No critical gaps found!
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* AI Recommendations */}
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+              <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                AI Recommendations
+              </h4>
+              <div className="space-y-2 text-xs">
+                {(() => {
+                  const gaps = controls.filter(c => c.status !== 'Implemented' && c.status !== 'Compliant').length;
+                  const missingEvidence = controls.filter(c => !c.evidence_link).length;
+                  const recommendations = [];
+                  
+                  if (gaps > 0) {
+                    recommendations.push({
+                      icon: Target,
+                      text: `Focus on ${gaps} controls that need implementation`,
+                      priority: 'high'
+                    });
+                  }
+                  if (missingEvidence > 0) {
+                    recommendations.push({
+                      icon: FileText,
+                      text: `Collect evidence for ${missingEvidence} controls`,
+                      priority: 'medium'
+                    });
+                  }
+                  if (gaps === 0 && missingEvidence === 0) {
+                    recommendations.push({
+                      icon: CheckCircle,
+                      text: 'You\'re audit-ready! Consider scheduling your audit.',
+                      priority: 'success'
+                    });
+                  }
+                  
+                  return recommendations.map((rec, idx) => {
+                    const Icon = rec.icon;
+                    return (
+                      <div key={idx} className={`flex items-start gap-2 p-2 rounded ${
+                        rec.priority === 'high' ? 'bg-red-500/10' :
+                        rec.priority === 'success' ? 'bg-green-500/10' :
+                        'bg-yellow-500/10'
+                      }`}>
+                        <Icon className={`w-3 h-3 mt-0.5 flex-shrink-0 ${
+                          rec.priority === 'high' ? 'text-red-500' :
+                          rec.priority === 'success' ? 'text-green-500' :
+                          'text-yellow-500'
+                        }`} />
+                        <span className="text-foreground">{rec.text}</span>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="mt-6 pt-6 border-t border-[hsl(var(--border))]">
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setShowAuditCreate(true)}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-sm font-medium"
+              >
+                Start New Audit
+              </button>
+              <button
+                onClick={() => {
+                  // Navigate to controls filtered by gaps
+                  setActiveView('controls');
+                  setControlStatusFilter('Not Set');
+                }}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors text-sm font-medium"
+              >
+                View Gaps
+              </button>
+              <button
+                onClick={() => {
+                  // Navigate to evidence upload
+                  setActiveView('audits');
+                  setShowEvidenceUpload(true);
+                }}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors text-sm font-medium"
+              >
+                Upload Evidence
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Audit Dashboard */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
@@ -13829,9 +15755,12 @@ const closeControlDetail = useCallback(() => {
   const renderAuditDetail = () => {
     if (!selectedAudit) return null;
 
+    // Check if user is auditor (role-based or toggle)
+    const isAuditor = auditorMode || (currentUser.role && currentUser.role.toLowerCase().includes('auditor'));
+
     return (
       <div className="space-y-6">
-        {/* Header with Back Button */}
+        {/* Header with Back Button & Auditor Mode Toggle */}
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -13845,13 +15774,32 @@ const closeControlDetail = useCallback(() => {
                 <X className="w-5 h-5 text-foreground" />
               </button>
               <div>
-                <h2 className="text-2xl font-bold text-foreground">{selectedAudit.audit_name}</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-2xl font-bold text-foreground">{selectedAudit.audit_name}</h2>
+                  {isAuditor && (
+                    <span className="px-2 py-1 bg-purple-500/10 text-purple-500 border border-purple-500/20 rounded text-xs font-semibold">
+                      Auditor View
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground mt-1">
                   {FRAMEWORK_LIBRARY[selectedAudit.framework]?.name || selectedAudit.framework} • {selectedAudit.audit_type}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {/* Auditor Mode Toggle */}
+              <button
+                onClick={() => setAuditorMode(!auditorMode)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                  auditorMode 
+                    ? 'bg-purple-500 text-white' 
+                    : 'bg-muted text-foreground hover:bg-muted/80'
+                }`}
+              >
+                <UserCheck className="w-4 h-4" />
+                {auditorMode ? 'Auditor Mode' : 'Switch to Auditor'}
+              </button>
               <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                 selectedAudit.status === 'completed' ? 'bg-green-500/10 text-green-500' :
                 selectedAudit.status === 'in_progress' ? 'bg-yellow-500/10 text-yellow-500' :
@@ -13862,6 +15810,92 @@ const closeControlDetail = useCallback(() => {
             </div>
           </div>
         </div>
+
+        {/* Auditor Portal - Enhanced Workspace */}
+        {isAuditor && (
+          <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border-2 border-purple-500/20 rounded-lg shadow-lg p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
+                  <UserCheck className="w-5 h-5 text-purple-500" />
+                  Auditor Workspace
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Review evidence, document findings, and collaborate with the company in real-time
+                </p>
+              </div>
+            </div>
+
+            {/* Auditor Quick Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-xs text-muted-foreground mb-1">Evidence Reviewed</div>
+                <div className="text-2xl font-bold text-foreground">
+                  {auditEvidence.filter(e => e.validated).length}/{auditEvidence.length}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {auditEvidence.length > 0 
+                    ? Math.round((auditEvidence.filter(e => e.validated).length / auditEvidence.length) * 100)
+                    : 0}% complete
+                </div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-xs text-muted-foreground mb-1">Findings</div>
+                <div className="text-2xl font-bold text-foreground">{auditFindings.length}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {auditFindings.filter(f => f.status === 'open').length} open
+                </div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-xs text-muted-foreground mb-1">Controls Reviewed</div>
+                <div className="text-2xl font-bold text-foreground">
+                  {controls.filter(c => 
+                    (c.frameworks || []).some(f => f.startsWith(selectedAudit.framework))
+                  ).length}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">In scope</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
+                <div className="text-xs text-muted-foreground mb-1">Readiness</div>
+                <div className="text-2xl font-bold text-foreground">{selectedAudit.readiness_score || 0}%</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {selectedAudit.readiness_score >= 80 ? 'Ready' : 'Needs work'}
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions for Auditors */}
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setShowFindingCreate(true)}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2 text-sm font-medium"
+              >
+                <AlertCircle className="w-4 h-4" />
+                Document Finding
+              </button>
+              <button
+                onClick={() => {
+                  // Show evidence review interface
+                  setSelectedEvidenceForReview(auditEvidence[0] || null);
+                }}
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-2 text-sm font-medium"
+              >
+                <FileCheck className="w-4 h-4" />
+                Review Evidence ({auditEvidence.filter(e => !e.validated).length} pending)
+              </button>
+              <button
+                onClick={() => {
+                  // Generate audit report
+                  alert('Audit report generation coming soon!');
+                }}
+                className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors flex items-center gap-2 text-sm font-medium"
+              >
+                <Download className="w-4 h-4" />
+                Generate Report
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Readiness Score */}
         {auditReadiness && (
@@ -13940,6 +15974,140 @@ const closeControlDetail = useCallback(() => {
           </div>
         )}
 
+        {/* Evidence Review Interface - Auditor Feature */}
+        {isAuditor && auditEvidence.length > 0 && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+            <div className="p-6 border-b border-[hsl(var(--border))]">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                    <FileCheck className="w-5 h-5 text-purple-500" />
+                    Evidence Review
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Review and validate evidence. {auditEvidence.filter(e => !e.validated).length} items pending review
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {auditEvidence.filter(e => e.validated).length}/{auditEvidence.length} validated
+                  </span>
+                  <div className="w-32 bg-muted rounded-full h-2">
+                    <div
+                      className="bg-green-500 h-2 rounded-full transition-all"
+                      style={{ 
+                        width: `${auditEvidence.length > 0 
+                          ? (auditEvidence.filter(e => e.validated).length / auditEvidence.length) * 100 
+                          : 0}%` 
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="divide-y divide-[hsl(var(--border))] max-h-96 overflow-y-auto">
+              {auditEvidence.map((evidence) => (
+                <div
+                  key={evidence.id}
+                  className={`p-4 hover:bg-muted/30 transition-colors ${
+                    selectedEvidenceForReview?.id === evidence.id ? 'bg-primary/5 border-l-4 border-primary' : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h4 className="font-semibold text-foreground">{evidence.evidence_name}</h4>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                          evidence.validated 
+                            ? 'bg-green-500/10 text-green-500' 
+                            : 'bg-yellow-500/10 text-yellow-500'
+                        }`}>
+                          {evidence.validated ? '✓ Validated' : 'Pending Review'}
+                        </span>
+                        <span className="px-2 py-0.5 bg-muted rounded text-xs text-muted-foreground">
+                          {evidence.evidence_type}
+                        </span>
+                      </div>
+                      <div className="text-sm text-muted-foreground space-y-1">
+                        <div>Control: <span className="text-foreground font-medium">{evidence.control_id}</span></div>
+                        {evidence.uploaded_by && (
+                          <div>Uploaded by: <span className="text-foreground">{evidence.uploaded_by}</span></div>
+                        )}
+                        {evidence.uploaded_at && (
+                          <div>Uploaded: <span className="text-foreground">
+                            {new Date(evidence.uploaded_at).toLocaleDateString()}
+                          </span></div>
+                        )}
+                        {evidence.expiration_date && (
+                          <div className="flex items-center gap-1">
+                            Expires: <span className={`font-medium ${
+                              new Date(evidence.expiration_date) < new Date() 
+                                ? 'text-red-500' 
+                                : 'text-foreground'
+                            }`}>
+                              {new Date(evidence.expiration_date).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {evidence.file_url && (
+                        <div className="mt-3">
+                          <a
+                            href={evidence.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-primary hover:underline flex items-center gap-1"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View Evidence
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-col gap-2 ml-4">
+                      {!evidence.validated && (
+                        <button
+                          onClick={async () => {
+                            if (backendConnected && currentUser.id) {
+                              try {
+                                await api.validateEvidence(selectedAudit.id, evidence.id, currentUser.id, true);
+                                await loadAuditDetails(selectedAudit.id);
+                                alert('Evidence validated successfully');
+                              } catch (error) {
+                                console.error('Validation error:', error);
+                                alert('Error validating evidence');
+                              }
+                            } else {
+                              // Demo mode - just update local state
+                              setAuditEvidence(prev => 
+                                prev.map(e => 
+                                  e.id === evidence.id 
+                                    ? { ...e, validated: true, validated_by: currentUser.email, validated_at: new Date().toISOString() }
+                                    : e
+                                )
+                              );
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-medium flex items-center gap-1"
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                          Validate
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setSelectedEvidenceForReview(evidence)}
+                        className="px-3 py-1.5 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors text-xs font-medium"
+                      >
+                        Review
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Findings */}
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
           <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
@@ -13949,7 +16117,7 @@ const closeControlDetail = useCallback(() => {
               className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm"
             >
               <Plus className="w-4 h-4" />
-              Add Finding
+              {isAuditor ? 'Document Finding' : 'Add Finding'}
             </button>
           </div>
           <div className="divide-y divide-[hsl(var(--border))]">
@@ -13986,18 +16154,177 @@ const closeControlDetail = useCallback(() => {
                         </span>
                       </div>
                       <p className="text-sm text-foreground mb-2">{finding.description}</p>
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      {finding.remediation_plan && (
+                        <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs">
+                          <div className="font-semibold text-blue-500 mb-1">Remediation Plan:</div>
+                          <div className="text-foreground">{finding.remediation_plan}</div>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground mt-3">
                         <span>Control: {finding.control_id}</span>
                         {finding.assigned_to && <span>Assigned to: {finding.assigned_to}</span>}
                         {finding.due_date && <span>Due: {new Date(finding.due_date).toLocaleDateString()}</span>}
                       </div>
+                      {/* Collaborative Comments */}
+                      {(() => {
+                        const findingComments = auditComments.filter(c => c.finding_id === finding.id);
+                        return findingComments.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-[hsl(var(--border))]">
+                            <div className="text-xs font-semibold text-muted-foreground mb-2">Comments ({findingComments.length})</div>
+                            <div className="space-y-2">
+                              {findingComments.slice(0, 3).map((comment, idx) => (
+                                <div key={idx} className="text-xs bg-muted/30 p-2 rounded">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-medium text-foreground">{comment.author || 'Unknown'}</span>
+                                    <span className="text-muted-foreground">
+                                      {new Date(comment.timestamp).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  <div className="text-foreground">{comment.text}</div>
+                                </div>
+                              ))}
+                              {findingComments.length > 3 && (
+                                <div className="text-xs text-muted-foreground">
+                                  +{findingComments.length - 3} more comments
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
+                    {isAuditor && (
+                      <div className="flex flex-col gap-2">
+                        <button
+                          onClick={() => {
+                            const comment = prompt('Add a comment or note:');
+                            if (comment) {
+                              const newComment = {
+                                id: Date.now(),
+                                finding_id: finding.id,
+                                author: currentUser.email,
+                                text: comment,
+                                timestamp: new Date().toISOString()
+                              };
+                              setAuditComments([...auditComments, newComment]);
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors text-xs font-medium"
+                        >
+                          Add Comment
+                        </button>
+                        {finding.status === 'open' && (
+                          <button
+                            onClick={async () => {
+                              if (backendConnected && currentUser.id) {
+                                try {
+                                  await api.updateFinding(selectedAudit.id, finding.id, { status: 'in_progress' }, currentUser.id);
+                                  await loadAuditDetails(selectedAudit.id);
+                                } catch (error) {
+                                  console.error('Error updating finding:', error);
+                                }
+                              } else {
+                                // Demo mode
+                                setAuditFindings(prev =>
+                                  prev.map(f =>
+                                    f.id === finding.id ? { ...f, status: 'in_progress' } : f
+                                  )
+                                );
+                              }
+                            }}
+                            className="px-3 py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors text-xs font-medium"
+                          >
+                            Mark In Progress
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
             )}
           </div>
         </div>
+
+        {/* Collaborative Comments Section */}
+        {isAuditor && (
+          <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              Collaboration & Notes
+            </h3>
+            <div className="space-y-4">
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  placeholder="Add a note or comment..."
+                  className="flex-1 px-4 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && e.target.value.trim()) {
+                      const newComment = {
+                        id: Date.now(),
+                        audit_id: selectedAudit.id,
+                        author: currentUser.email,
+                        text: e.target.value,
+                        timestamp: new Date().toISOString()
+                      };
+                      setAuditComments([...auditComments, newComment]);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+                <button
+                  onClick={(e) => {
+                    const input = e.target.previousSibling;
+                    if (input.value.trim()) {
+                      const newComment = {
+                        id: Date.now(),
+                        audit_id: selectedAudit.id,
+                        author: currentUser.email,
+                        text: input.value,
+                        timestamp: new Date().toISOString()
+                      };
+                      setAuditComments([...auditComments, newComment]);
+                      input.value = '';
+                    }
+                  }}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  Post
+                </button>
+              </div>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {auditComments
+                  .filter(c => c.audit_id === selectedAudit.id)
+                  .slice()
+                  .reverse()
+                  .map((comment, idx) => (
+                    <div key={idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-semibold text-primary">
+                          {(comment.author || 'U')[0].toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-medium text-foreground">{comment.author || 'Unknown'}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(comment.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="text-sm text-foreground">{comment.text}</div>
+                      </div>
+                    </div>
+                  ))}
+                {auditComments.filter(c => c.audit_id === selectedAudit.id).length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    No comments yet. Start the conversation!
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Evidence */}
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
@@ -14044,6 +16371,141 @@ const closeControlDetail = useCallback(() => {
                 </div>
               ))
             )}
+          </div>
+        </div>
+
+        {/* Automated Report Generation - NEW ACCELERATION FEATURE */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary" />
+                Audit Report Generation
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Generate comprehensive audit reports in seconds. Export evidence packages and executive summaries.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              onClick={() => {
+                // Generate full audit report
+                const reportData = {
+                  audit: selectedAudit,
+                  findings: auditFindings,
+                  evidence: auditEvidence,
+                  readiness: auditReadiness,
+                  generated_at: new Date().toISOString(),
+                  generated_by: currentUser.email
+                };
+                const reportJson = JSON.stringify(reportData, null, 2);
+                const blob = new Blob([reportJson], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `audit-report-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                alert('Audit report generated! Full report export coming soon.');
+              }}
+              className="p-4 bg-primary/10 border border-primary/20 rounded-lg hover:bg-primary/20 transition-colors text-left"
+            >
+              <FileText className="w-6 h-6 text-primary mb-2" />
+              <div className="font-semibold text-foreground mb-1">Full Audit Report</div>
+              <div className="text-xs text-muted-foreground">Complete audit documentation with all findings and evidence</div>
+            </button>
+            <button
+              onClick={() => {
+                // Generate evidence package
+                const evidencePackage = {
+                  audit_name: selectedAudit.audit_name,
+                  framework: selectedAudit.framework,
+                  evidence: auditEvidence.map(e => ({
+                    control_id: e.control_id,
+                    evidence_name: e.evidence_name,
+                    evidence_type: e.evidence_type,
+                    validated: e.validated,
+                    uploaded_at: e.uploaded_at
+                  })),
+                  generated_at: new Date().toISOString()
+                };
+                const csv = [
+                  ['Control ID', 'Evidence Name', 'Type', 'Validated', 'Uploaded'],
+                  ...evidencePackage.evidence.map(e => [
+                    e.control_id,
+                    e.evidence_name,
+                    e.evidence_type,
+                    e.validated ? 'Yes' : 'No',
+                    new Date(e.uploaded_at).toLocaleDateString()
+                  ])
+                ].map(row => row.join(',')).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `evidence-package-${selectedAudit.audit_name.replace(/\s+/g, '-')}.csv`;
+                a.click();
+                alert('Evidence package exported!');
+              }}
+              className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg hover:bg-green-500/20 transition-colors text-left"
+            >
+              <Download className="w-6 h-6 text-green-500 mb-2" />
+              <div className="font-semibold text-foreground mb-1">Evidence Package</div>
+              <div className="text-xs text-muted-foreground">CSV export of all evidence for audit submission</div>
+            </button>
+            <button
+              onClick={() => {
+                // Generate executive summary
+                const summary = {
+                  audit_name: selectedAudit.audit_name,
+                  framework: FRAMEWORK_LIBRARY[selectedAudit.framework]?.name || selectedAudit.framework,
+                  status: selectedAudit.status,
+                  readiness_score: selectedAudit.readiness_score || 0,
+                  total_findings: auditFindings.length,
+                  critical_findings: auditFindings.filter(f => f.severity === 'critical').length,
+                  high_findings: auditFindings.filter(f => f.severity === 'high').length,
+                  evidence_count: auditEvidence.length,
+                  validated_evidence: auditEvidence.filter(e => e.validated).length,
+                  summary: `Audit readiness: ${selectedAudit.readiness_score || 0}%. ${auditFindings.length} findings identified, ${auditEvidence.length} evidence items collected.`,
+                  generated_at: new Date().toISOString()
+                };
+                const summaryText = `
+AUDIT EXECUTIVE SUMMARY
+======================
+
+Audit: ${summary.audit_name}
+Framework: ${summary.framework}
+Status: ${summary.status}
+Readiness Score: ${summary.readiness_score}%
+
+Findings:
+- Total: ${summary.total_findings}
+- Critical: ${summary.critical_findings}
+- High: ${summary.high_findings}
+
+Evidence:
+- Total: ${summary.evidence_count}
+- Validated: ${summary.validated_evidence}
+
+Summary:
+${summary.summary}
+
+Generated: ${new Date(summary.generated_at).toLocaleString()}
+                `.trim();
+                const blob = new Blob([summaryText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `executive-summary-${selectedAudit.audit_name.replace(/\s+/g, '-')}.txt`;
+                a.click();
+                alert('Executive summary generated!');
+              }}
+              className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg hover:bg-purple-500/20 transition-colors text-left"
+            >
+              <BarChart3 className="w-6 h-6 text-purple-500 mb-2" />
+              <div className="font-semibold text-foreground mb-1">Executive Summary</div>
+              <div className="text-xs text-muted-foreground">High-level summary for leadership and stakeholders</div>
+            </button>
           </div>
         </div>
 
@@ -14455,15 +16917,82 @@ const closeControlDetail = useCallback(() => {
             </button>
           </div>
           <div className="p-6 space-y-4">
+            {/* AI Assistance Banner */}
+            <div className="bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 rounded-lg p-4">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold text-foreground">AI Finding Assistant</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Get AI-powered suggestions for finding descriptions and remediation plans based on control requirements
+                  </p>
+                  <button
+                    onClick={() => {
+                      if (!findingFormData.control_id) {
+                        alert('Please enter a Control ID first');
+                        return;
+                      }
+                      // Find the control
+                      const control = controls.find(c => c.id === findingFormData.control_id);
+                      if (control) {
+                        // AI-generated suggestions based on control status and type
+                        const suggestions = {
+                          description: control.status === 'Not Set' || control.status === 'Not Implemented'
+                            ? `Control ${findingFormData.control_id} (${control.control_name}) is not implemented. ${control.description || 'This control requires implementation to meet compliance requirements.'}`
+                            : `Control ${findingFormData.control_id} (${control.control_name}) requires attention. Evidence may be missing or insufficient to demonstrate compliance.`,
+                          remediation_plan: `1. Review control requirements for ${findingFormData.control_id}\n2. Implement necessary controls or processes\n3. Collect appropriate evidence\n4. Document implementation\n5. Validate evidence before audit`,
+                          severity: control.status === 'Not Set' || control.status === 'Not Implemented' ? 'high' : 'medium'
+                        };
+                        setFindingFormData({
+                          ...findingFormData,
+                          description: suggestions.description,
+                          remediation_plan: suggestions.remediation_plan,
+                          severity: suggestions.severity
+                        });
+                        alert('AI suggestions applied! Review and adjust as needed.');
+                      } else {
+                        alert('Control not found. AI suggestions will be generic.');
+                        setFindingFormData({
+                          ...findingFormData,
+                          description: `Control ${findingFormData.control_id} requires attention. Evidence may be missing or insufficient to demonstrate compliance with framework requirements.`,
+                          remediation_plan: `1. Review control requirements\n2. Implement necessary controls\n3. Collect appropriate evidence\n4. Document implementation\n5. Validate evidence`
+                        });
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs font-medium flex items-center gap-2"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Generate AI Suggestions
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">Control ID *</label>
-              <input
-                type="text"
-                value={findingFormData.control_id}
-                onChange={(e) => setFindingFormData({ ...findingFormData, control_id: e.target.value })}
-                className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
-                placeholder="e.g., AC-001"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={findingFormData.control_id}
+                  onChange={(e) => setFindingFormData({ ...findingFormData, control_id: e.target.value })}
+                  className="flex-1 px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"
+                  placeholder="e.g., AC-001"
+                />
+                <button
+                  onClick={() => {
+                    // Show control selector
+                    const controlId = prompt('Enter Control ID or search:', findingFormData.control_id);
+                    if (controlId) {
+                      setFindingFormData({ ...findingFormData, control_id: controlId });
+                    }
+                  }}
+                  className="px-3 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted transition-colors text-xs"
+                >
+                  Search
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

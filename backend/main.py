@@ -19,7 +19,16 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from services.iam_service import check_permission, create_audit_log, get_user_permissions
+from services.iam_service import (
+    check_permission, create_audit_log, get_user_permissions,
+    create_login_session, end_login_session, log_user_access,
+    get_user_access_summary, get_user_access_logs, auto_map_user_permissions,
+    map_permissions_to_compliance
+)
+from services.integration_service import (
+    register_integration, ingest_edr_event, ingest_network_appliance_log,
+    ingest_identity_provider_event, ingest_cloud_platform_event
+)
 from services.csca_engine import map_security_event_to_compliance, calculate_compliance_impact, update_compliance_scores_from_security_event, get_security_compliance_correlation
 from services import alert_service
 from services import intelligence_service
@@ -420,6 +429,23 @@ def init_db():
             cursor.executescript(iam_schema)
             conn.commit()
             print("IAM tables created successfully")
+    
+    # Check if IAM tracking tables exist
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_login_sessions'")
+    iam_tracking_tables_exist = cursor.fetchone()
+    
+    if not iam_tracking_tables_exist:
+        print("Creating IAM tracking tables...")
+        try:
+            iam_tracking_schema_path = Path(__file__).parent / "database" / "iam_tracking_schema.sql"
+            if iam_tracking_schema_path.exists():
+                with open(iam_tracking_schema_path, 'r') as f:
+                    iam_tracking_schema = f.read()
+                    cursor.executescript(iam_tracking_schema)
+                    conn.commit()
+                    print("IAM tracking tables created successfully")
+        except Exception as e:
+            print(f"Warning: Could not create IAM tracking tables: {e}")
     
     if not csca_tables_exist:
         print("Creating CSCA system tables...")
@@ -1868,6 +1894,367 @@ async def get_audit_log(user_id: Optional[int] = None, vendor_id: Optional[int] 
         result.append(log_dict)
     
     return result
+
+# ============================================================================
+# IAM Access Tracking Endpoints
+# ============================================================================
+
+class LoginRequest(BaseModel):
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+class AccessLogRequest(BaseModel):
+    resource_type: str
+    resource_id: Optional[str] = None
+    action_type: str  # 'read', 'write', 'execute', 'delete', 'view', etc.
+    session_token: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    success: bool = True
+    failure_reason: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    access_duration_ms: int = 0
+
+@app.post("/api/iam/login")
+async def login_user(login: LoginRequest, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+    """Create a login session and auto-map user permissions"""
+    ip_address = login.ip_address or (request.client.host if request else None)
+    user_agent = login.user_agent or (request.headers.get("user-agent") if request else None)
+    
+    session_token = create_login_session(user_id, ip_address, user_agent)
+    
+    return {
+        "session_token": session_token,
+        "message": "Login session created, permissions auto-mapped"
+    }
+
+@app.post("/api/iam/logout")
+async def logout_user(session_token: str = Header(..., alias="X-Session-Token")):
+    """End a login session"""
+    end_login_session(session_token, 'logout')
+    return {"message": "Logged out successfully"}
+
+@app.post("/api/iam/access-log")
+async def log_access(access: AccessLogRequest, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+    """Log a user access event with r/w/x permission tracking"""
+    ip_address = access.ip_address or (request.client.host if request else None)
+    user_agent = access.user_agent or (request.headers.get("user-agent") if request else None)
+    
+    access_log_id = log_user_access(
+        user_id=user_id,
+        resource_type=access.resource_type,
+        resource_id=access.resource_id,
+        action_type=access.action_type,
+        session_token=access.session_token,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        success=access.success,
+        failure_reason=access.failure_reason,
+        metadata=access.metadata,
+        access_duration_ms=access.access_duration_ms
+    )
+    
+    return {"access_log_id": access_log_id, "message": "Access logged successfully"}
+
+@app.get("/api/iam/access-summary/{target_user_id}")
+async def get_access_summary(
+    target_user_id: int,
+    days: int = Query(30, ge=1, le=365),
+    current_user_id: int = Header(..., alias="X-User-Id")
+):
+    """Get comprehensive access summary for a user"""
+    # Check if user is viewing their own summary or is admin
+    if target_user_id != current_user_id:
+        allowed, _ = check_permission(current_user_id, "all", None, "read")
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    summary = get_user_access_summary(target_user_id, days)
+    return summary
+
+@app.get("/api/iam/access-logs/{target_user_id}")
+async def get_access_logs(
+    target_user_id: int,
+    limit: int = Query(100, ge=1, le=1000),
+    resource_type: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user_id: int = Header(..., alias="X-User-Id")
+):
+    """Get access logs for a user"""
+    # Check if user is viewing their own logs or is admin
+    if target_user_id != current_user_id:
+        allowed, _ = check_permission(current_user_id, "all", None, "read")
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    logs = get_user_access_logs(target_user_id, limit, resource_type, start_date, end_date)
+    return logs
+
+@app.get("/api/iam/mapped-permissions/{target_user_id}")
+async def get_mapped_permissions(
+    target_user_id: int,
+    current_user_id: int = Header(..., alias="X-User-Id")
+):
+    """Get auto-mapped permissions for a user with r/w/x breakdown"""
+    # Check if user is viewing their own permissions or is admin
+    if target_user_id != current_user_id:
+        allowed, _ = check_permission(current_user_id, "all", None, "read")
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT resource_type, resource_id,
+               read_access, write_access, execute_access, delete_access,
+               discovered_from, source_id, confidence_score, observation_count,
+               first_observed_at, last_observed_at
+        FROM auto_mapped_permissions
+        WHERE user_id = ?
+        ORDER BY observation_count DESC, confidence_score DESC
+    """, (target_user_id,))
+    
+    permissions = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            'resource_type': p['resource_type'],
+            'resource_id': p['resource_id'],
+            'read': bool(p['read_access']),
+            'write': bool(p['write_access']),
+            'execute': bool(p['execute_access']),
+            'delete': bool(p['delete_access']),
+            'discovered_from': p['discovered_from'],
+            'source_id': p['source_id'],
+            'confidence_score': p['confidence_score'],
+            'observation_count': p['observation_count'],
+            'first_observed_at': p['first_observed_at'],
+            'last_observed_at': p['last_observed_at']
+        }
+        for p in permissions
+    ]
+
+@app.post("/api/iam/auto-map-permissions/{target_user_id}")
+async def trigger_auto_map(
+    target_user_id: int,
+    current_user_id: int = Header(..., alias="X-User-Id")
+):
+    """Manually trigger auto-mapping of user permissions"""
+    # Check admin permission
+    allowed, _ = check_permission(current_user_id, "all", None, "write")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    auto_map_user_permissions(target_user_id)
+    return {"message": "Permissions auto-mapped successfully"}
+
+@app.get("/api/iam/compliance-mapping/{target_user_id}")
+async def get_compliance_mapping(
+    target_user_id: int,
+    framework: str = Query('NIST_800-53'),
+    current_user_id: int = Header(..., alias="X-User-Id")
+):
+    """Get compliance control mappings for user permissions"""
+    # Check if user is viewing their own mapping or is admin
+    if target_user_id != current_user_id:
+        allowed, _ = check_permission(current_user_id, "all", None, "read")
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    # Map permissions to compliance
+    map_permissions_to_compliance(target_user_id, framework)
+    
+    # Get mappings
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT control_id, framework, permission_type, resource_type, resource_id,
+               compliance_status, last_verified_at, verification_notes
+        FROM permission_compliance_mapping
+        WHERE user_id = ? AND framework = ?
+        ORDER BY control_id, resource_type
+    """, (target_user_id, framework))
+    
+    mappings = cursor.fetchall()
+    conn.close()
+    
+    return [
+        {
+            'control_id': m['control_id'],
+            'framework': m['framework'],
+            'permission_type': m['permission_type'],
+            'resource_type': m['resource_type'],
+            'resource_id': m['resource_id'],
+            'compliance_status': m['compliance_status'],
+            'last_verified_at': m['last_verified_at'],
+            'verification_notes': m['verification_notes']
+        }
+        for m in mappings
+    ]
+
+@app.get("/api/iam/users")
+async def list_all_users(
+    current_user_id: int = Header(..., alias="X-User-Id")
+):
+    """List all users with their access statistics (admin only)"""
+    # Check admin permission
+    allowed, _ = check_permission(current_user_id, "all", None, "read")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT u.id, u.name, u.email, u.role, u.created_at,
+               (SELECT COUNT(*) FROM user_login_sessions WHERE user_id = u.id) as total_logins,
+               (SELECT COUNT(*) FROM user_access_logs WHERE user_id = u.id) as total_accesses,
+               (SELECT MAX(access_timestamp) FROM user_access_logs WHERE user_id = u.id) as last_access
+        FROM users u
+        ORDER BY u.created_at DESC
+    """, ())
+    
+    users = cursor.fetchall()
+    conn.close()
+    
+    return [dict(u) for u in users]
+
+# ============================================================================
+# Integration Endpoints - External System Integration
+# ============================================================================
+
+class IntegrationRegister(BaseModel):
+    integration_type: str  # 'edr', 'network_appliance', 'identity_provider', 'cloud_platform', 'siem'
+    name: str
+    config: Dict[str, Any]
+
+class EDREvent(BaseModel):
+    event_type: str  # 'login', 'logout', 'file_access', 'process_execution', 'network_connection', 'privilege_escalation'
+    user_identifier: Optional[str] = None
+    device_identifier: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    resource_id: Optional[str] = None
+    access_type: Optional[str] = None
+    event_timestamp: Optional[str] = None
+
+class NetworkApplianceLog(BaseModel):
+    log_type: str  # 'authentication', 'connection', 'dns_query', 'web_proxy'
+    user_identifier: Optional[str] = None
+    source_ip: Optional[str] = None
+    destination_ip: Optional[str] = None
+    destination_port: Optional[int] = None
+    protocol: Optional[str] = None
+    action: Optional[str] = None
+    user_agent: Optional[str] = None
+    log_timestamp: Optional[str] = None
+
+class IdentityProviderEvent(BaseModel):
+    event_type: str  # 'user.login', 'user.logout', 'user.created', 'permission.granted', 'permission.revoked'
+    user_identifier: Optional[str] = None
+    group_identifier: Optional[str] = None
+    resource_identifier: Optional[str] = None
+    resource_type: Optional[str] = None
+    permission_type: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    event_timestamp: Optional[str] = None
+
+class CloudPlatformEvent(BaseModel):
+    event_type: str  # 'api_call', 'console_login', 'resource_access', 'permission_change'
+    user_identifier: Optional[str] = None
+    service_name: Optional[str] = None
+    resource_arn: Optional[str] = None
+    api_action: Optional[str] = None
+    source_ip: Optional[str] = None
+    user_agent: Optional[str] = None
+    event_timestamp: Optional[str] = None
+
+@app.post("/api/integrations/register")
+async def register_integration_endpoint(
+    integration: IntegrationRegister,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Register a new integration (EDR, Network Appliance, Identity Provider, etc.)"""
+    allowed, _ = check_permission(user_id, "all", None, "write")
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    integration_id = register_integration(
+        integration.integration_type,
+        integration.name,
+        integration.config,
+        user_id
+    )
+    
+    return {
+        "integration_id": integration_id,
+        "message": f"Integration '{integration.name}' registered successfully"
+    }
+
+@app.post("/api/integrations/edr/events")
+async def ingest_edr_event_endpoint(
+    event: EDREvent,
+    integration_id: int = Header(..., alias="X-Integration-Id"),
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Ingest events from EDR systems (CrowdStrike, SentinelOne, Microsoft Defender, etc.)"""
+    event_data = event.dict()
+    event_id = ingest_edr_event(integration_id, event_data)
+    
+    return {
+        "event_id": event_id,
+        "message": "EDR event ingested successfully"
+    }
+
+@app.post("/api/integrations/network/logs")
+async def ingest_network_log_endpoint(
+    log: NetworkApplianceLog,
+    integration_id: int = Header(..., alias="X-Integration-Id"),
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Ingest logs from network appliances (Firewalls, Proxies, VPNs, etc.)"""
+    log_data = log.dict()
+    log_id = ingest_network_appliance_log(integration_id, log_data)
+    
+    return {
+        "log_id": log_id,
+        "message": "Network appliance log ingested successfully"
+    }
+
+@app.post("/api/integrations/identity/events")
+async def ingest_identity_event_endpoint(
+    event: IdentityProviderEvent,
+    integration_id: int = Header(..., alias="X-Integration-Id"),
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Ingest events from Identity Providers (Okta, Azure AD, Google Workspace, etc.)"""
+    event_data = event.dict()
+    event_id = ingest_identity_provider_event(integration_id, event_data)
+    
+    return {
+        "event_id": event_id,
+        "message": "Identity provider event ingested successfully"
+    }
+
+@app.post("/api/integrations/cloud/events")
+async def ingest_cloud_event_endpoint(
+    event: CloudPlatformEvent,
+    integration_id: int = Header(..., alias="X-Integration-Id"),
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Ingest events from Cloud Platforms (AWS CloudTrail, Azure Activity Logs, GCP Audit Logs)"""
+    event_data = event.dict()
+    event_id = ingest_cloud_platform_event(integration_id, event_data)
+    
+    return {
+        "event_id": event_id,
+        "message": "Cloud platform event ingested successfully"
+    }
 
 # ============================================================================
 # Data Flow Architecture Endpoints
