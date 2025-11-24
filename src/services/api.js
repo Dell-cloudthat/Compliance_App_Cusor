@@ -250,6 +250,50 @@ class ComplianceAPI {
     });
   }
 
+  // Automated Evidence Collection
+  async collectEvidence(userId, auditId, controlIds = null, integrationId = null) {
+    const body = {};
+    if (controlIds) body.control_ids = controlIds;
+    if (integrationId) body.integration_id = integrationId;
+    
+    return this.request(`/api/audits/${auditId}/evidence/collect`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  async collectEvidenceForControl(userId, auditId, controlId, integrationId = null) {
+    const body = integrationId ? { integration_id: integrationId } : {};
+    
+    return this.request(`/api/audits/${auditId}/evidence/collect/${controlId}`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+    });
+  }
+
+  async getEvidenceFreshness(userId, auditId) {
+    return this.request(`/api/audits/${auditId}/evidence/freshness`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async autoLinkEvidence(userId, auditId) {
+    return this.request(`/api/audits/${auditId}/evidence/auto-link`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
   // Certifications
   async createCertification(userId, certData) {
     return this.request('/api/certifications', {
@@ -263,6 +307,34 @@ class ComplianceAPI {
 
   async getCertifications(userId) {
     return this.request('/api/certifications', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Report Generation
+  async generateFullAuditReport(userId, auditId) {
+    return this.request(`/api/audits/${auditId}/reports/full`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async generateEvidencePackage(userId, auditId, controlIds = null) {
+    const url = controlIds 
+      ? `/api/audits/${auditId}/reports/evidence-package?control_ids=${JSON.stringify(controlIds)}`
+      : `/api/audits/${auditId}/reports/evidence-package`;
+    return this.request(url, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async generateExecutiveSummary(userId, auditId) {
+    return this.request(`/api/audits/${auditId}/reports/executive-summary`, {
       headers: {
         'X-User-Id': userId.toString(),
       },

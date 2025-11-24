@@ -1327,6 +1327,11 @@ const closeControlDetail = useCallback(() => {
   const [showFindingCreate, setShowFindingCreate] = useState(false);
   const [showEvidenceUpload, setShowEvidenceUpload] = useState(false);
   const [certifications, setCertifications] = useState([]);
+  // Automated Evidence Collection
+  const [evidenceCollectionStatus, setEvidenceCollectionStatus] = useState(null);
+  const [evidenceCollectionLoading, setEvidenceCollectionLoading] = useState(false);
+  const [evidenceFreshness, setEvidenceFreshness] = useState(null);
+  const [autoLinkingStatus, setAutoLinkingStatus] = useState(null);
   const [auditFormData, setAuditFormData] = useState({
     audit_name: '',
     framework: 'SOC2',
@@ -2257,27 +2262,34 @@ const closeControlDetail = useCallback(() => {
     }
   }, [activeView]);
 
-  // Load IAM data
+  // Load IAM data - use ref to prevent multiple calls
+  const iamDataLoadedRef = useRef(false);
+  
   useEffect(() => {
     if (activeView === 'iam') {
+      // Only load if not already loaded
+      if (iamDataLoadedRef.current && allUsers && allUsers.length > 0) {
+        return;
+      }
+      
       console.log('IAM view active, loading data...');
-      if (currentUser.id) {
+      if (currentUser.id && backendConnected) {
         loadIAMData();
+        iamDataLoadedRef.current = true;
       } else {
         // Even without user ID, load demo data for visualization
-        console.log('No user ID, loading demo data anyway');
-        loadDemoIAMData();
+        if (!allUsers || allUsers.length === 0) {
+          console.log('No user ID or backend, loading demo data');
+          loadDemoIAMData();
+          iamDataLoadedRef.current = true;
+        }
       }
+    } else {
+      // Reset when switching away from IAM view
+      iamDataLoadedRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView, backendConnected, currentUser.id]);
-  
-  // Also ensure demo data loads when view is active and no users exist
-  useEffect(() => {
-    if (activeView === 'iam' && (!allUsers || allUsers.length === 0) && !backendConnected) {
-      console.log('Force loading demo IAM data - no users found');
-      loadDemoIAMData();
-    }
-  }, [activeView, allUsers, backendConnected]);
 
   // Load CSCA data
   useEffect(() => {
@@ -4351,6 +4363,12 @@ const closeControlDetail = useCallback(() => {
   };
 
   const loadDemoIAMData = () => {
+    // Prevent multiple calls - if data already exists, don't reload
+    if (allUsers && allUsers.length > 0) {
+      console.log('Demo IAM data already loaded, skipping');
+      return;
+    }
+    
     console.log('=== loadDemoIAMData START ===');
     // Generate demo users with different roles and access patterns
     const demoUsers = [
@@ -5293,6 +5311,10 @@ const closeControlDetail = useCallback(() => {
         }
       }));
       setAuditReadiness(readiness);
+      
+      // Load evidence freshness
+      const freshness = await api.getEvidenceFreshness(currentUser.id, auditId).catch(() => null);
+      setEvidenceFreshness(freshness);
     } catch (error) {
       console.error('Error loading audit details:', error);
       // Try to find in local state as fallback
@@ -5302,6 +5324,86 @@ const closeControlDetail = useCallback(() => {
         setAuditFindings([]);
         setAuditEvidence([]);
       }
+    }
+  };
+
+  // Automated Evidence Collection Functions
+  const triggerEvidenceCollection = async (controlIds = null) => {
+    if (!selectedAudit) return;
+    
+    setEvidenceCollectionLoading(true);
+    setEvidenceCollectionStatus(null);
+    
+    try {
+      if (backendConnected && currentUser.id) {
+        const results = await api.collectEvidence(currentUser.id, selectedAudit.id, controlIds, null);
+        setEvidenceCollectionStatus(results);
+        
+        // Reload evidence and freshness
+        await loadAuditDetails(selectedAudit.id);
+        
+        alert(`Evidence collection complete! Collected ${results.evidence_collected} items for ${results.controls_processed} controls.`);
+      } else {
+        // Demo mode
+        const demoResults = {
+          audit_id: selectedAudit.id,
+          controls_processed: controlIds ? controlIds.length : (selectedAudit.scope?.length || 0),
+          evidence_collected: controlIds ? controlIds.length * 2 : (selectedAudit.scope?.length || 0) * 2,
+          errors: [],
+          by_control: {}
+        };
+        setEvidenceCollectionStatus(demoResults);
+        
+        // Add demo evidence
+        const newEvidence = (controlIds || selectedAudit.scope || []).map((controlId, idx) => ({
+          id: Date.now() + idx,
+          audit_engagement_id: selectedAudit.id,
+          control_id: controlId,
+          evidence_type: idx % 2 === 0 ? 'api_data' : 'configuration',
+          evidence_name: `Auto-collected Evidence - ${controlId} - ${new Date().toLocaleDateString()}`,
+          uploaded_by: 'system',
+          uploaded_at: new Date().toISOString(),
+          expiration_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          validated: false,
+          metadata: { source: 'automated_collection', integration_type: 'demo' }
+        }));
+        setAuditEvidence(prev => [...prev, ...newEvidence]);
+        
+        alert(`Demo: Collected ${demoResults.evidence_collected} evidence items.`);
+      }
+    } catch (error) {
+      console.error('Error collecting evidence:', error);
+      alert('Error collecting evidence. Please try again.');
+    } finally {
+      setEvidenceCollectionLoading(false);
+    }
+  };
+
+  const triggerAutoLinking = async () => {
+    if (!selectedAudit) return;
+    
+    try {
+      if (backendConnected && currentUser.id) {
+        const results = await api.autoLinkEvidence(currentUser.id, selectedAudit.id);
+        setAutoLinkingStatus(results);
+        
+        // Reload evidence
+        await loadAuditDetails(selectedAudit.id);
+        
+        alert(`Auto-linking complete! Linked ${results.linked_count} evidence items to controls.`);
+      } else {
+        // Demo mode
+        const demoResults = {
+          unlinked_count: 0,
+          linked_count: 0,
+          results: []
+        };
+        setAutoLinkingStatus(demoResults);
+        alert('Demo: All evidence is already linked to controls.');
+      }
+    } catch (error) {
+      console.error('Error auto-linking evidence:', error);
+      alert('Error auto-linking evidence. Please try again.');
     }
   };
 
@@ -15760,6 +15862,226 @@ const closeControlDetail = useCallback(() => {
 
     return (
       <div className="space-y-6">
+        {/* Automated Report Generation - NEW ACCELERATION FEATURE */}
+        <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-2 border-blue-500/30 rounded-lg shadow-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <FileText className="w-6 h-6 text-blue-500" />
+                Audit Report Generation
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Generate comprehensive audit reports in seconds. Export evidence packages and executive summaries.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              onClick={async () => {
+                try {
+                  let reportData;
+                  if (backendConnected && currentUser.id) {
+                    reportData = await api.generateFullAuditReport(currentUser.id, selectedAudit.id);
+                  } else {
+                    // Demo mode
+                    reportData = {
+                      report_type: "full_audit_report",
+                      audit_id: selectedAudit.id,
+                      generated_at: new Date().toISOString(),
+                      audit_info: {
+                        audit_name: selectedAudit.audit_name,
+                        framework: selectedAudit.framework,
+                        audit_type: selectedAudit.audit_type,
+                        status: selectedAudit.status
+                      },
+                      executive_summary: {
+                        readiness_score: selectedAudit.readiness_score || 0,
+                        overall_assessment: "Good",
+                        key_metrics: {
+                          total_controls: selectedAudit.scope?.length || 0,
+                          total_findings: auditFindings.length,
+                          total_evidence: auditEvidence.length
+                        }
+                      },
+                      findings_summary: {
+                        total: auditFindings.length,
+                        findings: auditFindings
+                      },
+                      evidence_inventory: {
+                        total_evidence: auditEvidence.length,
+                        evidence_list: auditEvidence
+                      }
+                    };
+                  }
+                  
+                  const reportJson = JSON.stringify(reportData, null, 2);
+                  const blob = new Blob([reportJson], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `audit-report-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  alert('Full audit report generated and downloaded!');
+                } catch (error) {
+                  console.error('Error generating report:', error);
+                  alert('Error generating report. Please try again.');
+                }
+              }}
+              className="p-4 bg-primary/10 border border-primary/20 rounded-lg hover:bg-primary/20 transition-colors text-left"
+            >
+              <FileText className="w-6 h-6 text-primary mb-2" />
+              <div className="font-semibold text-foreground mb-1">Full Audit Report</div>
+              <div className="text-xs text-muted-foreground">Complete audit documentation with all findings, evidence, and recommendations</div>
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  let packageData;
+                  if (backendConnected && currentUser.id) {
+                    packageData = await api.generateEvidencePackage(currentUser.id, selectedAudit.id);
+                  } else {
+                    // Demo mode
+                    packageData = {
+                      audit_name: selectedAudit.audit_name,
+                      framework: selectedAudit.framework,
+                      evidence: auditEvidence.map(e => ({
+                        control_id: e.control_id,
+                        evidence_name: e.evidence_name,
+                        evidence_type: e.evidence_type,
+                        validated: e.validated,
+                        uploaded_at: e.uploaded_at
+                      }))
+                    };
+                  }
+                  
+                  // Generate CSV
+                  const csv = [
+                    ['Control ID', 'Evidence Name', 'Type', 'Validated', 'Uploaded', 'Expiration'],
+                    ...(packageData.evidence || packageData.evidence_catalog || []).map(e => [
+                      e.control_id || '',
+                      e.evidence_name || '',
+                      e.evidence_type || '',
+                      e.validated ? 'Yes' : 'No',
+                      e.uploaded_at ? new Date(e.uploaded_at).toLocaleDateString() : '',
+                      e.expiration_date ? new Date(e.expiration_date).toLocaleDateString() : ''
+                    ])
+                  ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+                  
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `evidence-package-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  alert('Evidence package exported successfully!');
+                } catch (error) {
+                  console.error('Error generating evidence package:', error);
+                  alert('Error generating evidence package. Please try again.');
+                }
+              }}
+              className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg hover:bg-green-500/20 transition-colors text-left"
+            >
+              <Download className="w-6 h-6 text-green-500 mb-2" />
+              <div className="font-semibold text-foreground mb-1">Evidence Package</div>
+              <div className="text-xs text-muted-foreground">CSV export of all evidence with validation status for audit submission</div>
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  let summaryData;
+                  if (backendConnected && currentUser.id) {
+                    summaryData = await api.generateExecutiveSummary(currentUser.id, selectedAudit.id);
+                  } else {
+                    // Demo mode
+                    summaryData = {
+                      audit_overview: {
+                        audit_name: selectedAudit.audit_name,
+                        framework: selectedAudit.framework,
+                        status: selectedAudit.status
+                      },
+                      key_metrics: {
+                        readiness_score: selectedAudit.readiness_score || 0,
+                        total_findings: auditFindings.length,
+                        critical_findings: auditFindings.filter(f => f.severity === 'critical').length,
+                        total_evidence: auditEvidence.length
+                      },
+                      recommendations: [
+                        "Continue maintaining current compliance posture",
+                        "Address any open findings promptly"
+                      ]
+                    };
+                  }
+                  
+                  // Generate formatted text summary
+                  const summaryText = `
+AUDIT EXECUTIVE SUMMARY
+======================
+
+Audit: ${summaryData.audit_overview?.audit_name || selectedAudit.audit_name}
+Framework: ${summaryData.audit_overview?.framework || selectedAudit.framework}
+Status: ${summaryData.audit_overview?.status || selectedAudit.status}
+Readiness Score: ${summaryData.key_metrics?.readiness_score || 0}%
+Assessment Level: ${summaryData.key_metrics?.assessment_level || 'N/A'}
+
+KEY METRICS
+-----------
+Total Controls: ${summaryData.key_metrics?.total_controls || selectedAudit.scope?.length || 0}
+Controls with Evidence: ${summaryData.key_metrics?.controls_with_evidence || 0}
+Evidence Coverage: ${summaryData.key_metrics?.evidence_coverage || 0}%
+
+Findings:
+- Total: ${summaryData.key_metrics?.total_findings || auditFindings.length}
+- Critical: ${summaryData.key_metrics?.critical_findings || 0}
+- High: ${summaryData.key_metrics?.high_findings || 0}
+- Resolved: ${summaryData.key_metrics?.resolved_findings || 0}
+
+Evidence:
+- Total: ${summaryData.key_metrics?.total_evidence || auditEvidence.length}
+- Validated: ${summaryData.key_metrics?.validated_evidence || 0}
+
+${summaryData.top_findings && summaryData.top_findings.length > 0 ? `
+TOP FINDINGS
+------------
+${summaryData.top_findings.slice(0, 5).map((f, i) => `${i + 1}. ${f.severity.toUpperCase()}: ${f.description.substring(0, 100)}...`).join('\n')}
+` : ''}
+
+RECOMMENDATIONS
+---------------
+${(summaryData.recommendations || []).map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+${summaryData.next_steps && summaryData.next_steps.length > 0 ? `
+NEXT STEPS
+----------
+${summaryData.next_steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+` : ''}
+
+Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLocaleString()}
+                  `.trim();
+                  
+                  const blob = new Blob([summaryText], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `executive-summary-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  alert('Executive summary generated successfully!');
+                } catch (error) {
+                  console.error('Error generating executive summary:', error);
+                  alert('Error generating executive summary. Please try again.');
+                }
+              }}
+              className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg hover:bg-purple-500/20 transition-colors text-left"
+            >
+              <BarChart3 className="w-6 h-6 text-purple-500 mb-2" />
+              <div className="font-semibold text-foreground mb-1">Executive Summary</div>
+              <div className="text-xs text-muted-foreground">High-level summary with key metrics and recommendations for leadership</div>
+            </button>
+          </div>
+        </div>
+
         {/* Header with Back Button & Auditor Mode Toggle */}
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-between">
@@ -15808,6 +16130,226 @@ const closeControlDetail = useCallback(() => {
                 {selectedAudit.status}
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Automated Report Generation - NEW ACCELERATION FEATURE */}
+        <div className="bg-gradient-to-r from-blue-500/20 to-purple-500/20 border-2 border-blue-500/30 rounded-lg shadow-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <FileText className="w-6 h-6 text-blue-500" />
+                Audit Report Generation
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Generate comprehensive audit reports in seconds. Export evidence packages and executive summaries.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              onClick={async () => {
+                try {
+                  let reportData;
+                  if (backendConnected && currentUser.id) {
+                    reportData = await api.generateFullAuditReport(currentUser.id, selectedAudit.id);
+                  } else {
+                    // Demo mode
+                    reportData = {
+                      report_type: "full_audit_report",
+                      audit_id: selectedAudit.id,
+                      generated_at: new Date().toISOString(),
+                      audit_info: {
+                        audit_name: selectedAudit.audit_name,
+                        framework: selectedAudit.framework,
+                        audit_type: selectedAudit.audit_type,
+                        status: selectedAudit.status
+                      },
+                      executive_summary: {
+                        readiness_score: selectedAudit.readiness_score || 0,
+                        overall_assessment: "Good",
+                        key_metrics: {
+                          total_controls: selectedAudit.scope?.length || 0,
+                          total_findings: auditFindings.length,
+                          total_evidence: auditEvidence.length
+                        }
+                      },
+                      findings_summary: {
+                        total: auditFindings.length,
+                        findings: auditFindings
+                      },
+                      evidence_inventory: {
+                        total_evidence: auditEvidence.length,
+                        evidence_list: auditEvidence
+                      }
+                    };
+                  }
+                  
+                  const reportJson = JSON.stringify(reportData, null, 2);
+                  const blob = new Blob([reportJson], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `audit-report-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  alert('Full audit report generated and downloaded!');
+                } catch (error) {
+                  console.error('Error generating report:', error);
+                  alert('Error generating report. Please try again.');
+                }
+              }}
+              className="p-4 bg-primary/10 border border-primary/20 rounded-lg hover:bg-primary/20 transition-colors text-left"
+            >
+              <FileText className="w-6 h-6 text-primary mb-2" />
+              <div className="font-semibold text-foreground mb-1">Full Audit Report</div>
+              <div className="text-xs text-muted-foreground">Complete audit documentation with all findings, evidence, and recommendations</div>
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  let packageData;
+                  if (backendConnected && currentUser.id) {
+                    packageData = await api.generateEvidencePackage(currentUser.id, selectedAudit.id);
+                  } else {
+                    // Demo mode
+                    packageData = {
+                      audit_name: selectedAudit.audit_name,
+                      framework: selectedAudit.framework,
+                      evidence: auditEvidence.map(e => ({
+                        control_id: e.control_id,
+                        evidence_name: e.evidence_name,
+                        evidence_type: e.evidence_type,
+                        validated: e.validated,
+                        uploaded_at: e.uploaded_at
+                      }))
+                    };
+                  }
+                  
+                  // Generate CSV
+                  const csv = [
+                    ['Control ID', 'Evidence Name', 'Type', 'Validated', 'Uploaded', 'Expiration'],
+                    ...(packageData.evidence || packageData.evidence_catalog || []).map(e => [
+                      e.control_id || '',
+                      e.evidence_name || '',
+                      e.evidence_type || '',
+                      e.validated ? 'Yes' : 'No',
+                      e.uploaded_at ? new Date(e.uploaded_at).toLocaleDateString() : '',
+                      e.expiration_date ? new Date(e.expiration_date).toLocaleDateString() : ''
+                    ])
+                  ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+                  
+                  const blob = new Blob([csv], { type: 'text/csv' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `evidence-package-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  alert('Evidence package exported successfully!');
+                } catch (error) {
+                  console.error('Error generating evidence package:', error);
+                  alert('Error generating evidence package. Please try again.');
+                }
+              }}
+              className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg hover:bg-green-500/20 transition-colors text-left"
+            >
+              <Download className="w-6 h-6 text-green-500 mb-2" />
+              <div className="font-semibold text-foreground mb-1">Evidence Package</div>
+              <div className="text-xs text-muted-foreground">CSV export of all evidence with validation status for audit submission</div>
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  let summaryData;
+                  if (backendConnected && currentUser.id) {
+                    summaryData = await api.generateExecutiveSummary(currentUser.id, selectedAudit.id);
+                  } else {
+                    // Demo mode
+                    summaryData = {
+                      audit_overview: {
+                        audit_name: selectedAudit.audit_name,
+                        framework: selectedAudit.framework,
+                        status: selectedAudit.status
+                      },
+                      key_metrics: {
+                        readiness_score: selectedAudit.readiness_score || 0,
+                        total_findings: auditFindings.length,
+                        critical_findings: auditFindings.filter(f => f.severity === 'critical').length,
+                        total_evidence: auditEvidence.length
+                      },
+                      recommendations: [
+                        "Continue maintaining current compliance posture",
+                        "Address any open findings promptly"
+                      ]
+                    };
+                  }
+                  
+                  // Generate formatted text summary
+                  const summaryText = `
+AUDIT EXECUTIVE SUMMARY
+======================
+
+Audit: ${summaryData.audit_overview?.audit_name || selectedAudit.audit_name}
+Framework: ${summaryData.audit_overview?.framework || selectedAudit.framework}
+Status: ${summaryData.audit_overview?.status || selectedAudit.status}
+Readiness Score: ${summaryData.key_metrics?.readiness_score || 0}%
+Assessment Level: ${summaryData.key_metrics?.assessment_level || 'N/A'}
+
+KEY METRICS
+-----------
+Total Controls: ${summaryData.key_metrics?.total_controls || selectedAudit.scope?.length || 0}
+Controls with Evidence: ${summaryData.key_metrics?.controls_with_evidence || 0}
+Evidence Coverage: ${summaryData.key_metrics?.evidence_coverage || 0}%
+
+Findings:
+- Total: ${summaryData.key_metrics?.total_findings || auditFindings.length}
+- Critical: ${summaryData.key_metrics?.critical_findings || 0}
+- High: ${summaryData.key_metrics?.high_findings || 0}
+- Resolved: ${summaryData.key_metrics?.resolved_findings || 0}
+
+Evidence:
+- Total: ${summaryData.key_metrics?.total_evidence || auditEvidence.length}
+- Validated: ${summaryData.key_metrics?.validated_evidence || 0}
+
+${summaryData.top_findings && summaryData.top_findings.length > 0 ? `
+TOP FINDINGS
+------------
+${summaryData.top_findings.slice(0, 5).map((f, i) => `${i + 1}. ${f.severity.toUpperCase()}: ${f.description.substring(0, 100)}...`).join('\n')}
+` : ''}
+
+RECOMMENDATIONS
+---------------
+${(summaryData.recommendations || []).map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+${summaryData.next_steps && summaryData.next_steps.length > 0 ? `
+NEXT STEPS
+----------
+${summaryData.next_steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}
+` : ''}
+
+Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLocaleString()}
+                  `.trim();
+                  
+                  const blob = new Blob([summaryText], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `executive-summary-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  alert('Executive summary generated successfully!');
+                } catch (error) {
+                  console.error('Error generating executive summary:', error);
+                  alert('Error generating executive summary. Please try again.');
+                }
+              }}
+              className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg hover:bg-purple-500/20 transition-colors text-left"
+            >
+              <BarChart3 className="w-6 h-6 text-purple-500 mb-2" />
+              <div className="font-semibold text-foreground mb-1">Executive Summary</div>
+              <div className="text-xs text-muted-foreground">High-level summary with key metrics and recommendations for leadership</div>
+            </button>
           </div>
         </div>
 
@@ -15973,6 +16515,117 @@ const closeControlDetail = useCallback(() => {
             </div>
           </div>
         )}
+
+        {/* Automated Evidence Collection */}
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
+          <div className="p-6 border-b border-[hsl(var(--border))]">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <RefreshCw className="w-5 h-5 text-primary" />
+                  Automated Evidence Collection
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Automatically collect evidence from integrated systems (EDR, Identity Providers, Cloud Platforms, etc.)
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => triggerEvidenceCollection()}
+                  disabled={evidenceCollectionLoading}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {evidenceCollectionLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Collecting...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      Collect All Evidence
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={triggerAutoLinking}
+                  className="flex items-center gap-2 px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted font-medium text-sm"
+                >
+                  <Link2 className="w-4 h-4" />
+                  Auto-Link Evidence
+                </button>
+              </div>
+            </div>
+            
+            {/* Collection Status */}
+            {evidenceCollectionStatus && (
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-foreground mb-1">Collection Complete</div>
+                    <div className="text-sm text-muted-foreground">
+                      Collected {evidenceCollectionStatus.evidence_collected} evidence items for {evidenceCollectionStatus.controls_processed} controls
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setEvidenceCollectionStatus(null)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Evidence Freshness */}
+            {evidenceFreshness && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Total Evidence</div>
+                  <div className="text-lg font-bold text-foreground">{evidenceFreshness.total_evidence}</div>
+                </div>
+                <div className="bg-green-500/10 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Fresh (&lt;30 days)</div>
+                  <div className="text-lg font-bold text-green-500">{evidenceFreshness.fresh_evidence}</div>
+                </div>
+                <div className="bg-yellow-500/10 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Stale (30-90 days)</div>
+                  <div className="text-lg font-bold text-yellow-500">{evidenceFreshness.stale_evidence}</div>
+                </div>
+                <div className="bg-red-500/10 rounded-lg p-3">
+                  <div className="text-xs text-muted-foreground mb-1">Expired/Expiring</div>
+                  <div className="text-lg font-bold text-red-500">
+                    {evidenceFreshness.expired_evidence + evidenceFreshness.expiring_soon}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Expiration Warnings */}
+            {evidenceFreshness && evidenceFreshness.expiration_warnings && evidenceFreshness.expiration_warnings.length > 0 && (
+              <div className="mt-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
+                <div className="font-semibold text-yellow-500 mb-2 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Expiration Warnings ({evidenceFreshness.expiration_warnings.length})
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {evidenceFreshness.expiration_warnings.slice(0, 5).map((warning, idx) => (
+                    <div key={idx} className="text-sm text-foreground">
+                      Control {warning.control_id}: {warning.expired_days_ago 
+                        ? `Expired ${warning.expired_days_ago} days ago`
+                        : `Expires in ${warning.expires_in_days} days`}
+                    </div>
+                  ))}
+                  {evidenceFreshness.expiration_warnings.length > 5 && (
+                    <div className="text-xs text-muted-foreground">
+                      +{evidenceFreshness.expiration_warnings.length - 5} more warnings
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Evidence Review Interface - Auditor Feature */}
         {isAuditor && auditEvidence.length > 0 && (
@@ -16371,141 +17024,6 @@ const closeControlDetail = useCallback(() => {
                 </div>
               ))
             )}
-          </div>
-        </div>
-
-        {/* Automated Report Generation - NEW ACCELERATION FEATURE */}
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                <FileText className="w-5 h-5 text-primary" />
-                Audit Report Generation
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Generate comprehensive audit reports in seconds. Export evidence packages and executive summaries.
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              onClick={() => {
-                // Generate full audit report
-                const reportData = {
-                  audit: selectedAudit,
-                  findings: auditFindings,
-                  evidence: auditEvidence,
-                  readiness: auditReadiness,
-                  generated_at: new Date().toISOString(),
-                  generated_by: currentUser.email
-                };
-                const reportJson = JSON.stringify(reportData, null, 2);
-                const blob = new Blob([reportJson], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `audit-report-${selectedAudit.audit_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.json`;
-                a.click();
-                alert('Audit report generated! Full report export coming soon.');
-              }}
-              className="p-4 bg-primary/10 border border-primary/20 rounded-lg hover:bg-primary/20 transition-colors text-left"
-            >
-              <FileText className="w-6 h-6 text-primary mb-2" />
-              <div className="font-semibold text-foreground mb-1">Full Audit Report</div>
-              <div className="text-xs text-muted-foreground">Complete audit documentation with all findings and evidence</div>
-            </button>
-            <button
-              onClick={() => {
-                // Generate evidence package
-                const evidencePackage = {
-                  audit_name: selectedAudit.audit_name,
-                  framework: selectedAudit.framework,
-                  evidence: auditEvidence.map(e => ({
-                    control_id: e.control_id,
-                    evidence_name: e.evidence_name,
-                    evidence_type: e.evidence_type,
-                    validated: e.validated,
-                    uploaded_at: e.uploaded_at
-                  })),
-                  generated_at: new Date().toISOString()
-                };
-                const csv = [
-                  ['Control ID', 'Evidence Name', 'Type', 'Validated', 'Uploaded'],
-                  ...evidencePackage.evidence.map(e => [
-                    e.control_id,
-                    e.evidence_name,
-                    e.evidence_type,
-                    e.validated ? 'Yes' : 'No',
-                    new Date(e.uploaded_at).toLocaleDateString()
-                  ])
-                ].map(row => row.join(',')).join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `evidence-package-${selectedAudit.audit_name.replace(/\s+/g, '-')}.csv`;
-                a.click();
-                alert('Evidence package exported!');
-              }}
-              className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg hover:bg-green-500/20 transition-colors text-left"
-            >
-              <Download className="w-6 h-6 text-green-500 mb-2" />
-              <div className="font-semibold text-foreground mb-1">Evidence Package</div>
-              <div className="text-xs text-muted-foreground">CSV export of all evidence for audit submission</div>
-            </button>
-            <button
-              onClick={() => {
-                // Generate executive summary
-                const summary = {
-                  audit_name: selectedAudit.audit_name,
-                  framework: FRAMEWORK_LIBRARY[selectedAudit.framework]?.name || selectedAudit.framework,
-                  status: selectedAudit.status,
-                  readiness_score: selectedAudit.readiness_score || 0,
-                  total_findings: auditFindings.length,
-                  critical_findings: auditFindings.filter(f => f.severity === 'critical').length,
-                  high_findings: auditFindings.filter(f => f.severity === 'high').length,
-                  evidence_count: auditEvidence.length,
-                  validated_evidence: auditEvidence.filter(e => e.validated).length,
-                  summary: `Audit readiness: ${selectedAudit.readiness_score || 0}%. ${auditFindings.length} findings identified, ${auditEvidence.length} evidence items collected.`,
-                  generated_at: new Date().toISOString()
-                };
-                const summaryText = `
-AUDIT EXECUTIVE SUMMARY
-======================
-
-Audit: ${summary.audit_name}
-Framework: ${summary.framework}
-Status: ${summary.status}
-Readiness Score: ${summary.readiness_score}%
-
-Findings:
-- Total: ${summary.total_findings}
-- Critical: ${summary.critical_findings}
-- High: ${summary.high_findings}
-
-Evidence:
-- Total: ${summary.evidence_count}
-- Validated: ${summary.validated_evidence}
-
-Summary:
-${summary.summary}
-
-Generated: ${new Date(summary.generated_at).toLocaleString()}
-                `.trim();
-                const blob = new Blob([summaryText], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `executive-summary-${selectedAudit.audit_name.replace(/\s+/g, '-')}.txt`;
-                a.click();
-                alert('Executive summary generated!');
-              }}
-              className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg hover:bg-purple-500/20 transition-colors text-left"
-            >
-              <BarChart3 className="w-6 h-6 text-purple-500 mb-2" />
-              <div className="font-semibold text-foreground mb-1">Executive Summary</div>
-              <div className="text-xs text-muted-foreground">High-level summary for leadership and stakeholders</div>
-            </button>
           </div>
         </div>
 

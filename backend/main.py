@@ -29,6 +29,13 @@ from services.integration_service import (
     register_integration, ingest_edr_event, ingest_network_appliance_log,
     ingest_identity_provider_event, ingest_cloud_platform_event
 )
+from services.evidence_collection_service import (
+    collect_evidence_for_control, collect_evidence_for_audit,
+    get_evidence_freshness, auto_link_evidence_to_controls
+)
+from services.report_generation_service import (
+    generate_full_audit_report, generate_evidence_package, generate_executive_summary
+)
 from services.csca_engine import map_security_event_to_compliance, calculate_compliance_impact, update_compliance_scores_from_security_event, get_security_compliance_correlation
 from services import alert_service
 from services import intelligence_service
@@ -1586,6 +1593,137 @@ async def validate_evidence(audit_id: int, evidence_id: int, user_id: int = Head
     conn.close()
     
     return {"message": "Evidence validation updated successfully"}
+
+# Automated Evidence Collection Endpoints
+@app.post("/api/audits/{audit_id}/evidence/collect")
+async def trigger_evidence_collection(
+    audit_id: int,
+    user_id: int = Header(..., alias="X-User-Id"),
+    control_ids: Optional[List[str]] = None,
+    integration_id: Optional[int] = None
+):
+    """Trigger automated evidence collection for an audit"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    conn.close()
+    
+    # Collect evidence
+    results = collect_evidence_for_audit(audit_id, control_ids, integration_id)
+    
+    return results
+
+@app.post("/api/audits/{audit_id}/evidence/collect/{control_id}")
+async def collect_evidence_for_single_control(
+    audit_id: int,
+    control_id: str,
+    user_id: int = Header(..., alias="X-User-Id"),
+    integration_id: Optional[int] = None
+):
+    """Collect evidence for a specific control"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    conn.close()
+    
+    # Collect evidence for this control
+    evidence_items = collect_evidence_for_control(control_id, audit_id, integration_id)
+    
+    return {
+        "control_id": control_id,
+        "evidence_collected": len(evidence_items),
+        "evidence_items": evidence_items
+    }
+
+@app.get("/api/audits/{audit_id}/evidence/freshness")
+async def get_evidence_freshness_metrics(
+    audit_id: int,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Get evidence freshness metrics for an audit"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    conn.close()
+    
+    freshness_stats = get_evidence_freshness(audit_id)
+    
+    return freshness_stats
+
+@app.post("/api/audits/{audit_id}/evidence/auto-link")
+async def trigger_auto_linking(
+    audit_id: int,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Automatically link evidence to controls based on content analysis"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Verify audit belongs to user
+    cursor.execute("SELECT id FROM audit_engagements WHERE id = ? AND user_id = ?", (audit_id, user_id))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    conn.close()
+    
+    linking_results = auto_link_evidence_to_controls(audit_id)
+    
+    return linking_results
+
+# Report Generation Endpoints
+@app.get("/api/audits/{audit_id}/reports/full")
+async def generate_full_report(
+    audit_id: int,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Generate full audit report"""
+    report = generate_full_audit_report(audit_id, user_id)
+    if "error" in report:
+        raise HTTPException(status_code=404, detail=report["error"])
+    return report
+
+@app.get("/api/audits/{audit_id}/reports/evidence-package")
+async def generate_evidence_package_report(
+    audit_id: int,
+    user_id: int = Header(..., alias="X-User-Id"),
+    control_ids: Optional[str] = None
+):
+    """Generate evidence package report"""
+    control_ids_list = json.loads(control_ids) if control_ids else None
+    package = generate_evidence_package(audit_id, user_id, control_ids_list)
+    if "error" in package:
+        raise HTTPException(status_code=404, detail=package["error"])
+    return package
+
+@app.get("/api/audits/{audit_id}/reports/executive-summary")
+async def generate_executive_summary_report(
+    audit_id: int,
+    user_id: int = Header(..., alias="X-User-Id")
+):
+    """Generate executive summary report"""
+    summary = generate_executive_summary(audit_id, user_id)
+    if "error" in summary:
+        raise HTTPException(status_code=404, detail=summary["error"])
+    return summary
 
 # Certification Endpoints
 @app.post("/api/certifications")
