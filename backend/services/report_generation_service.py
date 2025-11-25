@@ -93,6 +93,15 @@ def generate_full_audit_report(audit_id: int, user_id: int) -> Dict[str, Any]:
             evidence_by_control[control_id] = []
         evidence_by_control[control_id].append(ev)
     
+    # Get integration events mapped to controls in scope (via compliance alerts)
+    integration_events_summary = _get_integration_events_summary(conn, user_id, scope, audit_dict.get('start_date'))
+    
+    # Get workflow executions related to this audit
+    workflow_executions_summary = _get_workflow_executions_summary(conn, user_id, audit_id, audit_dict.get('start_date'))
+    
+    # Calculate evidence freshness metrics
+    evidence_freshness = _calculate_evidence_freshness(evidence, audit_dict.get('start_date'))
+    
     # Generate report sections
     report = {
         "report_type": "full_audit_report",
@@ -157,10 +166,15 @@ def generate_full_audit_report(audit_id: int, user_id: int) -> Dict[str, Any]:
             "evidence_list": evidence
         },
         "recommendations": _generate_recommendations(findings, evidence_coverage, readiness_score),
+        "integration_events": integration_events_summary,
+        "workflow_executions": workflow_executions_summary,
+        "evidence_freshness": evidence_freshness,
         "appendices": {
             "findings_details": findings,
             "evidence_catalog": evidence,
-            "control_mapping": _generate_control_mapping(scope, evidence_by_control)
+            "control_mapping": _generate_control_mapping(scope, evidence_by_control),
+            "integration_events_details": integration_events_summary.get('events', []),
+            "workflow_executions_details": workflow_executions_summary.get('executions', [])
         }
     }
     
@@ -212,6 +226,13 @@ def generate_evidence_package(audit_id: int, user_id: int, control_ids: Optional
     # Calculate statistics
     validated_count = len([e for e in evidence if e.get('validated')])
     
+    # Get evidence freshness
+    evidence_freshness = _calculate_evidence_freshness(evidence, audit_dict.get('start_date'))
+    
+    # Get integration events for controls in package
+    scope_controls = control_ids if control_ids else json.loads(audit_dict.get('scope', '[]'))
+    integration_events_summary = _get_integration_events_summary(conn, user_id, scope_controls, audit_dict.get('start_date'))
+    
     package = {
         "report_type": "evidence_package",
         "audit_id": audit_id,
@@ -234,6 +255,12 @@ def generate_evidence_package(audit_id: int, user_id: int, control_ids: Optional
             "validated": validated_count,
             "pending": len(evidence) - validated_count,
             "validation_rate": round((validated_count / len(evidence) * 100) if evidence else 0, 1)
+        },
+        "evidence_freshness": evidence_freshness,
+        "integration_events": {
+            "total_events": integration_events_summary.get('total_events', 0),
+            "by_source": integration_events_summary.get('by_source', {}),
+            "by_type": integration_events_summary.get('by_type', {})
         }
     }
     
@@ -293,6 +320,18 @@ def generate_executive_summary(audit_id: int, user_id: int) -> Dict[str, Any]:
     """, (audit_id,))
     top_findings = [dict(f) for f in cursor.fetchall()]
     
+    # Get integration events and workflow summaries
+    scope = json.loads(audit_dict.get('scope', '[]'))
+    integration_events_summary = _get_integration_events_summary(conn, user_id, scope, audit_dict.get('start_date'))
+    workflow_executions_summary = _get_workflow_executions_summary(conn, user_id, audit_id, audit_dict.get('start_date'))
+    
+    # Get evidence freshness
+    cursor.execute("""
+        SELECT * FROM audit_evidence WHERE audit_engagement_id = ?
+    """, (audit_id,))
+    evidence = [dict(e) for e in cursor.fetchall()]
+    evidence_freshness = _calculate_evidence_freshness(evidence, audit_dict.get('start_date'))
+    
     summary = {
         "report_type": "executive_summary",
         "audit_id": audit_id,
@@ -324,7 +363,14 @@ def generate_executive_summary(audit_id: int, user_id: int) -> Dict[str, Any]:
             findings_stats.get('critical_findings', 0),
             findings_stats.get('high_findings', 0)
         ),
-        "next_steps": _generate_next_steps(audit_dict['status'], findings_stats)
+        "next_steps": _generate_next_steps(audit_dict['status'], findings_stats),
+        "automation_metrics": {
+            "integration_events": integration_events_summary.get('total_events', 0),
+            "workflow_executions": workflow_executions_summary.get('total_executions', 0),
+            "evidence_collected_automated": workflow_executions_summary.get('total_evidence_collected', 0),
+            "gaps_remediated_automated": workflow_executions_summary.get('total_gaps_remediated', 0)
+        },
+        "evidence_freshness": evidence_freshness
     }
     
     conn.close()
@@ -456,4 +502,192 @@ def _generate_control_mapping(scope: List[str], evidence_by_control: Dict) -> Di
             "validated_evidence": len([e for e in evidence_by_control.get(control_id, []) if e.get('validated')])
         }
     return mapping
+
+
+def _get_integration_events_summary(conn: sqlite3.Connection, user_id: int, control_ids: List[str], 
+                                    start_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get summary of integration events mapped to controls in audit scope.
+    This ensures integration events flow to reports.
+    """
+    cursor = conn.cursor()
+    
+    # Get compliance alerts created from integration events for controls in scope
+    if control_ids:
+        placeholders = ','.join(['?'] * len(control_ids))
+        query = f"""
+            SELECT ca.*, 
+                   json_extract(ca.metadata_json, '$.event_source') as event_source,
+                   json_extract(ca.metadata_json, '$.event_type') as event_type,
+                   json_extract(ca.metadata_json, '$.mapped_controls') as mapped_controls
+            FROM compliance_alerts ca
+            WHERE ca.user_id = ? 
+              AND ca.alert_type = 'integration_event'
+              AND ca.control_id IN ({placeholders})
+        """
+        params = [user_id] + control_ids
+    else:
+        query = """
+            SELECT ca.*, 
+                   json_extract(ca.metadata_json, '$.event_source') as event_source,
+                   json_extract(ca.metadata_json, '$.event_type') as event_type,
+                   json_extract(ca.metadata_json, '$.mapped_controls') as mapped_controls
+            FROM compliance_alerts ca
+            WHERE ca.user_id = ? AND ca.alert_type = 'integration_event'
+        """
+        params = [user_id]
+    
+    if start_date:
+        query += " AND ca.created_at >= ?"
+        params.append(start_date)
+    
+    query += " ORDER BY ca.created_at DESC LIMIT 100"
+    
+    cursor.execute(query, params)
+    alerts = [dict(a) for a in cursor.fetchall()]
+    
+    # Group by event source and type
+    by_source = {}
+    by_type = {}
+    by_framework = {}
+    
+    for alert in alerts:
+        source = alert.get('event_source') or 'unknown'
+        event_type = alert.get('event_type') or 'unknown'
+        framework = alert.get('framework') or 'unknown'
+        
+        by_source[source] = by_source.get(source, 0) + 1
+        by_type[event_type] = by_type.get(event_type, 0) + 1
+        by_framework[framework] = by_framework.get(framework, 0) + 1
+    
+    return {
+        "total_events": len(alerts),
+        "by_source": by_source,
+        "by_type": by_type,
+        "by_framework": by_framework,
+        "events": alerts[:50]  # Include top 50 events in summary
+    }
+
+
+def _get_workflow_executions_summary(conn: sqlite3.Connection, user_id: int, audit_id: int,
+                                     start_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get summary of workflow executions related to this audit.
+    This ensures workflow executions flow to reports.
+    """
+    cursor = conn.cursor()
+    
+    # Get workflow executions that might be related to this audit
+    # (evidence collection, gap remediation, audit prep workflows)
+    query = """
+        SELECT we.*, w.name as workflow_name, w.workflow_type
+        FROM workflow_executions we
+        JOIN workflows w ON we.workflow_id = w.id
+        WHERE we.user_id = ? 
+          AND w.workflow_type IN ('evidence_collection', 'gap_remediation', 'audit_preparation')
+          AND we.status = 'completed'
+    """
+    params = [user_id]
+    
+    if start_date:
+        query += " AND we.started_at >= ?"
+        params.append(start_date)
+    
+    query += " ORDER BY we.completed_at DESC LIMIT 50"
+    
+    cursor.execute(query, params)
+    executions = [dict(e) for e in cursor.fetchall()]
+    
+    # Group by workflow type
+    by_type = {}
+    total_evidence_collected = 0
+    total_gaps_remediated = 0
+    
+    for exec in executions:
+        wf_type = exec.get('workflow_type', 'unknown')
+        by_type[wf_type] = by_type.get(wf_type, 0) + 1
+        
+        # Parse execution_data for metrics
+        exec_data = json.loads(exec.get('execution_data', '{}'))
+        if wf_type == 'evidence_collection':
+            evidence_collected = exec_data.get('evidence_collected', [])
+            if isinstance(evidence_collected, list):
+                total_evidence_collected += len(evidence_collected)
+        elif wf_type == 'gap_remediation':
+            remediated = exec_data.get('remediated_controls', [])
+            if isinstance(remediated, list):
+                total_gaps_remediated += len(remediated)
+    
+    return {
+        "total_executions": len(executions),
+        "by_type": by_type,
+        "total_evidence_collected": total_evidence_collected,
+        "total_gaps_remediated": total_gaps_remediated,
+        "executions": executions[:20]  # Include top 20 executions in summary
+    }
+
+
+def _calculate_evidence_freshness(evidence: List[Dict], audit_start_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Calculate evidence freshness metrics.
+    This ensures timestamps flow to reports and audit readiness assessment.
+    """
+    if not evidence:
+        return {
+            "average_age_days": 0,
+            "fresh_evidence_count": 0,
+            "stale_evidence_count": 0,
+            "by_age_category": {}
+        }
+    
+    now = datetime.now()
+    audit_start = datetime.fromisoformat(audit_start_date) if audit_start_date else now
+    
+    ages = []
+    fresh_count = 0  # < 30 days old
+    stale_count = 0  # > 90 days old
+    
+    by_category = {
+        "fresh": 0,      # < 30 days
+        "recent": 0,    # 30-90 days
+        "stale": 0,     # 90-180 days
+        "very_stale": 0  # > 180 days
+    }
+    
+    for ev in evidence:
+        # Use collected_at, uploaded_at, or created_at
+        ev_date_str = ev.get('collected_at') or ev.get('uploaded_at') or ev.get('created_at')
+        if not ev_date_str:
+            continue
+        
+        try:
+            ev_date = datetime.fromisoformat(ev_date_str.replace('Z', '+00:00').split('+')[0])
+            age_days = (now - ev_date).days
+            ages.append(age_days)
+            
+            if age_days < 30:
+                fresh_count += 1
+                by_category["fresh"] += 1
+            elif age_days < 90:
+                by_category["recent"] += 1
+            elif age_days < 180:
+                stale_count += 1
+                by_category["stale"] += 1
+            else:
+                stale_count += 1
+                by_category["very_stale"] += 1
+        except:
+            continue
+    
+    avg_age = sum(ages) / len(ages) if ages else 0
+    
+    return {
+        "average_age_days": round(avg_age, 1),
+        "fresh_evidence_count": fresh_count,
+        "stale_evidence_count": stale_count,
+        "total_evidence": len(evidence),
+        "by_age_category": by_category,
+        "freshness_score": round((fresh_count / len(evidence) * 100) if evidence else 0, 1)  # % fresh
+    }
+
 

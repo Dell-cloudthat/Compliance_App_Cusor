@@ -341,6 +341,90 @@ class ComplianceAPI {
     });
   }
 
+  // ==================== Workflow Automation ====================
+  
+  async getWorkflowTemplates() {
+    return this.request('/api/workflows/templates');
+  }
+
+  async createWorkflow(userId, workflowData) {
+    return this.request('/api/workflows', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(workflowData),
+    });
+  }
+
+  async listWorkflows(userId, workflowType = null, status = null) {
+    const params = new URLSearchParams();
+    if (workflowType) params.append('workflow_type', workflowType);
+    if (status) params.append('status', status);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/api/workflows${query}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getWorkflow(userId, workflowId) {
+    return this.request(`/api/workflows/${workflowId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async updateWorkflow(userId, workflowId, workflowData) {
+    return this.request(`/api/workflows/${workflowId}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(workflowData),
+    });
+  }
+
+  async deleteWorkflow(userId, workflowId) {
+    return this.request(`/api/workflows/${workflowId}`, {
+      method: 'DELETE',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async executeWorkflow(userId, workflowId, executionData = {}) {
+    return this.request(`/api/workflows/${workflowId}/execute`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(executionData),
+    });
+  }
+
+  async getWorkflowExecutions(userId, workflowId, status = null, limit = 50) {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    params.append('limit', limit.toString());
+    return this.request(`/api/workflows/${workflowId}/executions?${params.toString()}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getWorkflowAnalytics(userId, days = 30) {
+    return this.request(`/api/workflows/analytics?days=${days}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
   // ============================================================================
   // IAM (Identity & Access Management) Endpoints
   // ============================================================================
@@ -791,6 +875,14 @@ class ComplianceAPI {
     const query = reason ? `?reason=${encodeURIComponent(reason)}` : '';
     return this.request(`/api/data-flow/edges/${edgeId}${query}`, {
       method: 'DELETE',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getIntegrationEventsSummary(userId, days = 30) {
+    return this.request(`/api/integrations/events/summary?days=${days}`, {
       headers: {
         'X-User-Id': userId.toString(),
       },

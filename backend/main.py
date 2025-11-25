@@ -29,12 +29,19 @@ from services.integration_service import (
     register_integration, ingest_edr_event, ingest_network_appliance_log,
     ingest_identity_provider_event, ingest_cloud_platform_event
 )
+from services.auto_mapping_service import (
+    map_event_to_controls, auto_map_integration_event, update_control_evidence_from_event
+)
 from services.evidence_collection_service import (
     collect_evidence_for_control, collect_evidence_for_audit,
     get_evidence_freshness, auto_link_evidence_to_controls
 )
 from services.report_generation_service import (
     generate_full_audit_report, generate_evidence_package, generate_executive_summary
+)
+from services.workflow_service import (
+    create_workflow, get_workflow, list_workflows, update_workflow, delete_workflow,
+    execute_workflow, get_workflow_executions, get_workflow_analytics, get_workflow_templates
 )
 from services.csca_engine import map_security_event_to_compliance, calculate_compliance_impact, update_compliance_scores_from_security_event, get_security_compliance_correlation
 from services import alert_service
@@ -2394,6 +2401,113 @@ async def ingest_cloud_event_endpoint(
         "message": "Cloud platform event ingested successfully"
     }
 
+@app.get("/api/integrations/events/summary")
+async def get_integration_events_summary(
+    user_id: int = Header(..., alias="X-User-Id"),
+    days: int = 30
+):
+    """Get summary of integration events for data flow visualization"""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    # Get integrations for this user
+    cursor.execute("SELECT id, name, integration_type FROM integrations WHERE user_id = ?", (user_id,))
+    integrations = [dict(row) for row in cursor.fetchall()]
+    
+    # Get event counts by integration and type
+    summary = {
+        "total_events": 0,
+        "by_integration": {},
+        "by_type": {},
+        "by_framework": {},
+        "recent_events": []
+    }
+    
+    # EDR Events
+    for integration in integrations:
+        if integration['integration_type'] in ['EDR', 'edr']:
+            cursor.execute("""
+                SELECT COUNT(*) as count, event_type
+                FROM edr_events
+                WHERE integration_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+                GROUP BY event_type
+            """, (integration['id'], days))
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                event_type = row_dict['event_type'] or 'unknown'
+                count = row_dict['count'] or 0
+                summary['total_events'] += count
+                summary['by_integration'][integration['name']] = summary['by_integration'].get(integration['name'], 0) + count
+                summary['by_type'][event_type] = summary['by_type'].get(event_type, 0) + count
+    
+    # Network Appliance Logs
+    for integration in integrations:
+        if integration['integration_type'] in ['Network', 'network']:
+            cursor.execute("""
+                SELECT COUNT(*) as count, log_type
+                FROM network_appliance_logs
+                WHERE integration_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+                GROUP BY log_type
+            """, (integration['id'], days))
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                log_type = row_dict['log_type'] or 'unknown'
+                count = row_dict['count'] or 0
+                summary['total_events'] += count
+                summary['by_integration'][integration['name']] = summary['by_integration'].get(integration['name'], 0) + count
+                summary['by_type'][log_type] = summary['by_type'].get(log_type, 0) + count
+    
+    # Identity Provider Events
+    for integration in integrations:
+        if integration['integration_type'] in ['Identity', 'identity']:
+            cursor.execute("""
+                SELECT COUNT(*) as count, event_type
+                FROM identity_provider_events
+                WHERE integration_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+                GROUP BY event_type
+            """, (integration['id'], days))
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                event_type = row_dict['event_type'] or 'unknown'
+                count = row_dict['count'] or 0
+                summary['total_events'] += count
+                summary['by_integration'][integration['name']] = summary['by_integration'].get(integration['name'], 0) + count
+                summary['by_type'][event_type] = summary['by_type'].get(event_type, 0) + count
+    
+    # Cloud Platform Events
+    for integration in integrations:
+        if integration['integration_type'] in ['Cloud', 'cloud']:
+            cursor.execute("""
+                SELECT COUNT(*) as count, event_type
+                FROM cloud_platform_events
+                WHERE integration_id = ? AND created_at >= datetime('now', '-' || ? || ' days')
+                GROUP BY event_type
+            """, (integration['id'], days))
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                event_type = row_dict['event_type'] or 'unknown'
+                count = row_dict['count'] or 0
+                summary['total_events'] += count
+                summary['by_integration'][integration['name']] = summary['by_integration'].get(integration['name'], 0) + count
+                summary['by_type'][event_type] = summary['by_type'].get(event_type, 0) + count
+    
+    # Get compliance alerts created from integration events (to show framework mapping)
+    cursor.execute("""
+        SELECT framework, COUNT(*) as count
+        FROM compliance_alerts
+        WHERE user_id = ? AND alert_type = 'integration_event' 
+          AND created_at >= datetime('now', '-' || ? || ' days')
+        GROUP BY framework
+    """, (user_id, days))
+    for row in cursor.fetchall():
+        row_dict = dict(row)
+        framework = row_dict['framework'] or 'unknown'
+        count = row_dict['count'] or 0
+        summary['by_framework'][framework] = summary['by_framework'].get(framework, 0) + count
+    
+    conn.close()
+    return summary
+
 # ============================================================================
 # Data Flow Architecture Endpoints
 # ============================================================================
@@ -3381,6 +3495,169 @@ async def get_actionable_alerts_endpoint(user_id: int = Header(..., alias="X-Use
         return alerts
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get actionable alerts: {str(e)}")
+
+# ==================== Workflow Automation Endpoints ====================
+
+@app.get("/api/workflows/templates")
+async def get_workflow_templates_endpoint():
+    """Get available workflow templates"""
+    try:
+        templates = get_workflow_templates()
+        return templates
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get workflow templates: {str(e)}")
+
+@app.post("/api/workflows", response_model=Dict[str, Any])
+async def create_workflow_endpoint(
+    request: Request,
+    workflow_data: Dict[str, Any] = Body(...)
+):
+    """Create a new workflow"""
+    try:
+        user_id = get_user_id_from_request(request)
+        workflow = create_workflow(
+            user_id=user_id,
+            name=workflow_data.get('name'),
+            workflow_type=workflow_data.get('workflow_type'),
+            description=workflow_data.get('description'),
+            trigger_config=workflow_data.get('trigger_config'),
+            steps=workflow_data.get('steps'),
+            conditions=workflow_data.get('conditions'),
+            escalation_rules=workflow_data.get('escalation_rules'),
+            metadata=workflow_data.get('metadata')
+        )
+        return workflow
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create workflow: {str(e)}")
+
+@app.get("/api/workflows", response_model=List[Dict[str, Any]])
+async def list_workflows_endpoint(
+    request: Request,
+    workflow_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None)
+):
+    """List workflows for the current user"""
+    try:
+        user_id = get_user_id_from_request(request)
+        workflows = list_workflows(user_id, workflow_type, status)
+        return workflows
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list workflows: {str(e)}")
+
+@app.get("/api/workflows/{workflow_id}", response_model=Dict[str, Any])
+async def get_workflow_endpoint(
+    workflow_id: int,
+    request: Request
+):
+    """Get a specific workflow"""
+    try:
+        user_id = get_user_id_from_request(request)
+        workflow = get_workflow(workflow_id, user_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return workflow
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get workflow: {str(e)}")
+
+@app.put("/api/workflows/{workflow_id}", response_model=Dict[str, Any])
+async def update_workflow_endpoint(
+    workflow_id: int,
+    request: Request,
+    workflow_data: Dict[str, Any] = Body(...)
+):
+    """Update a workflow"""
+    try:
+        user_id = get_user_id_from_request(request)
+        workflow = update_workflow(
+            workflow_id=workflow_id,
+            user_id=user_id,
+            name=workflow_data.get('name'),
+            description=workflow_data.get('description'),
+            status=workflow_data.get('status'),
+            trigger_config=workflow_data.get('trigger_config'),
+            steps=workflow_data.get('steps'),
+            conditions=workflow_data.get('conditions'),
+            escalation_rules=workflow_data.get('escalation_rules'),
+            metadata=workflow_data.get('metadata')
+        )
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return workflow
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update workflow: {str(e)}")
+
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow_endpoint(
+    workflow_id: int,
+    request: Request
+):
+    """Delete a workflow"""
+    try:
+        user_id = get_user_id_from_request(request)
+        deleted = delete_workflow(workflow_id, user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return {"success": True, "message": "Workflow deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {str(e)}")
+
+@app.post("/api/workflows/{workflow_id}/execute", response_model=Dict[str, Any])
+async def execute_workflow_endpoint(
+    workflow_id: int,
+    request: Request,
+    execution_data: Dict[str, Any] = Body(...)
+):
+    """Execute a workflow"""
+    try:
+        user_id = get_user_id_from_request(request)
+        result = execute_workflow(
+            workflow_id=workflow_id,
+            user_id=user_id,
+            trigger_event=execution_data.get('trigger_event'),
+            trigger_data=execution_data.get('trigger_data')
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
+
+@app.get("/api/workflows/{workflow_id}/executions", response_model=List[Dict[str, Any]])
+async def get_workflow_executions_endpoint(
+    workflow_id: int,
+    request: Request,
+    status: Optional[str] = Query(None),
+    limit: int = Query(50)
+):
+    """Get execution history for a workflow"""
+    try:
+        user_id = get_user_id_from_request(request)
+        executions = get_workflow_executions(
+            workflow_id=workflow_id,
+            user_id=user_id,
+            status=status,
+            limit=limit
+        )
+        return executions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get workflow executions: {str(e)}")
+
+@app.get("/api/workflows/analytics", response_model=Dict[str, Any])
+async def get_workflow_analytics_endpoint(
+    request: Request,
+    days: int = Query(30)
+):
+    """Get workflow analytics"""
+    try:
+        user_id = get_user_id_from_request(request)
+        analytics = get_workflow_analytics(user_id, days)
+        return analytics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get workflow analytics: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

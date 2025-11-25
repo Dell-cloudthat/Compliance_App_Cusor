@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import { CIS_CONTROLS } from './frameworks/cis-controls';
@@ -1319,6 +1319,8 @@ const closeControlDetail = useCallback(() => {
   const [auditFindings, setAuditFindings] = useState([]);
   const [auditEvidence, setAuditEvidence] = useState([]);
   const [auditReadiness, setAuditReadiness] = useState(null);
+  const [auditIntegrationEvents, setAuditIntegrationEvents] = useState(null);
+  const [auditWorkflowExecutions, setAuditWorkflowExecutions] = useState(null);
   const [preAuditReadiness, setPreAuditReadiness] = useState([]);
   const [showAuditCreate, setShowAuditCreate] = useState(false);
   const [auditorMode, setAuditorMode] = useState(false); // Toggle for auditor view
@@ -1332,6 +1334,19 @@ const closeControlDetail = useCallback(() => {
   const [evidenceCollectionLoading, setEvidenceCollectionLoading] = useState(false);
   const [evidenceFreshness, setEvidenceFreshness] = useState(null);
   const [autoLinkingStatus, setAutoLinkingStatus] = useState(null);
+  
+  // Dashboard Collapsible Sections State
+  const [dashboardSectionsExpanded, setDashboardSectionsExpanded] = useState({
+    overview: true, // Keep overview expanded by default
+    frameworks: false,
+    alerts: false,
+    activity: false,
+    growth: false,
+    kpis: false,
+    gapAnalysis: false,
+    recommendations: false
+  });
+  
   const [auditFormData, setAuditFormData] = useState({
     audit_name: '',
     framework: 'SOC2',
@@ -1430,6 +1445,8 @@ const closeControlDetail = useCallback(() => {
   const [dataFlowAudit, setDataFlowAudit] = useState([]);
   const [dataFlowLoading, setDataFlowLoading] = useState(false);
   const [dataFlowError, setDataFlowError] = useState(null);
+  const [integrationEventsSummary, setIntegrationEventsSummary] = useState(null);
+  const [showIntegrationEvents, setShowIntegrationEvents] = useState(true);
   const [dataFlowFilters, setDataFlowFilters] = useState({
     nodeType: 'ALL',
     sensitivity: 'ALL',
@@ -2307,8 +2324,47 @@ const closeControlDetail = useCallback(() => {
   useEffect(() => {
     if (activeView === 'architecture') {
       refreshDataFlowGraph();
+      loadIntegrationEventsSummary();
     }
   }, [activeView, backendConnected, currentUser.id]);
+
+  // Load integration events summary for visualization
+  const loadIntegrationEventsSummary = async () => {
+    if (!backendConnected || !currentUser.id) {
+      // Demo mode - create sample integration events summary
+      setIntegrationEventsSummary({
+        total_events: 1250,
+        by_integration: {
+          'CrowdStrike EDR': 450,
+          'Okta Identity': 320,
+          'AWS CloudTrail': 280,
+          'Palo Alto Firewall': 200
+        },
+        by_type: {
+          'login_events': 320,
+          'api_calls': 280,
+          'process_execution': 250,
+          'network_connections': 200,
+          'privilege_escalation': 100,
+          'file_access': 100
+        },
+        by_framework: {
+          'NIST_800-53': 850,
+          'ISO27001': 600,
+          'SOC2': 450
+        },
+        recent_events: []
+      });
+      return;
+    }
+    try {
+      const summary = await api.getIntegrationEventsSummary(currentUser.id, 30);
+      setIntegrationEventsSummary(summary);
+    } catch (error) {
+      console.error('Error loading integration events summary:', error);
+      setIntegrationEventsSummary(null);
+    }
+  };
 
   useEffect(() => {
     if (activeView === 'architecture') {
@@ -3311,8 +3367,10 @@ const closeControlDetail = useCallback(() => {
   const loadDataFlowGraph = async () => {
     if (!backendConnected || !currentUser.id) {
       const demoGraph = getDemoDataFlowGraph();
-      setDataFlowNodes(demoGraph.nodes);
-      setDataFlowEdges(demoGraph.edges);
+      // Add integration event nodes if summary is available
+      const enhancedGraph = enhanceGraphWithIntegrationEvents(demoGraph, integrationEventsSummary);
+      setDataFlowNodes(enhancedGraph.nodes);
+      setDataFlowEdges(enhancedGraph.edges);
       setDataFlowAudit([]);
       return;
     }
@@ -3320,14 +3378,137 @@ const closeControlDetail = useCallback(() => {
     setDataFlowError(null);
     try {
       const graph = await api.getDataFlowGraph(currentUser.id);
-      setDataFlowNodes(Array.isArray(graph?.nodes) ? graph.nodes : []);
-      setDataFlowEdges(Array.isArray(graph?.edges) ? graph.edges : []);
+      const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+      const edges = Array.isArray(graph?.edges) ? graph.edges : [];
+      
+      // Enhance graph with integration events
+      const enhancedGraph = enhanceGraphWithIntegrationEvents({ nodes, edges }, integrationEventsSummary);
+      setDataFlowNodes(enhancedGraph.nodes);
+      setDataFlowEdges(enhancedGraph.edges);
     } catch (error) {
       console.error('Error loading data flow graph:', error);
       setDataFlowError(error.message || 'Failed to load data flow graph');
     } finally {
       setDataFlowLoading(false);
     }
+  };
+
+  // Enhance data flow graph with integration event nodes and edges
+  const enhanceGraphWithIntegrationEvents = (graph, eventsSummary) => {
+    if (!eventsSummary || !showIntegrationEvents) {
+      return graph;
+    }
+
+    const { nodes, edges } = graph;
+    const integrationNodes = [];
+    const integrationEdges = [];
+    let nodeIdCounter = Math.max(...nodes.map(n => n.id || 0), 0) + 1;
+
+    // Create integration event source nodes
+    Object.entries(eventsSummary.by_integration || {}).forEach(([integrationName, eventCount]) => {
+      const integrationNode = {
+        id: nodeIdCounter++,
+        node_type: 'source',
+        name: integrationName,
+        description: `Integration event source: ${eventCount} events in last 30 days`,
+        sensitivity: 'Internal',
+        integration_status: 'active',
+        event_count: eventCount,
+        is_integration_event_source: true
+      };
+      integrationNodes.push(integrationNode);
+
+      // Find auto-mapping processor node (or create one)
+      let autoMappingNode = nodes.find(n => n.name?.toLowerCase().includes('auto-map') || n.name?.toLowerCase().includes('mapping'));
+      if (!autoMappingNode) {
+        autoMappingNode = {
+          id: nodeIdCounter++,
+          node_type: 'processor',
+          name: 'Auto-Mapping Service',
+          description: 'Automatically maps integration events to compliance controls',
+          sensitivity: 'Internal',
+          is_auto_mapping: true
+        };
+        integrationNodes.push(autoMappingNode);
+      }
+
+      // Create edge from integration to auto-mapping
+      integrationEdges.push({
+        id: `integration-${integrationNode.id}-to-mapping`,
+        source_node_id: integrationNode.id,
+        target_node_id: autoMappingNode.id,
+        flow_type: 'ingest',
+        transport: 'API',
+        automated: true,
+        status: 'active',
+        event_volume: eventCount,
+        is_integration_flow: true
+      });
+
+      // Find controls that might be mapped from this integration
+      const relatedControls = nodes.filter(n => 
+        n.framework_controls && 
+        Array.isArray(n.framework_controls) && 
+        n.framework_controls.length > 0
+      ).slice(0, 3); // Limit to 3 controls for visualization
+
+      relatedControls.forEach(controlNode => {
+        // Create edge from auto-mapping to control
+        integrationEdges.push({
+          id: `mapping-to-control-${controlNode.id}-from-${integrationNode.id}`,
+          source_node_id: autoMappingNode.id,
+          target_node_id: controlNode.id,
+          flow_type: 'transform',
+          transport: 'Auto-Mapping',
+          automated: true,
+          status: 'active',
+          controls_impacted: controlNode.framework_controls || [],
+          is_integration_flow: true
+        });
+      });
+    });
+
+    // Find report nodes
+    const reportNodes = nodes.filter(n => 
+      n.node_type === 'report' || 
+      n.name?.toLowerCase().includes('report') ||
+      n.name?.toLowerCase().includes('audit')
+    );
+
+    // Create edges from controls to reports
+    const controlNodes = nodes.filter(n => 
+      n.framework_controls && 
+      Array.isArray(n.framework_controls) && 
+      n.framework_controls.length > 0
+    );
+
+    controlNodes.forEach(controlNode => {
+      reportNodes.forEach(reportNode => {
+        // Check if edge already exists
+        const existingEdge = edges.find(e => 
+          e.source_node_id === controlNode.id && 
+          e.target_node_id === reportNode.id
+        );
+        
+        if (!existingEdge) {
+          integrationEdges.push({
+            id: `control-${controlNode.id}-to-report-${reportNode.id}`,
+            source_node_id: controlNode.id,
+            target_node_id: reportNode.id,
+            flow_type: 'export',
+            transport: 'Report Generation',
+            automated: true,
+            status: 'active',
+            is_integration_flow: true
+          });
+        }
+      });
+    });
+
+    return {
+      nodes: [...nodes, ...integrationNodes],
+      edges: [...edges, ...integrationEdges]
+    };
   };
 
   const loadDataFlowAudit = async () => {
@@ -3346,6 +3527,13 @@ const closeControlDetail = useCallback(() => {
   const refreshDataFlowGraph = async () => {
     await Promise.all([loadDataFlowGraph(), loadDataFlowAudit()]);
   };
+
+  // Refresh graph when integration events summary changes
+  useEffect(() => {
+    if (activeView === 'architecture' && integrationEventsSummary) {
+      loadDataFlowGraph();
+    }
+  }, [integrationEventsSummary, showIntegrationEvents]);
 
   const resetDataFlowNodeForm = (overrides = {}) => {
     setDataFlowNodeForm({
@@ -5315,6 +5503,30 @@ const closeControlDetail = useCallback(() => {
       // Load evidence freshness
       const freshness = await api.getEvidenceFreshness(currentUser.id, auditId).catch(() => null);
       setEvidenceFreshness(freshness);
+      
+      // Load integration events summary for this audit
+      try {
+        const eventsSummary = await api.getIntegrationEventsSummary(currentUser.id, 30);
+        setAuditIntegrationEvents(eventsSummary);
+      } catch (error) {
+        console.error('Error loading integration events:', error);
+        setAuditIntegrationEvents(null);
+      }
+      
+      // Load workflow executions for this audit
+      try {
+        const workflows = await api.getWorkflowExecutions(currentUser.id, 50);
+        // Filter workflows related to this audit (evidence collection, gap remediation, audit prep)
+        const auditWorkflows = workflows.filter(w => 
+          w.workflow_type === 'evidence_collection' || 
+          w.workflow_type === 'gap_remediation' || 
+          w.workflow_type === 'audit_preparation'
+        );
+        setAuditWorkflowExecutions(auditWorkflows);
+      } catch (error) {
+        console.error('Error loading workflow executions:', error);
+        setAuditWorkflowExecutions([]);
+      }
     } catch (error) {
       console.error('Error loading audit details:', error);
       // Try to find in local state as fallback
@@ -5323,6 +5535,17 @@ const closeControlDetail = useCallback(() => {
         setSelectedAudit(audit);
         setAuditFindings([]);
         setAuditEvidence([]);
+        // Demo mode - set demo data
+        setAuditIntegrationEvents({
+          total_events: 1250,
+          by_integration: { 'CrowdStrike EDR': 450, 'Okta Identity': 320, 'AWS CloudTrail': 280 },
+          by_type: { 'login_events': 320, 'api_calls': 280, 'process_execution': 250 },
+          by_framework: { 'NIST_800-53': 850, 'ISO27001': 600, 'SOC2': 450 }
+        });
+        setAuditWorkflowExecutions([
+          { id: 1, workflow_name: 'Evidence Collection', workflow_type: 'evidence_collection', status: 'completed', completed_at: new Date().toISOString() },
+          { id: 2, workflow_name: 'Gap Remediation', workflow_type: 'gap_remediation', status: 'completed', completed_at: new Date().toISOString() }
+        ]);
       }
     }
   };
@@ -8443,22 +8666,72 @@ const closeControlDetail = useCallback(() => {
       .slice(0, 5);
     
     return (
-    <div className="space-y-6">
-      {/* Partner Growth Grade Dial - QBR Ready */}
-      <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
-        <div className="flex items-center justify-between mb-6">
+    <div className="space-y-4">
+      {/* Header - Quick Overview */}
+      <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-foreground">Partner Growth Grade</h2>
-            <p className="text-sm text-muted-foreground mt-1">QBR Tracking - {gradeData.currentQuarter} {new Date().getFullYear()}</p>
+            <h2 className="text-2xl font-bold text-foreground">Compliance Dashboard</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Real-time compliance intelligence • {gradeData.currentQuarter} {new Date().getFullYear()}
+            </p>
           </div>
-          <button
-            onClick={exportQBRReport}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Export QBR Report
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className={`text-3xl font-bold ${
+                gradeData.overallScore >= 80 ? 'text-green-500' :
+                gradeData.overallScore >= 70 ? 'text-blue-500' :
+                gradeData.overallScore >= 60 ? 'text-yellow-500' :
+                'text-red-500'
+              }`}>
+                {gradeData.grade}
+              </div>
+              <div className="text-sm text-muted-foreground">{gradeData.overallScore}%</div>
+            </div>
+            <button
+              onClick={exportQBRReport}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors text-sm flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Export QBR
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Overview Section - Collapsible */}
+      <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+        <button
+          onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, overview: !prev.overview }))}
+          className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+        >
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Gauge className="w-5 h-5 text-primary" />
+            Overview & Growth Metrics
+          </h3>
+          {dashboardSectionsExpanded.overview ? (
+            <ChevronDown className="w-5 h-5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-muted-foreground" />
+          )}
+        </button>
+        {dashboardSectionsExpanded.overview && (
+          <div className="p-6 pt-0 space-y-6">
+            {/* Partner Growth Grade Dial - QBR Ready */}
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-foreground">Partner Growth Grade</h2>
+                  <p className="text-sm text-muted-foreground mt-1">QBR Tracking - {gradeData.currentQuarter} {new Date().getFullYear()}</p>
+                </div>
+                <button
+                  onClick={exportQBRReport}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Export QBR Report
+                </button>
+              </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Circular Grade Dial */}
@@ -8632,37 +8905,37 @@ const closeControlDetail = useCallback(() => {
           </div>
         </div>
 
-        {/* Framework Metrics & Attention */}
-        {(() => {
-          const frameworksForDropdown = Object.entries(FRAMEWORK_LIBRARY).map(([frameworkKey, frameworkMeta]) => {
-            const growth = frameworkGrowth[frameworkKey];
-            const complianceScore = complianceScores[frameworkKey];
-            const needsAttention = !!(growth?.drift_detected || (growth?.gaps_count ?? 0) > 0 || (complianceScore ?? 100) < 80);
-            const growthDelta = growth ? (growth.current_score - (growth.previous_score ?? growth.current_score)) : 0;
-            return {
-              key: frameworkKey,
-              name: frameworkMeta.name,
-              growth,
-              complianceScore,
-              needsAttention,
-              growthDelta,
-            };
-          });
+            {/* Framework Metrics & Attention */}
+            {(() => {
+              const frameworksForDropdown = Object.entries(FRAMEWORK_LIBRARY).map(([frameworkKey, frameworkMeta]) => {
+                const growth = frameworkGrowth[frameworkKey];
+                const complianceScore = complianceScores[frameworkKey];
+                const needsAttention = !!(growth?.drift_detected || (growth?.gaps_count ?? 0) > 0 || (complianceScore ?? 100) < 80);
+                const growthDelta = growth ? (growth.current_score - (growth.previous_score ?? growth.current_score)) : 0;
+                return {
+                  key: frameworkKey,
+                  name: frameworkMeta.name,
+                  growth,
+                  complianceScore,
+                  needsAttention,
+                  growthDelta,
+                };
+              });
 
-          return (
-            <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">Framework Oversight</h3>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Track each framework's health, drift risk, and remediation urgency.
-                  </p>
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-card px-4 py-2 text-sm font-medium hover:bg-muted transition-colors">
-                    <ChevronDown className="w-4 h-4" />
-                    <span>Framework Attention Center</span>
-                  </DropdownMenuTrigger>
+              return (
+                <div className="mt-6 pt-6 border-t border-[hsl(var(--border))]">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
+                    <div>
+                      <h4 className="text-md font-semibold text-foreground">Framework Oversight</h4>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Track each framework's health, drift risk, and remediation urgency.
+                      </p>
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-card px-4 py-2 text-sm font-medium hover:bg-muted transition-colors">
+                        <ChevronDown className="w-4 h-4" />
+                        <span>View All Frameworks</span>
+                      </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-80 max-h-[420px] overflow-y-auto">
                     <DropdownMenuLabel className="text-xs text-muted-foreground">
                       Summary of drift, coverage, and gaps by framework
@@ -8727,23 +9000,107 @@ const closeControlDetail = useCallback(() => {
                         </div>
                       </DropdownMenuItem>
                     ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
-          );
-        })()}
+          </div>
+        )}
+      </div>
 
-        {/* Actionable Alerts */}
-        {actionableAlerts.length > 0 && (
-          <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">Actionable Alerts</h3>
-                <p className="text-sm text-muted-foreground mt-1">Items requiring immediate attention</p>
-              </div>
+      {/* Frameworks Section - Collapsible */}
+      <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+        <button
+          onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, frameworks: !prev.frameworks }))}
+          className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+        >
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <Shield className="w-5 h-5 text-primary" />
+            Framework Health & Metrics
+            <span className="text-sm font-normal text-muted-foreground">
+              ({Object.keys(FRAMEWORK_LIBRARY).length} frameworks)
+            </span>
+          </h3>
+          {dashboardSectionsExpanded.frameworks ? (
+            <ChevronDown className="w-5 h-5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-muted-foreground" />
+          )}
+        </button>
+        {dashboardSectionsExpanded.frameworks && (
+          <div className="p-6 pt-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger className="w-full flex items-center justify-between rounded-lg border border-[hsl(var(--border))] bg-card px-4 py-3 text-sm font-medium hover:bg-muted transition-colors">
+                <span>Select Framework to View Details</span>
+                <ChevronDown className="w-4 h-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-full max-w-md max-h-[500px] overflow-y-auto">
+                <DropdownMenuLabel>Framework Details</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {Object.entries(FRAMEWORK_LIBRARY).map(([frameworkKey, frameworkMeta]) => {
+                  const growth = frameworkGrowth[frameworkKey];
+                  const complianceScore = complianceScores[frameworkKey];
+                  const needsAttention = !!(growth?.drift_detected || (growth?.gaps_count ?? 0) > 0 || (complianceScore ?? 100) < 80);
+                  return (
+                    <DropdownMenuItem
+                      key={frameworkKey}
+                      className="py-3 px-3 focus:bg-primary/10"
+                      onClick={() => {
+                        setSelectedFramework(frameworkKey);
+                        setActiveView('controls');
+                      }}
+                    >
+                      <div className="w-full space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">{frameworkMeta.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              Score: {complianceScore != null ? `${complianceScore}%` : '—'} · 
+                              Coverage: {growth?.control_coverage?.toFixed?.(1) ?? '—'}% · 
+                              Gaps: {growth?.gaps_count ?? '—'}
+                            </div>
+                          </div>
+                          {needsAttention ? (
+                            <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-red-500/10 text-red-500 border border-red-500/20">
+                              Needs attention
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-500 border border-green-500/20">
+                              On track
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
+      </div>
+
+      {/* Actionable Alerts - Collapsible */}
+      {actionableAlerts.length > 0 && (
+        <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+          <button
+            onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, alerts: !prev.alerts }))}
+            className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+          >
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-primary" />
+              Actionable Alerts
+              <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-500/10 text-red-500 border border-red-500/20">
+                {actionableAlerts.length}
+              </span>
+            </h3>
+            <div className="flex items-center gap-2">
               <button
-                onClick={async () => {
+                onClick={async (e) => {
+                  e.stopPropagation();
                   if (backendConnected && currentUser.id) {
                     try {
                       await api.checkComplianceDrift(currentUser.id);
@@ -8753,11 +9110,19 @@ const closeControlDetail = useCallback(() => {
                     }
                   }
                 }}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-sm font-medium"
+                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 text-xs font-medium"
               >
-                Check for Drift
+                Check Drift
               </button>
+              {dashboardSectionsExpanded.alerts ? (
+                <ChevronDown className="w-5 h-5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              )}
             </div>
+          </button>
+          {dashboardSectionsExpanded.alerts && (
+            <div className="p-6 pt-0">
             
             <div className="space-y-3">
               {actionableAlerts.slice(0, 5).map((alert) => {
@@ -8894,25 +9259,45 @@ const closeControlDetail = useCallback(() => {
               })}
             </div>
             
-            {actionableAlerts.length > 5 && (
-              <div className="mt-4 text-center">
-                <button
-                  onClick={() => setActiveView('csca')}
-                  className="text-sm text-primary hover:underline"
-                >
-                  View all {actionableAlerts.length} alerts →
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+              {actionableAlerts.length > 5 && (
+                <div className="mt-4 text-center">
+                  <button
+                    onClick={() => setActiveView('csca')}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    View all {actionableAlerts.length} alerts →
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Recent Activity - Compact */}
+      {/* Recent Activity - Collapsible */}
       {recentActivity.length > 0 && (
-        <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Recent Activity</h3>
-          <div className="space-y-2">
-            {recentActivity.slice(0, 3).map((entry, idx) => {
+        <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+          <button
+            onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, activity: !prev.activity }))}
+            className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+          >
+            <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+              <Activity className="w-5 h-5 text-primary" />
+              Recent Activity
+              <span className="text-sm font-normal text-muted-foreground">
+                ({recentActivity.length} items)
+              </span>
+            </h3>
+            {dashboardSectionsExpanded.activity ? (
+              <ChevronDown className="w-5 h-5 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            )}
+          </button>
+          {dashboardSectionsExpanded.activity && (
+            <div className="p-4 pt-0">
+              <div className="space-y-2">
+                {recentActivity.slice(0, 5).map((entry, idx) => {
               const isAlert = entry.type === 'alert';
               const accentColor =
                 isAlert && entry.severity === 'critical'
@@ -8948,11 +9333,14 @@ const closeControlDetail = useCallback(() => {
                 </div>
               );
             })}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
-        {/* Historical Growth Chart */}
-        {(() => {
+
+      {/* Historical Growth Chart - Collapsible */}
+      {(() => {
           const ninetyDaysAgo = (() => {
             const d = new Date();
             d.setDate(d.getDate() - 90);
@@ -9012,15 +9400,29 @@ const closeControlDetail = useCallback(() => {
           ].filter(Boolean);
 
           return (
-            <div className="mt-8 pt-8 border-t border-[hsl(var(--border))]">
-              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">Historical Growth (Last 90 Days)</h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Rolling compliance score trend with daily velocity and drift insight.
-                    </p>
-                  </div>
+            <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+              <button
+                onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, growth: !prev.growth }))}
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+              >
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-primary" />
+                  Historical Growth (Last 90 Days)
+                </h3>
+                {dashboardSectionsExpanded.growth ? (
+                  <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                )}
+              </button>
+              {dashboardSectionsExpanded.growth && (
+                <div className="p-6 pt-0">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-6 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        Rolling compliance score trend with daily velocity and drift insight.
+                      </p>
+                    </div>
                   <div className="flex items-center gap-3 text-sm">
                     <div className="flex items-center gap-1 text-muted-foreground">
                       <div className="h-2 w-2 rounded-full bg-primary"></div>
@@ -9159,11 +9561,12 @@ const closeControlDetail = useCallback(() => {
                   </div>
                 </div>
               </div>
+              )}
             </div>
           );
         })()}
-      </div>
-      {/* KPI Circular Metrics */}
+
+      {/* KPI Circular Metrics - Collapsible */}
       {(() => {
         const renderCircularStat = ({ label, displayValue, helperText, color, percentage }) => {
           const gradientPercent = Math.min(100, Math.max(0, percentage));
@@ -9192,8 +9595,25 @@ const closeControlDetail = useCallback(() => {
         const gapsPercent = stats.total > 0 ? (gaps / stats.total) * 100 : 0;
 
         return (
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {renderCircularStat({
+          <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+            <button
+              onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, kpis: !prev.kpis }))}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+            >
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-primary" />
+                Key Performance Indicators
+              </h3>
+              {dashboardSectionsExpanded.kpis ? (
+                <ChevronDown className="w-5 h-5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              )}
+            </button>
+            {dashboardSectionsExpanded.kpis && (
+              <div className="p-6 pt-0">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {renderCircularStat({
               label: 'Total Controls',
               displayValue: stats.total.toString(),
               helperText: `${stats.total} controls across frameworks`,
@@ -9219,22 +9639,45 @@ const closeControlDetail = useCallback(() => {
               displayValue: gaps.toString(),
               helperText: `${gaps} controls require remediation`,
               color: 'hsl(0 82% 55%)',
-              percentage: Math.min(100, gapsPercent),
-            })}
+                    percentage: Math.min(100, gapsPercent),
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
 
-      {/* AI Gap Analysis Section */}
-      <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-semibold text-foreground">AI-Powered Gap Analysis</h3>
-            <p className="text-sm text-muted-foreground mt-1">Critical issues requiring immediate attention</p>
-          </div>
-          <AlertCircle className="h-5 w-5 text-red-500" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
+      {/* AI Gap Analysis Section - Collapsible */}
+      <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+        <button
+          onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, gapAnalysis: !prev.gapAnalysis }))}
+          className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+        >
+          <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            AI-Powered Gap Analysis
+            {(() => {
+              const criticalGaps = controls.filter(c => 
+                (c.status === 'Not Implemented' || c.status === 'Non-Compliant' || c.status === 'Partial') 
+                && c.priority === 'Critical'
+              ).length;
+              return criticalGaps > 0 ? (
+                <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-500/10 text-red-500 border border-red-500/20">
+                  {criticalGaps} critical
+                </span>
+              ) : null;
+            })()}
+          </h3>
+          {dashboardSectionsExpanded.gapAnalysis ? (
+            <ChevronDown className="w-5 h-5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="w-5 h-5 text-muted-foreground" />
+          )}
+        </button>
+        {dashboardSectionsExpanded.gapAnalysis && (
+          <div className="p-6 pt-0">
+            <div className="grid gap-4 md:grid-cols-3">
           {(() => {
             const criticalGaps = controls.filter(c => 
               (c.status === 'Not Implemented' || c.status === 'Non-Compliant' || c.status === 'Partial') 
@@ -9324,23 +9767,44 @@ const closeControlDetail = useCallback(() => {
               </>
             );
           })()}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* AI Recommendations - Collapsible */}
       {recommendations.length > 0 && (() => {
         const visibleRecommendations = recommendations.slice(0, 5);
         const activeIndex = Math.min(selectedRecommendationIndex, visibleRecommendations.length - 1);
         const activeRecommendation = visibleRecommendations[activeIndex] || visibleRecommendations[0];
 
         return (
-          <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground mb-1">AI-Powered Recommendations</h3>
-                <p className="text-sm text-muted-foreground">
-                  Smart scenarios tailored to improve your compliance posture.
-                </p>
-              </div>
+          <div className="border border-[hsl(var(--border))] rounded-lg bg-card">
+            <button
+              onClick={() => setDashboardSectionsExpanded(prev => ({ ...prev, recommendations: !prev.recommendations }))}
+              className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+            >
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                AI-Powered Recommendations
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({recommendations.length} scenarios)
+                </span>
+              </h3>
+              {dashboardSectionsExpanded.recommendations ? (
+                <ChevronDown className="w-5 h-5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-muted-foreground" />
+              )}
+            </button>
+            {dashboardSectionsExpanded.recommendations && (
+              <div className="p-6 pt-0">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Smart scenarios tailored to improve your compliance posture.
+                    </p>
+                  </div>
               <div className="flex flex-wrap gap-2">
                 {visibleRecommendations.map((_, idx) => (
                   <button
@@ -9460,6 +9924,8 @@ const closeControlDetail = useCallback(() => {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
               </div>
             )}
           </div>
@@ -16627,6 +17093,127 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
           </div>
         </div>
 
+        {/* Integration Events Summary */}
+        {auditIntegrationEvents && (
+          <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-blue-500" />
+                  Integration Events Flow
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Events from integrated systems mapped to this audit's controls
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Total Events</div>
+                <div className="text-2xl font-bold text-foreground">{auditIntegrationEvents.total_events?.toLocaleString() || 0}</div>
+                <div className="text-xs text-muted-foreground mt-1">Last 30 days</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Integrations</div>
+                <div className="text-2xl font-bold text-foreground">{Object.keys(auditIntegrationEvents.by_integration || {}).length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Active sources</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Event Types</div>
+                <div className="text-2xl font-bold text-foreground">{Object.keys(auditIntegrationEvents.by_type || {}).length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Different types</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Frameworks</div>
+                <div className="text-2xl font-bold text-foreground">{Object.keys(auditIntegrationEvents.by_framework || {}).length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Mapped to</div>
+              </div>
+            </div>
+            {Object.keys(auditIntegrationEvents.by_integration || {}).length > 0 && (
+              <div className="mt-4 pt-4 border-t border-blue-500/20">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Top Integration Sources</div>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(auditIntegrationEvents.by_integration || {})
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([name, count]) => (
+                      <div
+                        key={name}
+                        className="px-3 py-1.5 bg-card border border-[hsl(var(--border))] rounded-lg text-sm"
+                      >
+                        <span className="font-medium text-foreground">{name}</span>
+                        <span className="text-muted-foreground ml-2">{count.toLocaleString()} events</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Workflow Execution Metrics */}
+        {auditWorkflowExecutions && auditWorkflowExecutions.length > 0 && (
+          <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-green-500" />
+                  Automated Workflow Executions
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Automated processes that collected evidence and remediated gaps for this audit
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Total Executions</div>
+                <div className="text-2xl font-bold text-foreground">{auditWorkflowExecutions.length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Completed workflows</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Evidence Collection</div>
+                <div className="text-2xl font-bold text-green-500">
+                  {auditWorkflowExecutions.filter(w => w.workflow_type === 'evidence_collection').length}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">Automated collections</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Gap Remediation</div>
+                <div className="text-2xl font-bold text-emerald-500">
+                  {auditWorkflowExecutions.filter(w => w.workflow_type === 'gap_remediation').length}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">Auto-remediated</div>
+              </div>
+            </div>
+            <div className="mt-4 pt-4 border-t border-green-500/20">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Recent Executions</div>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {auditWorkflowExecutions.slice(0, 5).map((execution) => (
+                  <div
+                    key={execution.id}
+                    className="bg-card border border-[hsl(var(--border))] rounded-lg p-3 flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-medium text-foreground">{execution.workflow_name || execution.workflow_type}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {execution.completed_at ? new Date(execution.completed_at).toLocaleString() : 'Recently completed'}
+                      </div>
+                    </div>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      execution.status === 'completed' 
+                        ? 'bg-green-500/10 text-green-500' 
+                        : 'bg-yellow-500/10 text-yellow-500'
+                    }`}>
+                      {execution.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Evidence Review Interface - Auditor Feature */}
         {isAuditor && auditEvidence.length > 0 && (
           <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg">
@@ -18117,7 +18704,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <h2 className={"text-2xl font-bold text-foreground flex items-center gap-2"}>
                 <Network className="w-6 h-6 text-primary" />
                 Feature Integration Map
               </h2>
@@ -18918,6 +19505,9 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                    graphRef={dataFlowGraphRef}
                    hasZoomedRef={dataFlowHasZoomedRef}
                    nodeMap={dataFlowNodeMap}
+                   integrationEventsSummary={integrationEventsSummary}
+                   showIntegrationEvents={showIntegrationEvents}
+                   onToggleIntegrationEvents={() => setShowIntegrationEvents(!showIntegrationEvents)}
                    nodeSignals={dataFlowNodeSignals}
                    edgeMap={dataFlowEdgeMap}
                    selectedItem={selectedDataFlowItem}

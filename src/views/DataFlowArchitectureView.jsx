@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { Network, Plus, Link2, Clock, X, Loader2, RotateCcw, Key, Shield } from 'lucide-react';
+import { Network, Plus, Link2, Clock, X, Loader2, RotateCcw, Key, Shield, Activity, ChevronDown, ChevronUp } from 'lucide-react';
 
 const nodeTypeColors = {
   source: '#3b82f6',
@@ -115,6 +115,9 @@ const DataFlowArchitectureView = ({
   accessSummary = null,
   onNavigateControl,
   handleFormCheckbox,
+  integrationEventsSummary = null,
+  showIntegrationEvents = true,
+  onToggleIntegrationEvents = () => {},
 }) => {
   const selectedNodeId = selectedItem?.type === 'node' ? selectedItem.data.id : null;
   const selectedEdgeId = selectedItem?.type === 'edge' ? selectedItem.data.id : null;
@@ -850,6 +853,71 @@ const DataFlowArchitectureView = ({
           )}
         </div>
       </div>
+
+      {/* Integration Events Summary Panel */}
+      {integrationEventsSummary && (
+        <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-blue-500" />
+              <h3 className="text-lg font-semibold text-foreground">Integration Events Flow</h3>
+            </div>
+            <button
+              onClick={onToggleIntegrationEvents}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                showIntegrationEvents
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-muted text-foreground hover:bg-muted/80'
+              }`}
+            >
+              {showIntegrationEvents ? 'Hide' : 'Show'} Events
+            </button>
+          </div>
+          {showIntegrationEvents && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Total Events</div>
+                <div className="text-2xl font-bold text-foreground">{integrationEventsSummary.total_events?.toLocaleString() || 0}</div>
+                <div className="text-xs text-muted-foreground mt-1">Last 30 days</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Integrations</div>
+                <div className="text-2xl font-bold text-foreground">{Object.keys(integrationEventsSummary.by_integration || {}).length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Active sources</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Event Types</div>
+                <div className="text-2xl font-bold text-foreground">{Object.keys(integrationEventsSummary.by_type || {}).length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Different types</div>
+              </div>
+              <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-3">
+                <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Frameworks</div>
+                <div className="text-2xl font-bold text-foreground">{Object.keys(integrationEventsSummary.by_framework || {}).length}</div>
+                <div className="text-xs text-muted-foreground mt-1">Mapped to</div>
+              </div>
+            </div>
+          )}
+          {showIntegrationEvents && Object.keys(integrationEventsSummary.by_integration || {}).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-blue-500/20">
+              <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Top Integration Sources</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(integrationEventsSummary.by_integration || {})
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 5)
+                  .map(([name, count]) => (
+                    <div
+                      key={name}
+                      className="px-3 py-1.5 bg-card border border-[hsl(var(--border))] rounded-lg text-sm"
+                    >
+                      <span className="font-medium text-foreground">{name}</span>
+                      <span className="text-muted-foreground ml-2">{count.toLocaleString()} events</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-card border border-[hsl(var(--border))] rounded-lg p-4 shadow-sm hover:shadow transition-shadow">

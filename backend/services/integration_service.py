@@ -90,22 +90,44 @@ def ingest_edr_event(integration_id: int, event_data: Dict[str, Any]) -> int:
     # Normalize user identifier to platform user_id
     normalized_user_id = normalize_user_identifier(event_data.get('user_identifier'))
     
+    # Ensure event_timestamp is always set
+    event_timestamp = event_data.get('event_timestamp') or event_data.get('timestamp') or datetime.now().isoformat()
+    
     cursor.execute("""
         INSERT INTO edr_events 
         (integration_id, event_type, user_identifier, device_identifier, 
-         event_timestamp, event_data_json, normalized_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+         event_timestamp, event_data_json, normalized_user_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         integration_id,
         event_data.get('event_type'),
         event_data.get('user_identifier'),
         event_data.get('device_identifier'),
-        event_data.get('event_timestamp', datetime.now().isoformat()),
-        json.dumps(event_data),
+        event_timestamp,
+        json.dumps({**event_data, 'event_timestamp': event_timestamp}),  # Ensure timestamp in data too
         normalized_user_id
     ))
     
     event_id = cursor.lastrowid
+    
+    # Auto-map event to compliance controls
+    try:
+        from services.auto_mapping_service import auto_map_integration_event
+        # Get user_id from integration
+        cursor.execute("SELECT user_id FROM integrations WHERE id = ?", (integration_id,))
+        integration = cursor.fetchone()
+        if integration:
+            auto_map_integration_event(
+                conn=conn,
+                user_id=integration['user_id'],
+                event_id=event_id,
+                event_type=event_data.get('event_type', 'unknown'),
+                event_source='edr',
+                event_data=event_data
+            )
+    except Exception as e:
+        # Log error but don't fail event ingestion
+        print(f"Error auto-mapping EDR event: {e}")
     
     # If this is a login event, create a login session
     if event_data.get('event_type') == 'login':
@@ -174,11 +196,14 @@ def ingest_network_appliance_log(integration_id: int, log_data: Dict[str, Any]) 
     
     normalized_user_id = normalize_user_identifier(log_data.get('user_identifier'))
     
+    # Ensure log_timestamp is always set
+    log_timestamp = log_data.get('log_timestamp') or log_data.get('timestamp') or datetime.now().isoformat()
+    
     cursor.execute("""
         INSERT INTO network_appliance_logs
         (integration_id, log_type, user_identifier, source_ip, destination_ip,
-         destination_port, protocol, action, log_timestamp, log_data_json, normalized_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         destination_port, protocol, action, log_timestamp, log_data_json, normalized_user_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         integration_id,
         log_data.get('log_type'),
@@ -188,12 +213,38 @@ def ingest_network_appliance_log(integration_id: int, log_data: Dict[str, Any]) 
         log_data.get('destination_port'),
         log_data.get('protocol'),
         log_data.get('action'),
-        log_data.get('log_timestamp', datetime.now().isoformat()),
-        json.dumps(log_data),
+        log_timestamp,
+        json.dumps({**log_data, 'log_timestamp': log_timestamp, 'event_timestamp': log_timestamp}),
         normalized_user_id
     ))
     
     log_id = cursor.lastrowid
+    
+    # Auto-map network log to compliance controls
+    try:
+        from services.auto_mapping_service import auto_map_integration_event
+        cursor.execute("SELECT user_id FROM integrations WHERE id = ?", (integration_id,))
+        integration = cursor.fetchone()
+        if integration:
+            # Map log_type to event_type for auto-mapping
+            event_type = log_data.get('log_type', 'unknown')
+            if log_data.get('action') == 'deny':
+                event_type = f"{event_type}_denied"
+            
+            auto_map_integration_event(
+                conn=conn,
+                user_id=integration['user_id'],
+                event_id=log_id,
+                event_type=event_type,
+                event_source='network',
+                event_data={
+                    **log_data,
+                    'resource_type': 'network',
+                    'event_timestamp': log_data.get('log_timestamp', datetime.now().isoformat())
+                }
+            )
+    except Exception as e:
+        print(f"Error auto-mapping network log: {e}")
     
     # If this is an authentication event, create a login session
     if log_data.get('log_type') == 'authentication' and log_data.get('action') == 'allow':
@@ -260,11 +311,14 @@ def ingest_identity_provider_event(integration_id: int, event_data: Dict[str, An
     
     normalized_user_id = normalize_user_identifier(event_data.get('user_identifier'))
     
+    # Ensure event_timestamp is always set
+    event_timestamp = event_data.get('event_timestamp') or event_data.get('timestamp') or datetime.now().isoformat()
+    
     cursor.execute("""
         INSERT INTO identity_provider_events
         (integration_id, event_type, user_identifier, group_identifier, resource_identifier,
-         permission_type, event_timestamp, event_data_json, normalized_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         permission_type, event_timestamp, event_data_json, normalized_user_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         integration_id,
         event_data.get('event_type'),
@@ -272,12 +326,37 @@ def ingest_identity_provider_event(integration_id: int, event_data: Dict[str, An
         event_data.get('group_identifier'),
         event_data.get('resource_identifier'),
         event_data.get('permission_type'),
-        event_data.get('event_timestamp', datetime.now().isoformat()),
-        json.dumps(event_data),
+        event_timestamp,
+        json.dumps({**event_data, 'event_timestamp': event_timestamp}),
         normalized_user_id
     ))
     
     event_id = cursor.lastrowid
+    
+    # Auto-map identity provider event to compliance controls
+    try:
+        from services.auto_mapping_service import auto_map_integration_event
+        cursor.execute("SELECT user_id FROM integrations WHERE id = ?", (integration_id,))
+        integration = cursor.fetchone()
+        if integration:
+            # Map identity provider event types to standard event types
+            idp_event_type = event_data.get('event_type', 'unknown')
+            mapped_event_type = idp_event_type.replace('user.', '').replace('group.membership.', 'group_').replace('permission.', 'permission_')
+            
+            auto_map_integration_event(
+                conn=conn,
+                user_id=integration['user_id'],
+                event_id=event_id,
+                event_type=mapped_event_type,
+                event_source='identity',
+                event_data={
+                    **event_data,
+                    'user_role': event_data.get('user_role'),
+                    'event_timestamp': event_data.get('event_timestamp', datetime.now().isoformat())
+                }
+            )
+    except Exception as e:
+        print(f"Error auto-mapping identity provider event: {e}")
     
     # Handle login events
     if event_data.get('event_type') == 'user.login' and normalized_user_id:
@@ -350,11 +429,14 @@ def ingest_cloud_platform_event(integration_id: int, event_data: Dict[str, Any])
     
     normalized_user_id = normalize_user_identifier(event_data.get('user_identifier'))
     
+    # Ensure event_timestamp is always set
+    event_timestamp = event_data.get('event_timestamp') or event_data.get('timestamp') or datetime.now().isoformat()
+    
     cursor.execute("""
         INSERT INTO cloud_platform_events
         (integration_id, event_type, user_identifier, service_name, resource_arn,
-         api_action, event_timestamp, event_data_json, normalized_user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         api_action, event_timestamp, event_data_json, normalized_user_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         integration_id,
         event_data.get('event_type'),
@@ -362,12 +444,45 @@ def ingest_cloud_platform_event(integration_id: int, event_data: Dict[str, Any])
         event_data.get('service_name'),
         event_data.get('resource_arn'),
         event_data.get('api_action'),
-        event_data.get('event_timestamp', datetime.now().isoformat()),
-        json.dumps(event_data),
+        event_timestamp,
+        json.dumps({**event_data, 'event_timestamp': event_timestamp}),
         normalized_user_id
     ))
     
     event_id = cursor.lastrowid
+    
+    # Auto-map cloud platform event to compliance controls
+    try:
+        from services.auto_mapping_service import auto_map_integration_event
+        cursor.execute("SELECT user_id FROM integrations WHERE id = ?", (integration_id,))
+        integration = cursor.fetchone()
+        if integration:
+            # Determine resource type from service_name or resource_arn
+            resource_type = None
+            service_name = event_data.get('service_name', '').lower()
+            if 's3' in service_name or 'storage' in service_name:
+                resource_type = 'storage'
+            elif 'rds' in service_name or 'database' in service_name:
+                resource_type = 'database'
+            elif 'lambda' in service_name or 'compute' in service_name:
+                resource_type = 'compute'
+            elif 'api' in service_name or 'gateway' in service_name:
+                resource_type = 'api'
+            
+            auto_map_integration_event(
+                conn=conn,
+                user_id=integration['user_id'],
+                event_id=event_id,
+                event_type=event_data.get('event_type', 'unknown'),
+                event_source='cloud',
+                event_data={
+                    **event_data,
+                    'resource_type': resource_type,
+                    'event_timestamp': event_data.get('event_timestamp', datetime.now().isoformat())
+                }
+            )
+    except Exception as e:
+        print(f"Error auto-mapping cloud platform event: {e}")
     
     # Handle console login
     if event_data.get('event_type') == 'console_login' and normalized_user_id:
