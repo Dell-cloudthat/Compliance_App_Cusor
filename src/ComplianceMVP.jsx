@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
+import { DashboardSkeleton, ControlsTableSkeleton, TableSkeleton, PageLoadingSkeleton } from './components/ui/skeleton';
 import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
 import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
 import { CIS_CONTROLS } from './frameworks/cis-controls';
@@ -895,6 +896,7 @@ const ComplianceMVP = () => {
   const [currentUser, setCurrentUser] = useState({ id: null, email: 'admin@company.com', organization: 'Demo Org', role: 'Admin' });
   const [backendConnected, setBackendConnected] = useState(false);
   const [apiError, setApiError] = useState(null);
+  const [isInitialLoading, setIsInitialLoading] = useState(true); // Loading state for initial data fetch
   const [selectedFramework, setSelectedFramework] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
   const [showUpload, setShowUpload] = useState(false);
@@ -5682,6 +5684,9 @@ const closeControlDetail = useCallback(() => {
     
     // Load data regardless of backend status (works in demo mode too)
     loadData();
+    
+    // Mark initial loading complete after a brief delay to ensure data is rendered
+    setTimeout(() => setIsInitialLoading(false), 500);
   };
 
   useEffect(() => {
@@ -8627,6 +8632,11 @@ const closeControlDetail = useCallback(() => {
     }
   };
   const renderDashboard = () => {
+    // Show skeleton while initial data is loading
+    if (isInitialLoading) {
+      return <DashboardSkeleton />;
+    }
+
     // Calculate stats and coverage
     const stats = {
       total: controls.length,

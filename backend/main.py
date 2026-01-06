@@ -8,8 +8,17 @@ import asyncio
 from fastapi import FastAPI, HTTPException, Depends, Header, Request, WebSocket, WebSocketDisconnect, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+
+# Rate limiting
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from pydantic import BaseModel, Field, EmailStr, validator
 from typing import List, Optional, Dict, Any
+
+# Note: Validated models are available in models/schemas.py for future use
+# Current models are defined inline below for backwards compatibility
 from datetime import datetime, timedelta
 import sqlite3
 import json
@@ -47,6 +56,7 @@ from services.csca_engine import map_security_event_to_compliance, calculate_com
 from services import alert_service
 from services import intelligence_service
 from services import learning_service
+from services import auth_service
 from services.data_flow_service import (
     create_data_flow_node,
     update_data_flow_node,
@@ -67,10 +77,15 @@ SCHEMA_PATH = Path(__file__).parent / "database" / "schema.sql"
 
 app = FastAPI(title="Compliance Platform API", version="1.0.0")
 
+# Rate limiting configuration
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "http://localhost:5000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -168,22 +183,33 @@ class AlertRemediationUpdate(BaseModel):
     evidence_links: Optional[List[str]] = None
     control_updates: Optional[List[AlertControlUpdate]] = None
 
-# Helper: Initialize database
+# Helper: Initialize database using migration system
 def init_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Import and run migrations
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent / "database"))
+    try:
+        from migrate import migrate as run_migrations
+        print("Running database migrations...")
+        run_migrations()
+    except ImportError:
+        print("Migration module not found, falling back to schema.sql")
+    except Exception as e:
+        print(f"Migration warning: {e}")
+    
+    # Also run the original schema for any tables not in migrations yet
     conn = sqlite3.connect(str(DB_PATH))
     cursor = conn.cursor()
     
     # Read and execute schema (will create tables if they don't exist)
     with open(SCHEMA_PATH, 'r') as f:
         schema = f.read()
-        # Split by semicolons and execute each statement
-        # This handles CREATE TABLE IF NOT EXISTS properly
         try:
             cursor.executescript(schema)
             conn.commit()
         except sqlite3.OperationalError as e:
-            # If table already exists, that's okay - continue
             if "already exists" not in str(e).lower():
                 print(f"Schema execution warning: {e}")
             conn.commit()
@@ -820,8 +846,135 @@ async def root():
         "status": "operational"
     }
 
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+@app.post("/api/auth/register", response_model=Dict[str, Any])
+@limiter.limit("5/minute")
+async def auth_register(request: Request, data: dict = Body(...)):
+    """Register a new user with email and password"""
+    name = data.get("name")
+    email = data.get("email")
+    password = data.get("password")
+    organization = data.get("organization")
+    
+    if not all([name, email, password]):
+        raise HTTPException(status_code=400, detail="Name, email, and password are required")
+    
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    
+    result = auth_service.register(name, email, password, organization)
+    
+    if not result:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    return result.model_dump()
+
+
+@app.post("/api/auth/login", response_model=Dict[str, Any])
+@limiter.limit("10/minute")
+async def auth_login(request: Request, data: dict = Body(...)):
+    """Login with email and password"""
+    email = data.get("email")
+    password = data.get("password")
+    
+    if not all([email, password]):
+        raise HTTPException(status_code=400, detail="Email and password are required")
+    
+    # Get client IP
+    ip_address = request.client.host if request.client else None
+    
+    result = auth_service.login(email, password, ip_address)
+    
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid credentials or account locked")
+    
+    return result.model_dump()
+
+
+@app.post("/api/auth/refresh", response_model=Dict[str, Any])
+@limiter.limit("30/minute")
+async def auth_refresh(request: Request, data: dict = Body(...)):
+    """Refresh access token using refresh token"""
+    refresh_token = data.get("refresh_token")
+    
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Refresh token is required")
+    
+    result = auth_service.refresh_access_token(refresh_token)
+    
+    if not result:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    
+    return result.model_dump()
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(data: dict = Body(...)):
+    """Logout and revoke refresh token"""
+    refresh_token = data.get("refresh_token")
+    
+    if refresh_token:
+        auth_service.logout(refresh_token)
+    
+    return {"message": "Logged out successfully"}
+
+
+@app.get("/api/auth/me", response_model=Dict[str, Any])
+async def auth_me(authorization: Optional[str] = Header(None)):
+    """Get current user from token"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization token required")
+    
+    token = authorization.replace("Bearer ", "")
+    token_data = auth_service.decode_token(token)
+    
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    user = auth_service.get_user_by_id(token_data.user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "id": user["id"],
+        "name": user["name"],
+        "email": user["email"],
+        "role": user.get("role", "viewer"),
+        "organization": user.get("organization")
+    }
+
+
+# Helper function to get current user from token
+async def get_current_user(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """Dependency to get current authenticated user"""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization token required")
+    
+    token = authorization.replace("Bearer ", "")
+    token_data = auth_service.decode_token(token)
+    
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    user = auth_service.get_user_by_id(token_data.user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return user
+
+
+# ============================================================================
+# User Endpoints
+# ============================================================================
+
 @app.post("/api/users", response_model=Dict[str, Any])
-async def create_user(user: UserCreate):
+@limiter.limit("10/minute")  # Prevent user enumeration/registration abuse
+async def create_user(request: Request, user: UserCreate):
     """Create a new user"""
     conn = get_db()
     cursor = conn.cursor()
@@ -2662,7 +2815,8 @@ async def get_data_flow_audit_endpoint(limit: int = 100, user_id: int = Header(.
 # ============================================================================
 
 @app.post("/api/security-events")
-async def create_security_event(event: SecurityEventCreate, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+@limiter.limit("100/minute")  # Allow bulk ingestion but prevent abuse
+async def create_security_event(request: Request, event: SecurityEventCreate, user_id: int = Header(..., alias="X-User-Id")):
     """Ingest a security event and automatically map to compliance controls"""
     conn = get_db()
     cursor = conn.cursor()
