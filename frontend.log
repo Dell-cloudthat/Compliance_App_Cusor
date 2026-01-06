@@ -1,0 +1,8 @@
+
+> compliance-app@1.0.0 preview
+> vite preview --host 0.0.0.0
+
+Port 4173 is in use, trying another one...
+  ➜  Local:   http://localhost:4174/
+  ➜  Network: http://172.30.0.2:4174/
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
