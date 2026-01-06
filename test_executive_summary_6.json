@@ -1,0 +1,72 @@
+{
+  "report_type": "executive_summary",
+  "audit_id": 6,
+  "generated_at": "2026-01-06T01:34:06.863602",
+  "audit_overview": {
+    "audit_name": "SOC 2 Type II - Q1 2024",
+    "framework": "SOC2",
+    "audit_type": "Type II",
+    "status": "planned",
+    "start_date": "2024-01-01",
+    "end_date": "2024-03-31"
+  },
+  "key_metrics": {
+    "readiness_score": 0,
+    "assessment_level": "Critical",
+    "total_controls": 9,
+    "controls_with_evidence": 4,
+    "evidence_coverage": 44.4,
+    "total_findings": 3,
+    "critical_findings": 0,
+    "high_findings": 1,
+    "resolved_findings": 0,
+    "total_evidence": 4,
+    "validated_evidence": 0
+  },
+  "top_findings": [
+    {
+      "id": 8,
+      "audit_engagement_id": 6,
+      "control_id": "CC2.1",
+      "finding_type": "deficiency",
+      "severity": "high",
+      "description": "Access reviews not performed quarterly",
+      "remediation_plan": "Implement quarterly access review process",
+      "assigned_to": "IAM Team",
+      "due_date": "2024-02-01",
+      "status": "open",
+      "resolved_date": null,
+      "evidence_required": "[]",
+      "created_at": "2026-01-06 01:34:06",
+      "updated_at": "2026-01-06 01:34:06"
+    }
+  ],
+  "recommendations": [
+    "Allocate resources to improve audit readiness before the engagement begins.",
+    "Establish a remediation plan for high-severity findings with clear ownership and timelines."
+  ],
+  "next_steps": [
+    "Complete evidence collection for all controls in scope.",
+    "Conduct internal readiness review and gap analysis.",
+    "Schedule kickoff meeting with auditor."
+  ],
+  "automation_metrics": {
+    "integration_events": 0,
+    "workflow_executions": 0,
+    "evidence_collected_automated": 0,
+    "gaps_remediated_automated": 0
+  },
+  "evidence_freshness": {
+    "average_age_days": 0.0,
+    "fresh_evidence_count": 4,
+    "stale_evidence_count": 0,
+    "total_evidence": 4,
+    "by_age_category": {
+      "fresh": 4,
+      "recent": 0,
+      "stale": 0,
+      "very_stale": 0
+    },
+    "freshness_score": 100.0
+  }
+}

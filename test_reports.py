@@ -30,7 +30,7 @@ def create_test_audit():
     
     if response.status_code == 200:
         audit = response.json()
-        print(f"✓ Created test audit: {audit['id']} - {audit['audit_name']}")
+        print(f"✓ Created test audit: {audit['id']} - {audit.get('audit_name', audit_data['audit_name'])}")
         return audit['id']
     else:
         print(f"✗ Failed to create audit: {response.status_code} - {response.text}")

@@ -589,6 +589,7 @@ CREATE TABLE IF NOT EXISTS compliance_alerts (
   acknowledged BOOLEAN DEFAULT 0,
   acknowledged_at TIMESTAMP,
   acknowledged_by TEXT,
+  metadata_json TEXT, -- JSON object with additional event metadata
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id),
   FOREIGN KEY (security_event_id) REFERENCES security_events(id)

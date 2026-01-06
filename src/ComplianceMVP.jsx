@@ -3032,7 +3032,6 @@ const closeControlDetail = useCallback(() => {
         classification_tags: ['AUTOMATION', 'ORCHESTRATION'],
         owner: 'Platform Engineering',
         responsible_party: 'Automation Squad',
-        framework_controls: ['IR-4', 'CA-7'],
         integration_status: 'active',
         created_at: daysAgo(210),
         updated_at: daysAgo(4),

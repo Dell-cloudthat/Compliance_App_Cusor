@@ -1,0 +1,200 @@
+{
+  "report_type": "evidence_package",
+  "audit_id": 6,
+  "generated_at": "2026-01-06T01:34:06.860870",
+  "audit_info": {
+    "audit_name": "SOC 2 Type II - Q1 2024",
+    "framework": "SOC2",
+    "audit_type": "Type II"
+  },
+  "package_summary": {
+    "total_evidence": 4,
+    "validated_evidence": 0,
+    "pending_validation": 4,
+    "controls_covered": 4,
+    "evidence_types": [
+      "document",
+      "configuration",
+      "api_data"
+    ]
+  },
+  "evidence_by_control": {
+    "CC1.1": [
+      {
+        "id": 9,
+        "audit_engagement_id": 6,
+        "control_id": "CC1.1",
+        "evidence_type": "document",
+        "evidence_name": "Control Documentation - CC1.1",
+        "file_path": null,
+        "file_url": "https://example.com/evidence/cc1.1.pdf",
+        "file_size_bytes": 102400,
+        "uploaded_by": "user_1",
+        "uploaded_at": "2026-01-06 01:34:06",
+        "validated": 0,
+        "validated_by": null,
+        "validated_at": null,
+        "expiration_date": "2026-04-06",
+        "metadata": "{\"source\": \"manual_upload\"}",
+        "notes": "Control documentation for CC1.1"
+      }
+    ],
+    "CC2.1": [
+      {
+        "id": 10,
+        "audit_engagement_id": 6,
+        "control_id": "CC2.1",
+        "evidence_type": "api_data",
+        "evidence_name": "Access Review Logs - Q4 2023",
+        "file_path": null,
+        "file_url": "https://example.com/evidence/access-reviews.json",
+        "file_size_bytes": 51200,
+        "uploaded_by": "user_1",
+        "uploaded_at": "2026-01-06 01:34:06",
+        "validated": 0,
+        "validated_by": null,
+        "validated_at": null,
+        "expiration_date": "2026-04-06",
+        "metadata": "{\"source\": \"automated_collection\", \"integration_type\": \"identity_provider\"}",
+        "notes": "Quarterly access review evidence"
+      }
+    ],
+    "CC3.1": [
+      {
+        "id": 11,
+        "audit_engagement_id": 6,
+        "control_id": "CC3.1",
+        "evidence_type": "configuration",
+        "evidence_name": "System Configuration Snapshot",
+        "file_path": null,
+        "file_url": "https://example.com/evidence/config-snapshot.json",
+        "file_size_bytes": 25600,
+        "uploaded_by": "user_1",
+        "uploaded_at": "2026-01-06 01:34:06",
+        "validated": 0,
+        "validated_by": null,
+        "validated_at": null,
+        "expiration_date": "2027-01-06",
+        "metadata": "{\"source\": \"automated_collection\"}",
+        "notes": "System configuration evidence"
+      }
+    ],
+    "CC4.1": [
+      {
+        "id": 12,
+        "audit_engagement_id": 6,
+        "control_id": "CC4.1",
+        "evidence_type": "api_data",
+        "evidence_name": "Monitoring Logs - January 2024",
+        "file_path": null,
+        "file_url": "https://example.com/evidence/monitoring-logs.json",
+        "file_size_bytes": 204800,
+        "uploaded_by": "user_1",
+        "uploaded_at": "2026-01-06 01:34:06",
+        "validated": 0,
+        "validated_by": null,
+        "validated_at": null,
+        "expiration_date": "2026-04-06",
+        "metadata": "{\"source\": \"automated_collection\", \"integration_type\": \"siem\"}",
+        "notes": "Security monitoring evidence"
+      }
+    ]
+  },
+  "evidence_catalog": [
+    {
+      "id": 9,
+      "audit_engagement_id": 6,
+      "control_id": "CC1.1",
+      "evidence_type": "document",
+      "evidence_name": "Control Documentation - CC1.1",
+      "file_path": null,
+      "file_url": "https://example.com/evidence/cc1.1.pdf",
+      "file_size_bytes": 102400,
+      "uploaded_by": "user_1",
+      "uploaded_at": "2026-01-06 01:34:06",
+      "validated": 0,
+      "validated_by": null,
+      "validated_at": null,
+      "expiration_date": "2026-04-06",
+      "metadata": "{\"source\": \"manual_upload\"}",
+      "notes": "Control documentation for CC1.1"
+    },
+    {
+      "id": 10,
+      "audit_engagement_id": 6,
+      "control_id": "CC2.1",
+      "evidence_type": "api_data",
+      "evidence_name": "Access Review Logs - Q4 2023",
+      "file_path": null,
+      "file_url": "https://example.com/evidence/access-reviews.json",
+      "file_size_bytes": 51200,
+      "uploaded_by": "user_1",
+      "uploaded_at": "2026-01-06 01:34:06",
+      "validated": 0,
+      "validated_by": null,
+      "validated_at": null,
+      "expiration_date": "2026-04-06",
+      "metadata": "{\"source\": \"automated_collection\", \"integration_type\": \"identity_provider\"}",
+      "notes": "Quarterly access review evidence"
+    },
+    {
+      "id": 11,
+      "audit_engagement_id": 6,
+      "control_id": "CC3.1",
+      "evidence_type": "configuration",
+      "evidence_name": "System Configuration Snapshot",
+      "file_path": null,
+      "file_url": "https://example.com/evidence/config-snapshot.json",
+      "file_size_bytes": 25600,
+      "uploaded_by": "user_1",
+      "uploaded_at": "2026-01-06 01:34:06",
+      "validated": 0,
+      "validated_by": null,
+      "validated_at": null,
+      "expiration_date": "2027-01-06",
+      "metadata": "{\"source\": \"automated_collection\"}",
+      "notes": "System configuration evidence"
+    },
+    {
+      "id": 12,
+      "audit_engagement_id": 6,
+      "control_id": "CC4.1",
+      "evidence_type": "api_data",
+      "evidence_name": "Monitoring Logs - January 2024",
+      "file_path": null,
+      "file_url": "https://example.com/evidence/monitoring-logs.json",
+      "file_size_bytes": 204800,
+      "uploaded_by": "user_1",
+      "uploaded_at": "2026-01-06 01:34:06",
+      "validated": 0,
+      "validated_by": null,
+      "validated_at": null,
+      "expiration_date": "2026-04-06",
+      "metadata": "{\"source\": \"automated_collection\", \"integration_type\": \"siem\"}",
+      "notes": "Security monitoring evidence"
+    }
+  ],
+  "validation_summary": {
+    "validated": 0,
+    "pending": 4,
+    "validation_rate": 0.0
+  },
+  "evidence_freshness": {
+    "average_age_days": 0.0,
+    "fresh_evidence_count": 4,
+    "stale_evidence_count": 0,
+    "total_evidence": 4,
+    "by_age_category": {
+      "fresh": 4,
+      "recent": 0,
+      "stale": 0,
+      "very_stale": 0
+    },
+    "freshness_score": 100.0
+  },
+  "integration_events": {
+    "total_events": 0,
+    "by_source": {},
+    "by_type": {}
+  }
+}
