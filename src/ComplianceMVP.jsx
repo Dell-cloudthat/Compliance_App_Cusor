@@ -10,6 +10,7 @@ import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
 import api, { API_BASE_URL } from './services/api';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
+import ResumeTailorView from './views/ResumeTailorView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -3032,7 +3033,6 @@ const closeControlDetail = useCallback(() => {
         classification_tags: ['AUTOMATION', 'ORCHESTRATION'],
         owner: 'Platform Engineering',
         responsible_party: 'Automation Squad',
-        framework_controls: ['IR-4', 'CA-7'],
         integration_status: 'active',
         created_at: daysAgo(210),
         updated_at: daysAgo(4),
@@ -19224,7 +19224,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 {/* Planning & Analysis Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['tco', 'timeline'].includes(activeView)
+                    ['tco', 'timeline', 'resume_tailor'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -19242,6 +19242,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                     <DropdownMenuItem onClick={() => setActiveView('timeline')}>
                       <TrendingUp className="w-4 h-4 mr-2" />
                       <span>Timeline</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('resume_tailor')}>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      <span>Resume Tailor</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -19403,6 +19407,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                     <TrendingUp className="w-4 h-4 mr-2" />
                     <span>Timeline</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('resume_tailor'); setMobileMenuOpen(false); }}>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    <span>Resume Tailor</span>
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
@@ -19545,6 +19553,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                activeView === 'import' ? renderDataImport() :
                activeView === 'vendors' ? renderVendors() :
                activeView === 'timeline' ? renderTimeline() :
+              activeView === 'resume_tailor' ? <ResumeTailorView /> :
                activeView === 'responsibility' ? renderResponsibilityMatrix() :
                activeView === 'integration-map' ? renderIntegrationMap() :
                renderControls()}
