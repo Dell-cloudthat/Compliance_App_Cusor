@@ -2,6 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { buildOnePageResume, buildTailoring, parseResumeSections, parseSkills } from '@/lib/resumeTailor';
 import { extractTextFromFile } from '@/lib/fileText';
 import { CheckCircle, Copy, FileText, Sparkles, Upload, XCircle } from 'lucide-react';
+import {
+  SAMPLE_COMPANY,
+  SAMPLE_JOB_REQUIREMENTS,
+  SAMPLE_JOB_TITLE,
+  SAMPLE_RESUME_TEXT,
+} from '@/lib/resumeTailorSamples';
 
 function coverageBadge(coverage) {
   if (coverage === 'strong') return 'bg-green-500/10 text-green-500 border-green-500/20';
@@ -138,6 +144,26 @@ export default function ResumeTailorView() {
     }
   };
 
+  const loadSample = () => {
+    setUploadError('');
+    setJobTitle(SAMPLE_JOB_TITLE);
+    setCompany(SAMPLE_COMPANY);
+    setJobText(SAMPLE_JOB_REQUIREMENTS);
+
+    setResumeRawText(SAMPLE_RESUME_TEXT);
+    const parsed = parseResumeSections(SAMPLE_RESUME_TEXT);
+    setBaseSummary(parsed.summary || '');
+    setSkillsText(parsed.skillsText || '');
+    setBaseExperience(parsed.experienceText || '');
+
+    setResumeUploadName('sample_resume.txt');
+    setJobUploadName('sample_job.txt');
+
+    setOnePageTouched(false);
+    setOnePageOverride('');
+    setSuggestionOverrides({});
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -174,6 +200,20 @@ export default function ResumeTailorView() {
           {uploading && (
             <div className="text-xs text-muted-foreground">Extracting text…</div>
           )}
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground">
+            Want to test immediately? Load a sample resume + job posting and confirm the 1-page output updates.
+          </div>
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={loadSample}
+            className="px-3 py-2 rounded-lg bg-muted/30 hover:bg-muted/50 border border-[hsl(var(--border))] text-xs text-foreground transition-colors disabled:opacity-60"
+          >
+            Load sample data
+          </button>
         </div>
 
         {uploadError ? (
