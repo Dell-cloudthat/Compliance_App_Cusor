@@ -1028,6 +1028,76 @@ class ComplianceAPI {
       body: JSON.stringify({ alert_id: alertId }),
     });
   }
+
+  // ============================================================================
+  // Stock Screener Endpoints
+  // ============================================================================
+
+  /**
+   * Execute a stock screen based on the provided definition
+   * @param {Object} screenDefinition - The screen definition JSON
+   * @returns {Promise<Object>} Screen results with matching stocks
+   */
+  async executeStockScreen(screenDefinition) {
+    return this.request('/api/stock-screener/execute', {
+      method: 'POST',
+      body: JSON.stringify(screenDefinition),
+    });
+  }
+
+  /**
+   * Validate a stock screen definition without executing it
+   * @param {Object} screenDefinition - The screen definition JSON
+   * @returns {Promise<Object>} Validation result with errors and warnings
+   */
+  async validateStockScreen(screenDefinition) {
+    return this.request('/api/stock-screener/validate', {
+      method: 'POST',
+      body: JSON.stringify(screenDefinition),
+    });
+  }
+
+  /**
+   * Get available fields for stock screening
+   * @returns {Promise<Object>} Available fields organized by category
+   */
+  async getStockScreenFields() {
+    return this.request('/api/stock-screener/fields');
+  }
+
+  /**
+   * Save a stock screen definition for later use
+   * @param {number} userId - User ID
+   * @param {string} name - Name for the saved screen
+   * @param {Object} definition - The screen definition JSON
+   * @param {string} [description] - Optional description
+   * @returns {Promise<Object>} Save result
+   */
+  async saveStockScreen(userId, name, definition, description = null) {
+    const payload = { name, definition };
+    if (description) payload.description = description;
+    
+    return this.request('/api/stock-screener/save', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  /**
+   * Get all saved stock screen definitions for a user
+   * @param {number} userId - User ID
+   * @returns {Promise<Object>} List of saved screens
+   */
+  async getSavedStockScreens(userId) {
+    return this.request('/api/stock-screener/saved', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
 }
 
 export default new ComplianceAPI();
