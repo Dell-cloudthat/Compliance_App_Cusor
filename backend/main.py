@@ -60,6 +60,12 @@ from services.data_flow_service import (
     get_data_flow_edge,
     record_data_flow_audit
 )
+from services.stock_screener_service import (
+    execute_stock_screen,
+    validate_screen_definition,
+    get_available_screen_fields,
+    get_screener_service
+)
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -3658,6 +3664,113 @@ async def get_workflow_analytics_endpoint(
         return analytics
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get workflow analytics: {str(e)}")
+
+
+# ============================================================================
+# Stock Screener Endpoints
+# ============================================================================
+
+@app.post("/api/stock-screener/execute", response_model=Dict[str, Any])
+async def execute_stock_screen_endpoint(
+    request: Request,
+    screen_definition: Dict[str, Any] = Body(...)
+):
+    """
+    Execute a stock screen based on the provided definition.
+    
+    The definition should include:
+    - universe: Market filters (country, exchange, market_cap_usd)
+    - fundamentals: Financial metrics (pe_ttm, debt_to_equity, roe, etc.)
+    - technicals: Technical indicators (rsi_14, average_volume_30d, price_usd)
+    - exclusions: Criteria to exclude stocks (sectors, market_cap limits)
+    - sort: Sorting configuration (field, order)
+    - output: Output configuration (limit, fields)
+    """
+    try:
+        result = execute_stock_screen(screen_definition)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to execute stock screen: {str(e)}")
+
+
+@app.post("/api/stock-screener/validate", response_model=Dict[str, Any])
+async def validate_screen_definition_endpoint(
+    screen_definition: Dict[str, Any] = Body(...)
+):
+    """
+    Validate a stock screen definition without executing it.
+    Returns validation errors and warnings.
+    """
+    try:
+        result = validate_screen_definition(screen_definition)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to validate screen definition: {str(e)}")
+
+
+@app.get("/api/stock-screener/fields", response_model=Dict[str, Any])
+async def get_screen_fields_endpoint():
+    """
+    Get available fields for stock screening.
+    Returns fields organized by category: universe, fundamentals, technicals.
+    """
+    try:
+        fields = get_available_screen_fields()
+        return {"success": True, "fields": fields}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get screen fields: {str(e)}")
+
+
+@app.post("/api/stock-screener/save", response_model=Dict[str, Any])
+async def save_screen_definition_endpoint(
+    request: Request,
+    screen_data: Dict[str, Any] = Body(...)
+):
+    """
+    Save a stock screen definition for later use.
+    
+    Required fields:
+    - name: Name for the saved screen
+    - definition: The screen definition JSON
+    
+    Optional fields:
+    - description: Description of the screen
+    """
+    try:
+        user_id = get_user_id_from_request(request)
+        name = screen_data.get('name')
+        definition = screen_data.get('definition')
+        description = screen_data.get('description')
+        
+        if not name:
+            raise HTTPException(status_code=400, detail="Screen name is required")
+        if not definition:
+            raise HTTPException(status_code=400, detail="Screen definition is required")
+        
+        service = get_screener_service()
+        result = service.save_screen_definition(user_id, name, definition, description)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save screen definition: {str(e)}")
+
+
+@app.get("/api/stock-screener/saved", response_model=Dict[str, Any])
+async def get_saved_screens_endpoint(request: Request):
+    """
+    Get all saved stock screen definitions for the current user.
+    """
+    try:
+        user_id = get_user_id_from_request(request)
+        service = get_screener_service()
+        screens = service.get_saved_screens(user_id)
+        return {"success": True, "screens": screens}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get saved screens: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
