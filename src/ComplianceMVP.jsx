@@ -10,6 +10,7 @@ import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
 import api, { API_BASE_URL } from './services/api';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
+import ClientIntakePortalView from './views/ClientIntakePortalView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19249,7 +19250,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 {/* Management Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['vendors', 'import'].includes(activeView)
+                    ['vendors', 'import', 'client-intake'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -19260,6 +19261,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                   <DropdownMenuContent align="start" className="w-56">
                     <DropdownMenuLabel>Management</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('client-intake')}>
+                      <Upload className="w-4 h-4 mr-2" />
+                      <span>Client Intake Portal</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('vendors')}>
                       <Users className="w-4 h-4 mr-2" />
                       <span>Vendors</span>
@@ -19487,6 +19492,9 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                activeView === 'audits' ? renderAudits() :
                activeView === 'framework_glossary' ? renderFrameworkGlossary() :
                activeView === 'iam' ? renderIAM() :
+               activeView === 'client-intake' ? (
+                 <ClientIntakePortalView currentUser={currentUser} />
+               ) :
                activeView === 'architecture' ? (
                  <DataFlowArchitectureView
                    stats={dataFlowStats}

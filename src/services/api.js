@@ -1028,6 +1028,224 @@ class ComplianceAPI {
       body: JSON.stringify({ alert_id: alertId }),
     });
   }
+
+  // ============================================================================
+  // Client Intake Portal - Tiered Data Ingestion
+  // ============================================================================
+
+  // Client Organizations
+  async createClientOrganization(userId, orgData) {
+    return this.request('/api/intake/organizations', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(orgData),
+    });
+  }
+
+  async listClientOrganizations(userId, intakeTier = null) {
+    const params = intakeTier ? `?intake_tier=${intakeTier}` : '';
+    return this.request(`/api/intake/organizations${params}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getClientOrganization(userId, orgId) {
+    return this.request(`/api/intake/organizations/${orgId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async updateClientIntakeTier(userId, orgId, newTier) {
+    return this.request(`/api/intake/organizations/${orgId}/tier?new_tier=${newTier}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getTierRecommendation(organizationType, complianceFrameworks, currentMaturity) {
+    const params = new URLSearchParams({
+      organization_type: organizationType,
+      compliance_frameworks: complianceFrameworks.join(','),
+      current_maturity: currentMaturity,
+    });
+    return this.request(`/api/intake/tier-recommendation?${params.toString()}`);
+  }
+
+  async getTiersInfo() {
+    return this.request('/api/intake/tiers-info');
+  }
+
+  // Tier 1: Manual/Document-Based Intake
+  async uploadIntakeDocument(userId, documentData) {
+    return this.request('/api/intake/tier1/documents', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(documentData),
+    });
+  }
+
+  async listIntakeDocuments(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.clientOrgId) params.append('client_org_id', options.clientOrgId);
+    if (options.documentType) params.append('document_type', options.documentType);
+    if (options.parsingStatus) params.append('parsing_status', options.parsingStatus);
+    if (options.limit) params.append('limit', options.limit);
+    const query = params.toString();
+    return this.request(`/api/intake/tier1/documents${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async mapDocumentToControls(userId, docId, controlMappings) {
+    return this.request(`/api/intake/tier1/documents/${docId}/map-controls`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify({ control_mappings: controlMappings }),
+    });
+  }
+
+  async createQuestionnaire(userId, questionnaireData) {
+    return this.request('/api/intake/tier1/questionnaires', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(questionnaireData),
+    });
+  }
+
+  async submitQuestionnaireResponse(userId, questionnaireId, responseData) {
+    return this.request(`/api/intake/tier1/questionnaires/${questionnaireId}/responses`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(responseData),
+    });
+  }
+
+  // Tier 2: Read-Only API Integrations
+  async getSupportedIntegrations() {
+    return this.request('/api/intake/tier2/integrations/supported');
+  }
+
+  async configureApiIntegration(userId, integrationData) {
+    return this.request('/api/intake/tier2/integrations', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(integrationData),
+    });
+  }
+
+  async listApiIntegrations(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.clientOrgId) params.append('client_org_id', options.clientOrgId);
+    if (options.status) params.append('status', options.status);
+    const query = params.toString();
+    return this.request(`/api/intake/tier2/integrations${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async triggerApiSync(userId, integrationId) {
+    return this.request(`/api/intake/tier2/integrations/${integrationId}/sync`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Tier 3: Scheduled Exports
+  async configureScheduledExport(userId, exportData) {
+    return this.request('/api/intake/tier3/exports', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(exportData),
+    });
+  }
+
+  async listScheduledExports(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.clientOrgId) params.append('client_org_id', options.clientOrgId);
+    if (options.status) params.append('status', options.status);
+    const query = params.toString();
+    return this.request(`/api/intake/tier3/exports${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async processScheduledExport(userId, configId, processData) {
+    return this.request(`/api/intake/tier3/exports/${configId}/process`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(processData),
+    });
+  }
+
+  // Tier 4: Continuous Ingestion
+  async configureContinuousIngestion(userId, ingestionData) {
+    return this.request('/api/intake/tier4/continuous', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(ingestionData),
+    });
+  }
+
+  async listContinuousIngestion(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.clientOrgId) params.append('client_org_id', options.clientOrgId);
+    if (options.status) params.append('status', options.status);
+    const query = params.toString();
+    return this.request(`/api/intake/tier4/continuous${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async ingestContinuousEvent(configId, eventData) {
+    return this.request(`/api/intake/tier4/continuous/${configId}/events`, {
+      method: 'POST',
+      body: JSON.stringify(eventData),
+    });
+  }
+
+  // Intake Dashboard
+  async getIntakeDashboard(userId, clientOrgId = null) {
+    const params = clientOrgId ? `?client_org_id=${clientOrgId}` : '';
+    return this.request(`/api/intake/dashboard${params}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
 }
 
 export default new ComplianceAPI();
