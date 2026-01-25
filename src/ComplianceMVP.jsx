@@ -11,6 +11,7 @@ import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
 import api, { API_BASE_URL } from './services/api';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
+import ConsultingPortalView from './views/ConsultingPortalView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19250,7 +19251,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 {/* Management Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['vendors', 'import', 'client-intake'].includes(activeView)
+                    ['vendors', 'import', 'client-intake', 'consulting'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -19261,6 +19262,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                   <DropdownMenuContent align="start" className="w-56">
                     <DropdownMenuLabel>Management</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('consulting')}>
+                      <Award className="w-4 h-4 mr-2" />
+                      <span>Consulting Portal</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('client-intake')}>
                       <Upload className="w-4 h-4 mr-2" />
                       <span>Client Intake Portal</span>
@@ -19494,6 +19499,9 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                activeView === 'iam' ? renderIAM() :
                activeView === 'client-intake' ? (
                  <ClientIntakePortalView currentUser={currentUser} />
+               ) :
+               activeView === 'consulting' ? (
+                 <ConsultingPortalView currentUser={currentUser} />
                ) :
                activeView === 'architecture' ? (
                  <DataFlowArchitectureView

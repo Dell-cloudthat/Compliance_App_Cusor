@@ -1246,6 +1246,254 @@ class ComplianceAPI {
       },
     });
   }
+
+  // ============================================================================
+  // Consulting Platform APIs
+  // ============================================================================
+
+  // Consulting Dashboard
+  async getConsultingDashboard(userId) {
+    return this.request('/api/consulting/dashboard', {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Engagements
+  async createEngagement(userId, engagementData) {
+    return this.request('/api/consulting/engagements', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(engagementData),
+    });
+  }
+
+  async listEngagements(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.status) params.append('status', options.status);
+    if (options.clientOrgId) params.append('client_org_id', options.clientOrgId);
+    const query = params.toString();
+    return this.request(`/api/consulting/engagements${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async getEngagement(userId, engagementId) {
+    return this.request(`/api/consulting/engagements/${engagementId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async updateEngagementStatus(userId, engagementId, status) {
+    return this.request(`/api/consulting/engagements/${engagementId}/status?status=${status}`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async logTimeEntry(userId, engagementId, timeData) {
+    return this.request(`/api/consulting/engagements/${engagementId}/time`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(timeData),
+    });
+  }
+
+  // Assessment Templates
+  async createAssessmentTemplate(userId, templateData) {
+    return this.request('/api/consulting/assessment-templates', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(templateData),
+    });
+  }
+
+  async listAssessmentTemplates(userId, templateType = null) {
+    const params = templateType ? `?template_type=${templateType}` : '';
+    return this.request(`/api/consulting/assessment-templates${params}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async createDefaultAssessmentTemplate(userId) {
+    return this.request('/api/consulting/assessment-templates/default', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Assessments
+  async createAssessment(userId, assessmentData) {
+    return this.request('/api/consulting/assessments', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(assessmentData),
+    });
+  }
+
+  async submitAssessmentResponses(userId, assessmentId, responses) {
+    return this.request(`/api/consulting/assessments/${assessmentId}/submit`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify({ responses }),
+    });
+  }
+
+  // Gap Analysis
+  async createGap(userId, gapData) {
+    return this.request('/api/consulting/gaps', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(gapData),
+    });
+  }
+
+  async listGaps(userId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.clientOrgId) params.append('client_org_id', options.clientOrgId);
+    if (options.engagementId) params.append('engagement_id', options.engagementId);
+    if (options.status) params.append('status', options.status);
+    const query = params.toString();
+    return this.request(`/api/consulting/gaps${query ? `?${query}` : ''}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Roadmaps
+  async createRoadmap(userId, roadmapData) {
+    return this.request('/api/consulting/roadmaps', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(roadmapData),
+    });
+  }
+
+  async addRoadmapPhase(userId, roadmapId, phaseData) {
+    return this.request(`/api/consulting/roadmaps/${roadmapId}/phases`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(phaseData),
+    });
+  }
+
+  async addRoadmapInitiative(userId, roadmapId, phaseId, initiativeData) {
+    return this.request(`/api/consulting/roadmaps/${roadmapId}/phases/${phaseId}/initiatives`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(initiativeData),
+    });
+  }
+
+  async getRoadmap(userId, roadmapId) {
+    return this.request(`/api/consulting/roadmaps/${roadmapId}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  // Budget Plans
+  async createBudgetPlan(userId, budgetData) {
+    return this.request('/api/consulting/budgets', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(budgetData),
+    });
+  }
+
+  // Report Generation
+  async createReportTemplate(userId, templateData) {
+    return this.request('/api/consulting/report-templates', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(templateData),
+    });
+  }
+
+  async generateReport(userId, reportData) {
+    return this.request('/api/consulting/reports/generate', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(reportData),
+    });
+  }
+
+  // MSP Portfolio
+  async createMSPPortfolio(userId, portfolioData) {
+    return this.request('/api/consulting/msp/portfolios', {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(portfolioData),
+    });
+  }
+
+  async addClientToPortfolio(userId, portfolioId, clientData) {
+    return this.request(`/api/consulting/msp/portfolios/${portfolioId}/clients`, {
+      method: 'POST',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(clientData),
+    });
+  }
+
+  async getMSPDashboard(userId, portfolioId = null) {
+    const params = portfolioId ? `?portfolio_id=${portfolioId}` : '';
+    return this.request(`/api/consulting/msp/dashboard${params}`, {
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+    });
+  }
+
+  async updateClientMetrics(userId, clientSummaryId, metricsData) {
+    return this.request(`/api/consulting/msp/clients/${clientSummaryId}/metrics`, {
+      method: 'PUT',
+      headers: {
+        'X-User-Id': userId.toString(),
+      },
+      body: JSON.stringify(metricsData),
+    });
+  }
 }
 
 export default new ComplianceAPI();
