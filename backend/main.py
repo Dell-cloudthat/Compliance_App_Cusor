@@ -72,6 +72,20 @@ from services.consent_flow_service import (
     ProxyAction, TransactionStatus, EvidenceEventType, FlowStage,
     AuthorizationTokenCreate, VendorCreate, ProxyRuleCreate, DataRequest
 )
+from services.policy_engine import (
+    policy_engine, PolicyEffect, PolicyConditionOperator, DataCategory,
+    LegalBasis, Jurisdiction, PolicyCondition, PolicyRule, ConsentPolicy,
+    DataFlowMapping
+)
+from services.consent_token_service import (
+    consent_token_service, TokenAlgorithm, ConsentScope, TokenIssueRequest
+)
+from services.tenant_service import (
+    tenant_service, TenantPlan, TenantStatus, ApiKeyScope, TenantCreate
+)
+from services.audit_reporting_service import (
+    audit_reporting_service, AuditEventType, ReportType, ExportFormat
+)
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -5688,6 +5702,351 @@ async def execute_complete_flow(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Flow execution failed: {str(e)}")
+
+
+# ==================== SaaS Platform API ====================
+# Core SaaS functionality: Tenants, Policies, Tokens, Audit
+
+# --- Tenant Management ---
+
+@app.post("/api/saas/tenants")
+async def create_tenant(data: TenantCreate):
+    """Create a new tenant (onboarding)"""
+    try:
+        tenant, api_key = tenant_service.create_tenant(data)
+        return {
+            "success": True,
+            "tenant": tenant.model_dump(),
+            "api_key": api_key,  # Only returned once!
+            "message": "Save this API key securely - it won't be shown again"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create tenant: {str(e)}")
+
+
+@app.get("/api/saas/tenants/{tenant_id}")
+async def get_tenant(tenant_id: str):
+    """Get tenant details"""
+    tenant = tenant_service.get_tenant(tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"tenant": tenant.model_dump()}
+
+
+@app.put("/api/saas/tenants/{tenant_id}")
+async def update_tenant(tenant_id: str, data: Dict[str, Any] = Body(...)):
+    """Update tenant settings"""
+    tenant = tenant_service.update_tenant(tenant_id, data)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"success": True, "tenant": tenant.model_dump()}
+
+
+@app.post("/api/saas/tenants/{tenant_id}/activate")
+async def activate_tenant(tenant_id: str):
+    """Activate a tenant"""
+    success = tenant_service.activate_tenant(tenant_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"success": True, "message": "Tenant activated"}
+
+
+@app.get("/api/saas/tenants/{tenant_id}/usage")
+async def get_tenant_usage(tenant_id: str):
+    """Get tenant usage statistics"""
+    stats = tenant_service.get_usage_stats(tenant_id)
+    if not stats:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return stats
+
+
+@app.get("/api/saas/tenants/{tenant_id}/limits")
+async def get_tenant_limits(tenant_id: str):
+    """Get tenant plan limits"""
+    limits = tenant_service.get_plan_limits(tenant_id)
+    if not limits:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return {"limits": limits}
+
+
+# --- API Key Management ---
+
+@app.post("/api/saas/tenants/{tenant_id}/api-keys")
+async def create_api_key(tenant_id: str, name: str = Body(...), 
+                        scopes: List[str] = Body(["read"])):
+    """Create a new API key for a tenant"""
+    try:
+        scope_enums = [ApiKeyScope(s) for s in scopes]
+        full_key, key_meta = tenant_service.create_api_key(tenant_id, name, scope_enums)
+        return {
+            "success": True,
+            "api_key": full_key,  # Only returned once!
+            "key_id": key_meta.id,
+            "key_prefix": key_meta.key_prefix,
+            "scopes": scopes
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create API key: {str(e)}")
+
+
+@app.get("/api/saas/tenants/{tenant_id}/api-keys")
+async def list_api_keys(tenant_id: str, include_revoked: bool = False):
+    """List API keys for a tenant"""
+    keys = tenant_service.list_api_keys(tenant_id, include_revoked)
+    return {"api_keys": [k.model_dump(exclude={"key_hash"}) for k in keys]}
+
+
+@app.post("/api/saas/api-keys/{key_id}/revoke")
+async def revoke_api_key(key_id: str):
+    """Revoke an API key"""
+    success = tenant_service.revoke_api_key(key_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="API key not found")
+    return {"success": True, "message": "API key revoked"}
+
+
+# --- Policy Engine ---
+
+@app.post("/api/saas/tenants/{tenant_id}/policies")
+async def create_policy(tenant_id: str, policy: ConsentPolicy):
+    """Create a new consent policy"""
+    try:
+        policy.tenant_id = tenant_id
+        created = policy_engine.create_policy(policy)
+        return {"success": True, "policy": created.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create policy: {str(e)}")
+
+
+@app.get("/api/saas/tenants/{tenant_id}/policies")
+async def list_policies(tenant_id: str, jurisdiction: Optional[str] = None, 
+                       status: Optional[str] = None):
+    """List policies for a tenant"""
+    jurisdiction_enum = Jurisdiction(jurisdiction) if jurisdiction else None
+    policies = policy_engine.list_policies(tenant_id, jurisdiction_enum, status)
+    return {"policies": [p.model_dump() for p in policies]}
+
+
+@app.get("/api/saas/policies/{policy_id}")
+async def get_policy(policy_id: str):
+    """Get policy details"""
+    policy = policy_engine.get_policy(policy_id)
+    if not policy:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"policy": policy.model_dump()}
+
+
+@app.post("/api/saas/policies/{policy_id}/activate")
+async def activate_policy(policy_id: str):
+    """Activate a policy"""
+    success = policy_engine.activate_policy(policy_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Policy not found")
+    return {"success": True, "message": "Policy activated"}
+
+
+@app.post("/api/saas/policies/{policy_id}/evaluate")
+async def evaluate_policy(policy_id: str, context: Dict[str, Any] = Body(...),
+                         consents: List[str] = Body([])):
+    """Evaluate a policy against a context"""
+    try:
+        decision = policy_engine.evaluate(policy_id, context, consents)
+        return decision.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
+
+
+# --- Data Flow Mapping ---
+
+@app.post("/api/saas/tenants/{tenant_id}/data-flow-mappings")
+async def create_data_flow_mapping(tenant_id: str, mapping: DataFlowMapping):
+    """Create a consent-to-data-flow mapping"""
+    try:
+        mapping.tenant_id = tenant_id
+        created = policy_engine.create_data_flow_mapping(mapping)
+        return {"success": True, "mapping": created.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create mapping: {str(e)}")
+
+
+@app.get("/api/saas/tenants/{tenant_id}/data-flow-mappings")
+async def list_data_flow_mappings(tenant_id: str, purpose: Optional[str] = None):
+    """List data flow mappings"""
+    mappings = policy_engine.list_data_flow_mappings(tenant_id, purpose)
+    return {"mappings": [m.model_dump() for m in mappings]}
+
+
+@app.get("/api/saas/tenants/{tenant_id}/allowed-flows/{consent_purpose}")
+async def get_allowed_flows(tenant_id: str, consent_purpose: str):
+    """Get allowed data flows for a consent purpose"""
+    flows = policy_engine.get_allowed_flows_for_consent(tenant_id, consent_purpose)
+    return flows
+
+
+@app.post("/api/saas/tenants/{tenant_id}/check-flow")
+async def check_flow_allowed(tenant_id: str, consent_purpose: str = Body(...),
+                            data_category: str = Body(...), vendor: str = Body(...)):
+    """Check if a specific data flow is allowed"""
+    result = policy_engine.is_flow_allowed(tenant_id, consent_purpose, data_category, vendor)
+    return result
+
+
+# --- Consent Token Service ---
+
+@app.post("/api/saas/tenants/{tenant_id}/tokens/issue")
+async def issue_consent_token(tenant_id: str, data: TokenIssueRequest):
+    """Issue a signed consent token"""
+    try:
+        data.tenant_id = tenant_id
+        token = consent_token_service.issue_token(data)
+        tenant_service.record_token_issued(tenant_id)
+        return {
+            "success": True,
+            "token": token.token,
+            "token_id": token.id,
+            "expires_at": token.expires_at.isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to issue token: {str(e)}")
+
+
+@app.post("/api/saas/tokens/validate")
+async def validate_consent_token(token: str = Body(...)):
+    """Validate a consent token"""
+    result = consent_token_service.validate_token(token)
+    return result.model_dump()
+
+
+@app.post("/api/saas/tokens/introspect")
+async def introspect_consent_token(token: str = Body(...)):
+    """Introspect a token (detailed info)"""
+    result = consent_token_service.introspect_token(token)
+    return result
+
+
+@app.post("/api/saas/tokens/{token_id}/revoke")
+async def revoke_consent_token(token_id: str, reason: Optional[str] = Body(None)):
+    """Revoke a consent token"""
+    success = consent_token_service.revoke_token(token_id, reason)
+    if not success:
+        raise HTTPException(status_code=404, detail="Token not found")
+    return {"success": True, "message": "Token revoked"}
+
+
+@app.get("/api/saas/tenants/{tenant_id}/tokens")
+async def list_consent_tokens(tenant_id: str, subject_id: Optional[str] = None,
+                             status: Optional[str] = None, limit: int = 100):
+    """List consent tokens for a tenant"""
+    tokens = consent_token_service.list_tokens(tenant_id, subject_id, status, limit)
+    return {"tokens": [t.model_dump(exclude={"signature"}) for t in tokens]}
+
+
+# --- Audit & Reporting ---
+
+@app.post("/api/saas/tenants/{tenant_id}/audit/log")
+async def log_audit_event(tenant_id: str, event_type: str = Body(...),
+                         action: str = Body(...), details: Dict[str, Any] = Body({}),
+                         subject_id: Optional[str] = Body(None)):
+    """Log an audit event"""
+    try:
+        event_type_enum = AuditEventType(event_type)
+        event = audit_reporting_service.log_event(
+            tenant_id=tenant_id,
+            event_type=event_type_enum,
+            action=action,
+            details=details,
+            subject_id=subject_id
+        )
+        return {"success": True, "event_id": event.id}
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid event type: {event_type}")
+
+
+@app.get("/api/saas/tenants/{tenant_id}/audit/events")
+async def get_audit_events(tenant_id: str, event_type: Optional[str] = None,
+                          subject_id: Optional[str] = None, limit: int = 100):
+    """Get audit events"""
+    event_type_enum = AuditEventType(event_type) if event_type else None
+    events = audit_reporting_service.get_events(
+        tenant_id, event_type_enum, subject_id, limit=limit
+    )
+    return {"events": [e.model_dump() for e in events]}
+
+
+@app.get("/api/saas/tenants/{tenant_id}/audit/verify")
+async def verify_audit_chain(tenant_id: str):
+    """Verify audit chain integrity"""
+    result = audit_reporting_service.verify_audit_chain(tenant_id)
+    return result
+
+
+@app.post("/api/saas/tenants/{tenant_id}/reports/consent-summary")
+async def generate_consent_summary_report(tenant_id: str, 
+                                         start_date: str = Body(...),
+                                         end_date: str = Body(...)):
+    """Generate consent summary report"""
+    try:
+        start = datetime.fromisoformat(start_date)
+        end = datetime.fromisoformat(end_date)
+        report = audit_reporting_service.generate_consent_summary(tenant_id, start, end)
+        return {"success": True, "report": report.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+
+
+@app.post("/api/saas/tenants/{tenant_id}/reports/data-flow-audit")
+async def generate_data_flow_report(tenant_id: str,
+                                   start_date: str = Body(...),
+                                   end_date: str = Body(...),
+                                   vendor_id: Optional[str] = Body(None)):
+    """Generate data flow audit report"""
+    try:
+        start = datetime.fromisoformat(start_date)
+        end = datetime.fromisoformat(end_date)
+        report = audit_reporting_service.generate_data_flow_audit(tenant_id, start, end, vendor_id)
+        return {"success": True, "report": report.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+
+
+@app.post("/api/saas/tenants/{tenant_id}/reports/compliance-status")
+async def generate_compliance_status_report(tenant_id: str):
+    """Generate compliance status report"""
+    try:
+        report = audit_reporting_service.generate_compliance_status(tenant_id)
+        return {"success": True, "report": report.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {str(e)}")
+
+
+@app.get("/api/saas/tenants/{tenant_id}/reports")
+async def list_reports(tenant_id: str, report_type: Optional[str] = None, limit: int = 50):
+    """List generated reports"""
+    type_enum = ReportType(report_type) if report_type else None
+    reports = audit_reporting_service.list_reports(tenant_id, type_enum, limit)
+    return {"reports": [r.model_dump() for r in reports]}
+
+
+@app.get("/api/saas/reports/{report_id}")
+async def get_report(report_id: str):
+    """Get a specific report"""
+    report = audit_reporting_service.get_report(report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return {"report": report.model_dump()}
+
+
+@app.get("/api/saas/reports/{report_id}/export")
+async def export_report(report_id: str, format: str = "json"):
+    """Export a report"""
+    try:
+        format_enum = ExportFormat(format)
+        result = audit_reporting_service.export_report(report_id, format_enum)
+        return result
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid format: {format}")
 
 
 if __name__ == "__main__":

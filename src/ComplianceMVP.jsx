@@ -15,6 +15,7 @@ import ConsultingPortalView from './views/ConsultingPortalView';
 import ConsentDashboardView from './views/ConsentDashboardView';
 import ConsentPreferenceCenterView from './views/ConsentPreferenceCenterView';
 import ConsentFlowView from './views/ConsentFlowView';
+import ConsentSaaSAdminView from './views/ConsentSaaSAdminView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19287,7 +19288,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 {/* Consent Platform Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['consent-dashboard', 'consent-preferences', 'consent-flow'].includes(activeView)
+                    ['consent-saas-admin', 'consent-dashboard', 'consent-preferences', 'consent-flow'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -19298,6 +19299,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                   <DropdownMenuContent align="start" className="w-56">
                     <DropdownMenuLabel>Consent as a Service</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('consent-saas-admin')}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      <span>SaaS Admin</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('consent-flow')}>
                       <Activity className="w-4 h-4 mr-2" />
                       <span>Consent Flow</span>
@@ -19307,7 +19312,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                       <span>Consent Dashboard</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('consent-preferences')}>
-                      <Settings className="w-4 h-4 mr-2" />
+                      <Gauge className="w-4 h-4 mr-2" />
                       <span>Preference Center</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -19534,6 +19539,9 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                ) :
                activeView === 'consulting' ? (
                  <ConsultingPortalView currentUser={currentUser} />
+               ) :
+               activeView === 'consent-saas-admin' ? (
+                 <ConsentSaaSAdminView />
                ) :
                activeView === 'consent-flow' ? (
                  <ConsentFlowView />
