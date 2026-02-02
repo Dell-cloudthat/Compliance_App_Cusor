@@ -12,6 +12,8 @@ import api, { API_BASE_URL } from './services/api';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
+import ConsentDashboardView from './views/ConsentDashboardView';
+import ConsentPreferenceCenterView from './views/ConsentPreferenceCenterView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19281,6 +19283,31 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                   </DropdownMenuContent>
                 </DropdownMenu>
 
+                {/* Consent Platform Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    ['consent-dashboard', 'consent-preferences'].includes(activeView)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}>
+                    <Shield className="w-4 h-4" />
+                    <span>Consent</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>Consent as a Service</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('consent-dashboard')}>
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      <span>Consent Dashboard</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('consent-preferences')}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      <span>Preference Center</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <button
                   type="button"
                   onClick={(e) => {
@@ -19502,6 +19529,12 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                ) :
                activeView === 'consulting' ? (
                  <ConsultingPortalView currentUser={currentUser} />
+               ) :
+               activeView === 'consent-dashboard' ? (
+                 <ConsentDashboardView />
+               ) :
+               activeView === 'consent-preferences' ? (
+                 <ConsentPreferenceCenterView />
                ) :
                activeView === 'architecture' ? (
                  <DataFlowArchitectureView

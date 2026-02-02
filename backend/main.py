@@ -62,6 +62,11 @@ from services.data_flow_service import (
 )
 from services import client_intake_service
 from services import consulting_service
+from services.consent_service import (
+    consent_service, ConsentMethod, BannerType, DSARType, DSARStatus, AuditAction,
+    OrganizationCreate, PurposeCreate, SubjectCreate, ConsentRecordCreate,
+    BannerCreate, DSARRequestCreate, WebhookCreate, BulkConsentRequest
+)
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -4911,6 +4916,447 @@ async def get_consulting_dashboard_endpoint(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
+
+
+# ==================== Consent as a Service Platform API ====================
+
+# --- Organization Endpoints ---
+
+@app.post("/api/consent/organizations")
+async def create_consent_organization(data: OrganizationCreate):
+    """Create a new organization for consent management"""
+    try:
+        org = consent_service.create_organization(data)
+        return {"success": True, "organization": org.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organization: {str(e)}")
+
+
+@app.get("/api/consent/organizations")
+async def list_consent_organizations():
+    """List all organizations"""
+    try:
+        orgs = consent_service.list_organizations()
+        return {"organizations": [o.model_dump() for o in orgs]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list organizations: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}")
+async def get_consent_organization(org_id: str):
+    """Get organization details"""
+    org = consent_service.get_organization(org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return {"organization": org.model_dump()}
+
+
+@app.put("/api/consent/organizations/{org_id}")
+async def update_consent_organization(org_id: str, data: Dict[str, Any] = Body(...)):
+    """Update organization settings"""
+    try:
+        org = consent_service.update_organization(org_id, data)
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        return {"success": True, "organization": org.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update organization: {str(e)}")
+
+
+# --- Purpose Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/purposes")
+async def create_consent_purpose(org_id: str, data: PurposeCreate):
+    """Create a new consent purpose"""
+    try:
+        purpose = consent_service.create_purpose(org_id, data)
+        return {"success": True, "purpose": purpose.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create purpose: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/purposes")
+async def list_consent_purposes(org_id: str):
+    """List all purposes for an organization"""
+    try:
+        purposes = consent_service.list_purposes(org_id)
+        return {"purposes": [p.model_dump() for p in purposes]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list purposes: {str(e)}")
+
+
+@app.get("/api/consent/purposes/{purpose_id}")
+async def get_consent_purpose(purpose_id: str):
+    """Get purpose details"""
+    purpose = consent_service.get_purpose(purpose_id)
+    if not purpose:
+        raise HTTPException(status_code=404, detail="Purpose not found")
+    return {"purpose": purpose.model_dump()}
+
+
+@app.put("/api/consent/purposes/{purpose_id}")
+async def update_consent_purpose(purpose_id: str, data: Dict[str, Any] = Body(...)):
+    """Update a purpose"""
+    try:
+        purpose = consent_service.update_purpose(purpose_id, data)
+        if not purpose:
+            raise HTTPException(status_code=404, detail="Purpose not found")
+        return {"success": True, "purpose": purpose.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update purpose: {str(e)}")
+
+
+@app.delete("/api/consent/purposes/{purpose_id}")
+async def delete_consent_purpose(purpose_id: str):
+    """Delete a purpose (soft delete)"""
+    try:
+        success = consent_service.delete_purpose(purpose_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Purpose not found")
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete purpose: {str(e)}")
+
+
+# --- Subject Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/subjects")
+async def create_consent_subject(org_id: str, data: SubjectCreate, request: Request):
+    """Create or get a consent subject"""
+    try:
+        ip_address = request.client.host if request.client else None
+        subject = consent_service.create_or_get_subject(org_id, data, ip_address)
+        return {"success": True, "subject": subject.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create subject: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/subjects")
+async def list_consent_subjects(org_id: str, limit: int = 100, offset: int = 0):
+    """List subjects for an organization"""
+    try:
+        subjects = consent_service.list_subjects(org_id, limit, offset)
+        return {"subjects": [s.model_dump() for s in subjects], "limit": limit, "offset": offset}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list subjects: {str(e)}")
+
+
+@app.get("/api/consent/subjects/{subject_id}")
+async def get_consent_subject(subject_id: str):
+    """Get subject details"""
+    subject = consent_service.get_subject(subject_id)
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    return {"subject": subject.model_dump()}
+
+
+@app.get("/api/consent/organizations/{org_id}/subjects/find")
+async def find_consent_subject(org_id: str, identifier: str):
+    """Find a subject by email, external_id, or hashed identifier"""
+    subject = consent_service.find_subject(org_id, identifier)
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    return {"subject": subject.model_dump()}
+
+
+# --- Consent Record Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/consent")
+async def record_consent(org_id: str, data: ConsentRecordCreate, request: Request):
+    """Record a single consent decision"""
+    try:
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        record = consent_service.record_consent(org_id, data, ip_address, user_agent)
+        return {"success": True, "record": record.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record consent: {str(e)}")
+
+
+@app.post("/api/consent/organizations/{org_id}/consent/bulk")
+async def record_bulk_consent(org_id: str, data: BulkConsentRequest, request: Request):
+    """Record consent for multiple purposes at once (from banner interaction)"""
+    try:
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        records = consent_service.record_bulk_consent(org_id, data, ip_address, user_agent)
+        return {"success": True, "records": [r.model_dump() for r in records]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record bulk consent: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/consent/status/{subject_id}")
+async def get_consent_status(org_id: str, subject_id: str):
+    """Get current consent status for a subject"""
+    try:
+        status = consent_service.get_consent_status(org_id, subject_id)
+        return status.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get consent status: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/consent/records")
+async def get_consent_records(
+    org_id: str,
+    subject_id: Optional[str] = None,
+    purpose_id: Optional[str] = None,
+    limit: int = 100
+):
+    """Get consent records with optional filters"""
+    try:
+        records = consent_service.get_consent_records(org_id, subject_id, purpose_id, limit)
+        return {"records": [r.model_dump() for r in records]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get consent records: {str(e)}")
+
+
+# --- Banner Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/banners")
+async def create_consent_banner(org_id: str, data: BannerCreate):
+    """Create a new consent banner configuration"""
+    try:
+        banner = consent_service.create_banner(org_id, data)
+        return {"success": True, "banner": banner.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create banner: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/banners")
+async def list_consent_banners(org_id: str):
+    """List all banners for an organization"""
+    try:
+        banners = consent_service.list_banners(org_id)
+        return {"banners": [b.model_dump() for b in banners]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list banners: {str(e)}")
+
+
+@app.get("/api/consent/banners/{banner_id}")
+async def get_consent_banner(banner_id: str):
+    """Get banner details"""
+    banner = consent_service.get_banner(banner_id)
+    if not banner:
+        raise HTTPException(status_code=404, detail="Banner not found")
+    return {"banner": banner.model_dump()}
+
+
+@app.put("/api/consent/banners/{banner_id}")
+async def update_consent_banner(banner_id: str, data: Dict[str, Any] = Body(...)):
+    """Update a banner configuration"""
+    try:
+        banner = consent_service.update_banner(banner_id, data)
+        if not banner:
+            raise HTTPException(status_code=404, detail="Banner not found")
+        return {"success": True, "banner": banner.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update banner: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/banners/config")
+async def get_banner_config(org_id: str, banner_id: Optional[str] = None):
+    """Get banner configuration for embedding (public endpoint for widget)"""
+    try:
+        config = consent_service.get_banner_config(org_id, banner_id)
+        return config
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get banner config: {str(e)}")
+
+
+# --- DSAR (Data Subject Access Request) Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/dsar")
+async def create_dsar_request(org_id: str, data: DSARRequestCreate):
+    """Submit a new DSAR request"""
+    try:
+        request = consent_service.create_dsar_request(org_id, data)
+        return {"success": True, "request": request.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create DSAR request: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/dsar")
+async def list_dsar_requests(org_id: str, status: Optional[str] = None):
+    """List DSAR requests for an organization"""
+    try:
+        status_enum = DSARStatus(status) if status else None
+        requests = consent_service.list_dsar_requests(org_id, status_enum)
+        return {"requests": [r.model_dump() for r in requests]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list DSAR requests: {str(e)}")
+
+
+@app.get("/api/consent/dsar/{request_id}")
+async def get_dsar_request(request_id: str):
+    """Get DSAR request details"""
+    dsar = consent_service.get_dsar_request(request_id)
+    if not dsar:
+        raise HTTPException(status_code=404, detail="DSAR request not found")
+    return {"request": dsar.model_dump()}
+
+
+@app.put("/api/consent/dsar/{request_id}")
+async def update_dsar_request(request_id: str, data: Dict[str, Any] = Body(...)):
+    """Update DSAR request status"""
+    try:
+        dsar = consent_service.update_dsar_request(request_id, data)
+        if not dsar:
+            raise HTTPException(status_code=404, detail="DSAR request not found")
+        return {"success": True, "request": dsar.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update DSAR request: {str(e)}")
+
+
+# --- Analytics Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/analytics/interaction")
+async def record_banner_interaction(
+    org_id: str,
+    banner_id: str = Body(...),
+    interaction_type: str = Body(...),
+    country: Optional[str] = Body(None),
+    device: Optional[str] = Body(None)
+):
+    """Record a banner interaction for analytics"""
+    try:
+        consent_service.record_banner_interaction(org_id, banner_id, interaction_type, country, device)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to record interaction: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/analytics")
+async def get_consent_analytics(
+    org_id: str,
+    start_date: str,
+    end_date: str,
+    banner_id: Optional[str] = None
+):
+    """Get analytics for a date range"""
+    try:
+        analytics = consent_service.get_analytics(org_id, start_date, end_date, banner_id)
+        return {"analytics": [a.model_dump() for a in analytics]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get analytics: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/analytics/summary")
+async def get_consent_analytics_summary(org_id: str, days: int = 30):
+    """Get analytics summary for the last N days"""
+    try:
+        summary = consent_service.get_analytics_summary(org_id, days)
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get analytics summary: {str(e)}")
+
+
+# --- Audit Log Endpoints ---
+
+@app.get("/api/consent/organizations/{org_id}/audit-logs")
+async def get_consent_audit_logs(
+    org_id: str,
+    subject_id: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 100
+):
+    """Get consent audit logs"""
+    try:
+        action_enum = AuditAction(action) if action else None
+        logs = consent_service.get_audit_logs(org_id, subject_id, action_enum, limit)
+        return {"audit_logs": logs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get audit logs: {str(e)}")
+
+
+# --- Webhook Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/webhooks")
+async def create_consent_webhook(org_id: str, data: WebhookCreate):
+    """Create a new webhook"""
+    try:
+        webhook = consent_service.create_webhook(org_id, data)
+        return {"success": True, "webhook": webhook.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create webhook: {str(e)}")
+
+
+@app.get("/api/consent/organizations/{org_id}/webhooks")
+async def list_consent_webhooks(org_id: str):
+    """List webhooks for an organization"""
+    try:
+        webhooks = consent_service.list_webhooks(org_id)
+        return {"webhooks": [w.model_dump() for w in webhooks]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list webhooks: {str(e)}")
+
+
+# --- API Key Endpoints ---
+
+@app.post("/api/consent/organizations/{org_id}/api-keys")
+async def create_consent_api_key(org_id: str, name: str = Body(...), permissions: List[str] = Body(["read", "write"])):
+    """Create a new API key (key is only shown once!)"""
+    try:
+        api_key = consent_service.create_api_key(org_id, name, permissions)
+        return {"success": True, "api_key": api_key}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create API key: {str(e)}")
+
+
+# --- Data Export/Deletion Endpoints ---
+
+@app.get("/api/consent/organizations/{org_id}/subjects/{subject_id}/export")
+async def export_subject_data(org_id: str, subject_id: str):
+    """Export all data for a subject (DSAR compliance)"""
+    try:
+        data = consent_service.export_subject_data(org_id, subject_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export data: {str(e)}")
+
+
+@app.delete("/api/consent/organizations/{org_id}/subjects/{subject_id}")
+async def delete_subject_data(org_id: str, subject_id: str):
+    """Delete all data for a subject (right to be forgotten)"""
+    try:
+        success = consent_service.delete_subject_data(org_id, subject_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Subject not found")
+        return {"success": True, "message": "Subject data deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete subject data: {str(e)}")
+
+
+# --- Consent Widget/SDK Endpoint (Public) ---
+
+@app.get("/api/consent/widget/{org_id}")
+async def get_consent_widget_config(org_id: str, banner_id: Optional[str] = None):
+    """
+    Public endpoint for embedded consent widget.
+    Returns full configuration needed to render the consent banner.
+    """
+    try:
+        config = consent_service.get_banner_config(org_id, banner_id)
+        if not config:
+            raise HTTPException(status_code=404, detail="Configuration not found")
+        return config
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get widget config: {str(e)}")
+
+
+@app.post("/api/consent/widget/{org_id}/consent")
+async def submit_widget_consent(org_id: str, data: BulkConsentRequest, request: Request):
+    """
+    Public endpoint for submitting consent from embedded widget.
+    """
+    try:
+        ip_address = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        records = consent_service.record_bulk_consent(org_id, data, ip_address, user_agent)
+        return {"success": True, "consent_id": records[0].id if records else None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to submit consent: {str(e)}")
 
 
 if __name__ == "__main__":
