@@ -14,6 +14,7 @@ import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
 import ConsentDashboardView from './views/ConsentDashboardView';
 import ConsentPreferenceCenterView from './views/ConsentPreferenceCenterView';
+import ConsentFlowView from './views/ConsentFlowView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19286,7 +19287,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 {/* Consent Platform Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['consent-dashboard', 'consent-preferences'].includes(activeView)
+                    ['consent-dashboard', 'consent-preferences', 'consent-flow'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -19297,6 +19298,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                   <DropdownMenuContent align="start" className="w-56">
                     <DropdownMenuLabel>Consent as a Service</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('consent-flow')}>
+                      <Activity className="w-4 h-4 mr-2" />
+                      <span>Consent Flow</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('consent-dashboard')}>
                       <BarChart3 className="w-4 h-4 mr-2" />
                       <span>Consent Dashboard</span>
@@ -19529,6 +19534,9 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                ) :
                activeView === 'consulting' ? (
                  <ConsultingPortalView currentUser={currentUser} />
+               ) :
+               activeView === 'consent-flow' ? (
+                 <ConsentFlowView />
                ) :
                activeView === 'consent-dashboard' ? (
                  <ConsentDashboardView />

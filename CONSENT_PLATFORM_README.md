@@ -2,6 +2,44 @@
 
 A comprehensive, enterprise-grade Consent Management Platform (CMP) that enables organizations to collect, manage, and track user consent for data processing activities in compliance with GDPR, CCPA, and other privacy regulations.
 
+## Consent Flow Architecture
+
+The platform implements a complete consent enforcement flow:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           CONSENT FLOW ARCHITECTURE                           │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│   ┌─────────────┐     ┌─────────────────┐     ┌──────────────────┐          │
+│   │   USER      │     │  AUTHORIZATION  │     │   AD DATA PROXY  │          │
+│   │  CONSENT    │────▶│     TOKEN       │────▶│  (ENFORCEMENT)   │          │
+│   └─────────────┘     └─────────────────┘     └────────┬─────────┘          │
+│         │                     │                        │                     │
+│         │                     │                        │                     │
+│         │                     │                        ▼                     │
+│         │                     │              ┌──────────────────┐           │
+│         │                     │              │    VENDOR /      │           │
+│         │                     │              │    PLATFORM      │           │
+│         │                     │              └────────┬─────────┘           │
+│         │                     │                        │                     │
+│         ▼                     ▼                        ▼                     │
+│   ┌─────────────────────────────────────────────────────────────┐           │
+│   │                  IMMUTABLE EVIDENCE LEDGER                   │           │
+│   │   (Cryptographically secured, append-only audit trail)       │           │
+│   └─────────────────────────────────────────────────────────────┘           │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Flow Stages
+
+1. **User Consent**: User grants consent through banner or preference center
+2. **Authorization Token**: Token is issued based on consent scope, encoding which purposes are allowed
+3. **Ad Data Proxy**: Enforcement layer that validates tokens, applies rules, and controls data flow
+4. **Vendor/Platform**: Authorized data is sent to registered vendors (ad platforms, analytics, etc.)
+5. **Evidence Ledger**: Every action is recorded in an immutable, cryptographically-chained ledger
+
 ## Overview
 
 The Consent as a Service Platform provides a complete solution for managing user consent across your digital properties. It includes:
@@ -197,6 +235,54 @@ npm run dev
 |--------|----------|-------------|
 | GET | `/api/consent/organizations/{org_id}/subjects/{subject_id}/export` | Export subject data |
 | DELETE | `/api/consent/organizations/{org_id}/subjects/{subject_id}` | Delete subject data |
+
+### Authorization Tokens (Flow API)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/consent/flow/{org_id}/tokens` | Issue authorization token |
+| GET | `/api/consent/flow/{org_id}/tokens` | List tokens |
+| POST | `/api/consent/flow/tokens/{token_id}/revoke` | Revoke a token |
+
+### Vendors (Flow API)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/consent/flow/{org_id}/vendors` | Register vendor |
+| GET | `/api/consent/flow/{org_id}/vendors` | List vendors |
+| GET | `/api/consent/flow/vendors/{vendor_id}` | Get vendor details |
+| PUT | `/api/consent/flow/vendors/{vendor_id}` | Update vendor |
+
+### Proxy Rules (Flow API)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/consent/flow/{org_id}/proxy-rules` | Create proxy rule |
+| GET | `/api/consent/flow/{org_id}/proxy-rules` | List proxy rules |
+| PUT | `/api/consent/flow/proxy-rules/{rule_id}` | Update rule |
+| DELETE | `/api/consent/flow/proxy-rules/{rule_id}` | Delete rule |
+
+### Ad Data Proxy (Flow API)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/consent/flow/{org_id}/proxy` | Process data through proxy |
+| POST | `/api/consent/flow/{org_id}/complete-flow` | Execute complete flow |
+
+### Evidence Ledger (Flow API)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/consent/flow/{org_id}/evidence` | Get evidence entries |
+| GET | `/api/consent/flow/{org_id}/evidence/verify` | Verify chain integrity |
+
+### Flow Sessions (Flow API)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/consent/flow/{org_id}/sessions` | List flow sessions |
+| GET | `/api/consent/flow/{org_id}/sessions/{flow_id}` | Get session details |
+| GET | `/api/consent/flow/{org_id}/statistics` | Get flow statistics |
 
 ## Embedding the Consent Widget
 

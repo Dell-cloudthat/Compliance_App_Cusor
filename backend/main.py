@@ -67,6 +67,11 @@ from services.consent_service import (
     OrganizationCreate, PurposeCreate, SubjectCreate, ConsentRecordCreate,
     BannerCreate, DSARRequestCreate, WebhookCreate, BulkConsentRequest
 )
+from services.consent_flow_service import (
+    consent_flow_service, TokenType, TokenStatus, VendorType, IntegrationType,
+    ProxyAction, TransactionStatus, EvidenceEventType, FlowStage,
+    AuthorizationTokenCreate, VendorCreate, ProxyRuleCreate, DataRequest
+)
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -5357,6 +5362,332 @@ async def submit_widget_consent(org_id: str, data: BulkConsentRequest, request: 
         return {"success": True, "consent_id": records[0].id if records else None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to submit consent: {str(e)}")
+
+
+# ==================== Consent Flow API ====================
+# Flow: User Consent → Authorization Token → Ad Data Proxy → Vendor/Platform → Evidence Ledger
+
+# --- Authorization Token Endpoints ---
+
+@app.post("/api/consent/flow/{org_id}/tokens")
+async def issue_authorization_token(org_id: str, data: AuthorizationTokenCreate, request: Request):
+    """
+    Issue an authorization token based on user consent.
+    The token grants access to specific purposes and can be used with the Ad Data Proxy.
+    """
+    try:
+        ip_address = request.client.host if request.client else None
+        full_token, token_meta = consent_flow_service.issue_token(
+            org_id, data, ip_address=ip_address
+        )
+        return {
+            "success": True,
+            "token": full_token,  # Only returned once!
+            "token_id": token_meta.id,
+            "expires_at": token_meta.expires_at.isoformat(),
+            "granted_purposes": token_meta.granted_purposes
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to issue token: {str(e)}")
+
+
+@app.get("/api/consent/flow/{org_id}/tokens")
+async def list_authorization_tokens(
+    org_id: str,
+    subject_id: Optional[str] = None,
+    status: Optional[str] = None
+):
+    """List authorization tokens for an organization"""
+    try:
+        status_enum = TokenStatus(status) if status else None
+        tokens = consent_flow_service.list_tokens(org_id, subject_id, status_enum)
+        return {"tokens": [t.model_dump() for t in tokens]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list tokens: {str(e)}")
+
+
+@app.post("/api/consent/flow/tokens/{token_id}/revoke")
+async def revoke_authorization_token(token_id: str, reason: Optional[str] = Body(None)):
+    """Revoke an authorization token"""
+    try:
+        success = consent_flow_service.revoke_token(token_id, reason)
+        if not success:
+            raise HTTPException(status_code=404, detail="Token not found")
+        return {"success": True, "message": "Token revoked"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to revoke token: {str(e)}")
+
+
+# --- Vendor Management Endpoints ---
+
+@app.post("/api/consent/flow/{org_id}/vendors")
+async def create_vendor(org_id: str, data: VendorCreate):
+    """Register a new vendor/platform"""
+    try:
+        vendor = consent_flow_service.create_vendor(org_id, data)
+        return {"success": True, "vendor": vendor.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create vendor: {str(e)}")
+
+
+@app.get("/api/consent/flow/{org_id}/vendors")
+async def list_vendors(org_id: str, vendor_type: Optional[str] = None):
+    """List all vendors for an organization"""
+    try:
+        type_enum = VendorType(vendor_type) if vendor_type else None
+        vendors = consent_flow_service.list_vendors(org_id, type_enum)
+        return {"vendors": [v.model_dump() for v in vendors]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list vendors: {str(e)}")
+
+
+@app.get("/api/consent/flow/vendors/{vendor_id}")
+async def get_vendor(vendor_id: str):
+    """Get vendor details"""
+    vendor = consent_flow_service.get_vendor(vendor_id)
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return {"vendor": vendor.model_dump()}
+
+
+@app.put("/api/consent/flow/vendors/{vendor_id}")
+async def update_vendor(vendor_id: str, data: Dict[str, Any] = Body(...)):
+    """Update vendor settings"""
+    try:
+        vendor = consent_flow_service.update_vendor(vendor_id, data)
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        return {"success": True, "vendor": vendor.model_dump()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update vendor: {str(e)}")
+
+
+# --- Proxy Rules Endpoints ---
+
+@app.post("/api/consent/flow/{org_id}/proxy-rules")
+async def create_proxy_rule(org_id: str, data: ProxyRuleCreate):
+    """Create a new proxy enforcement rule"""
+    try:
+        rule = consent_flow_service.create_proxy_rule(org_id, data)
+        return {"success": True, "rule": rule.model_dump()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create rule: {str(e)}")
+
+
+@app.get("/api/consent/flow/{org_id}/proxy-rules")
+async def list_proxy_rules(org_id: str, enabled_only: bool = True):
+    """List proxy rules for an organization"""
+    try:
+        rules = consent_flow_service.list_proxy_rules(org_id, enabled_only)
+        return {"rules": [r.model_dump() for r in rules]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list rules: {str(e)}")
+
+
+@app.put("/api/consent/flow/proxy-rules/{rule_id}")
+async def update_proxy_rule(rule_id: str, data: Dict[str, Any] = Body(...)):
+    """Update a proxy rule"""
+    try:
+        rule = consent_flow_service.update_proxy_rule(rule_id, data)
+        if not rule:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return {"success": True, "rule": rule.model_dump()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update rule: {str(e)}")
+
+
+@app.delete("/api/consent/flow/proxy-rules/{rule_id}")
+async def delete_proxy_rule(rule_id: str):
+    """Delete a proxy rule"""
+    try:
+        success = consent_flow_service.delete_proxy_rule(rule_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete rule: {str(e)}")
+
+
+# --- Ad Data Proxy (Main Enforcement Endpoint) ---
+
+@app.post("/api/consent/flow/{org_id}/proxy")
+async def process_data_through_proxy(org_id: str, data: DataRequest, request: Request):
+    """
+    Main enforcement endpoint: Process data through the Ad Data Proxy.
+    
+    This endpoint enforces consent rules before allowing data to flow to vendors.
+    It validates tokens, applies proxy rules, and records everything in the evidence ledger.
+    """
+    try:
+        ip_address = request.client.host if request.client else None
+        # In production, you would determine geo_location from IP
+        geo_location = request.headers.get("X-Geo-Location")
+        
+        response = consent_flow_service.process_data_request(
+            org_id, data, ip_address, geo_location
+        )
+        return response.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Proxy processing failed: {str(e)}")
+
+
+# --- Evidence Ledger Endpoints ---
+
+@app.get("/api/consent/flow/{org_id}/evidence")
+async def get_evidence_ledger(
+    org_id: str,
+    start_sequence: Optional[int] = None,
+    end_sequence: Optional[int] = None,
+    event_type: Optional[str] = None,
+    subject_id: Optional[str] = None,
+    limit: int = 100
+):
+    """Get entries from the immutable evidence ledger"""
+    try:
+        type_enum = EvidenceEventType(event_type) if event_type else None
+        entries = consent_flow_service.get_evidence_chain(
+            org_id, start_sequence, end_sequence, type_enum, subject_id, limit
+        )
+        return {"entries": [e.model_dump() for e in entries], "count": len(entries)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get evidence: {str(e)}")
+
+
+@app.get("/api/consent/flow/{org_id}/evidence/verify")
+async def verify_evidence_chain(org_id: str):
+    """Verify the integrity of the evidence ledger chain"""
+    try:
+        result = consent_flow_service.verify_evidence_chain(org_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Verification failed: {str(e)}")
+
+
+# --- Flow Session Endpoints ---
+
+@app.get("/api/consent/flow/{org_id}/sessions")
+async def list_flow_sessions(
+    org_id: str,
+    status: Optional[str] = None,
+    stage: Optional[str] = None,
+    limit: int = 100
+):
+    """List consent flow sessions"""
+    try:
+        stage_enum = FlowStage(stage) if stage else None
+        sessions = consent_flow_service.list_flow_sessions(org_id, status, stage_enum, limit)
+        return {"sessions": [s.model_dump() for s in sessions]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list sessions: {str(e)}")
+
+
+@app.get("/api/consent/flow/{org_id}/sessions/{flow_id}")
+async def get_flow_session(org_id: str, flow_id: str):
+    """Get a specific flow session"""
+    session = consent_flow_service.get_flow_session(flow_id)
+    if not session or session.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Flow session not found")
+    return {"session": session.model_dump()}
+
+
+@app.get("/api/consent/flow/{org_id}/statistics")
+async def get_flow_statistics(org_id: str, days: int = 30):
+    """Get flow statistics for the organization"""
+    try:
+        stats = consent_flow_service.get_flow_statistics(org_id, days)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+
+# --- Complete Flow Endpoint (Demo) ---
+
+@app.post("/api/consent/flow/{org_id}/complete-flow")
+async def execute_complete_flow(
+    org_id: str,
+    subject_id: str = Body(...),
+    purposes: List[str] = Body(...),
+    vendor_id: str = Body(...),
+    data: Dict[str, Any] = Body(...),
+    request: Request = None
+):
+    """
+    Execute a complete consent flow from start to finish.
+    This demonstrates the entire flow:
+    1. User Consent → 2. Authorization Token → 3. Ad Data Proxy → 4. Vendor → 5. Evidence Ledger
+    """
+    try:
+        ip_address = request.client.host if request.client else None
+        
+        # Step 1: Issue token based on consent
+        token_data = AuthorizationTokenCreate(
+            subject_id=subject_id,
+            granted_purposes=purposes,
+            vendor_id=vendor_id,
+            expires_in_seconds=3600
+        )
+        full_token, token_meta = consent_flow_service.issue_token(
+            org_id, token_data, ip_address=ip_address
+        )
+        
+        # Step 2-4: Process through proxy
+        data_request = DataRequest(
+            vendor_id=vendor_id,
+            subject_identifier=subject_id,
+            purposes=purposes,
+            data=data,
+            consent_token=full_token
+        )
+        
+        proxy_response = consent_flow_service.process_data_request(
+            org_id, data_request, ip_address
+        )
+        
+        # Get the flow session for complete details
+        flow_session = consent_flow_service.get_flow_session(proxy_response.flow_id)
+        
+        return {
+            "success": True,
+            "flow": {
+                "stage_1_consent": {
+                    "status": "completed",
+                    "token_issued": True,
+                    "token_id": token_meta.id,
+                    "granted_purposes": purposes
+                },
+                "stage_2_token": {
+                    "status": "completed",
+                    "token_prefix": token_meta.token_prefix,
+                    "expires_at": token_meta.expires_at.isoformat()
+                },
+                "stage_3_proxy": {
+                    "status": proxy_response.status.value,
+                    "action_taken": proxy_response.action_taken,
+                    "transaction_id": proxy_response.transaction_id
+                },
+                "stage_4_vendor": {
+                    "vendor_id": vendor_id,
+                    "data_sent": proxy_response.data_sent is not None,
+                    "blocked_reason": proxy_response.blocked_reason
+                },
+                "stage_5_evidence": {
+                    "evidence_id": proxy_response.evidence_id,
+                    "flow_id": proxy_response.flow_id,
+                    "entries_recorded": flow_session.ledger_entries_count if flow_session else 0
+                }
+            },
+            "final_status": flow_session.status if flow_session else "unknown"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Flow execution failed: {str(e)}")
 
 
 if __name__ == "__main__":
