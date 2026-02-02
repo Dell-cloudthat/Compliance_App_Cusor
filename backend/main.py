@@ -62,6 +62,7 @@ from services.data_flow_service import (
 )
 from services import client_intake_service
 from services import consulting_service
+from services import business_ops_service
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -4911,6 +4912,305 @@ async def get_consulting_dashboard_endpoint(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
+
+
+# ==================== Business Operations ====================
+
+# Service Catalog
+class ServiceCreate(BaseModel):
+    service_name: str
+    service_category: str
+    pricing_model: str
+    base_price: float
+    description: Optional[str] = None
+    hourly_rate: Optional[float] = None
+    estimated_hours_min: Optional[float] = None
+    estimated_hours_max: Optional[float] = None
+    default_duration_weeks: Optional[int] = None
+    deliverables: Optional[List[str]] = None
+    frameworks_supported: Optional[List[str]] = None
+
+
+@app.get("/api/business/services")
+async def list_services_endpoint(
+    category: Optional[str] = Query(None),
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Get service catalog"""
+    try:
+        services = business_ops_service.get_service_catalog(user_id, category)
+        return services
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get services: {str(e)}")
+
+
+@app.post("/api/business/services")
+async def create_service_endpoint(
+    data: ServiceCreate,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Create a service in the catalog"""
+    try:
+        result = business_ops_service.create_service(
+            user_id=user_id,
+            service_name=data.service_name,
+            service_category=data.service_category,
+            pricing_model=data.pricing_model,
+            base_price=data.base_price,
+            description=data.description,
+            hourly_rate=data.hourly_rate,
+            estimated_hours_min=data.estimated_hours_min,
+            estimated_hours_max=data.estimated_hours_max,
+            default_duration_weeks=data.default_duration_weeks,
+            deliverables=data.deliverables,
+            frameworks_supported=data.frameworks_supported
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create service: {str(e)}")
+
+
+@app.post("/api/business/services/seed")
+async def seed_services_endpoint(user_id: int = Header(default=1, alias="X-User-Id")):
+    """Seed default services for new users"""
+    try:
+        result = business_ops_service.seed_default_services(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to seed services: {str(e)}")
+
+
+# Proposals
+class ProposalCreate(BaseModel):
+    proposal_name: str
+    client_name: str
+    services: List[Dict[str, Any]]
+    client_org_id: Optional[int] = None
+    client_contact_name: Optional[str] = None
+    client_contact_email: Optional[str] = None
+    client_industry: Optional[str] = None
+    client_size: Optional[str] = None
+    frameworks_in_scope: Optional[List[str]] = None
+    discount_percent: float = 0
+    proposed_start_date: Optional[str] = None
+    proposed_duration_weeks: Optional[int] = None
+    valid_days: int = 30
+    executive_summary: Optional[str] = None
+    payment_terms: str = 'net_30'
+
+
+@app.get("/api/business/proposals")
+async def list_proposals_endpoint(
+    status: Optional[str] = Query(None),
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """List all proposals"""
+    try:
+        proposals = business_ops_service.list_proposals(user_id, status)
+        return proposals
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list proposals: {str(e)}")
+
+
+@app.post("/api/business/proposals")
+async def create_proposal_endpoint(
+    data: ProposalCreate,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Create a new proposal"""
+    try:
+        result = business_ops_service.create_proposal(
+            user_id=user_id,
+            proposal_name=data.proposal_name,
+            client_name=data.client_name,
+            services=data.services,
+            client_org_id=data.client_org_id,
+            client_contact_name=data.client_contact_name,
+            client_contact_email=data.client_contact_email,
+            client_industry=data.client_industry,
+            client_size=data.client_size,
+            frameworks_in_scope=data.frameworks_in_scope,
+            discount_percent=data.discount_percent,
+            proposed_start_date=data.proposed_start_date,
+            proposed_duration_weeks=data.proposed_duration_weeks,
+            valid_days=data.valid_days,
+            executive_summary=data.executive_summary,
+            payment_terms=data.payment_terms
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create proposal: {str(e)}")
+
+
+@app.get("/api/business/proposals/{proposal_id}")
+async def get_proposal_endpoint(
+    proposal_id: int,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Get proposal details"""
+    try:
+        proposal = business_ops_service.get_proposal(proposal_id, user_id)
+        if not proposal:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return proposal
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get proposal: {str(e)}")
+
+
+class ProposalStatusUpdate(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+
+@app.put("/api/business/proposals/{proposal_id}/status")
+async def update_proposal_status_endpoint(
+    proposal_id: int,
+    data: ProposalStatusUpdate,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Update proposal status"""
+    try:
+        result = business_ops_service.update_proposal_status(proposal_id, user_id, data.status, data.notes)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update status: {str(e)}")
+
+
+@app.post("/api/business/proposals/{proposal_id}/convert")
+async def convert_proposal_endpoint(
+    proposal_id: int,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Convert accepted proposal to engagement"""
+    try:
+        result = business_ops_service.convert_proposal_to_engagement(proposal_id, user_id)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to convert proposal: {str(e)}")
+
+
+# Onboarding Wizard
+@app.post("/api/business/onboarding/start")
+async def start_onboarding_endpoint(user_id: int = Header(default=1, alias="X-User-Id")):
+    """Start a new client onboarding session"""
+    try:
+        result = business_ops_service.start_onboarding_session(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start onboarding: {str(e)}")
+
+
+class OnboardingStepData(BaseModel):
+    data: Dict[str, Any] = {}
+
+
+@app.put("/api/business/onboarding/{session_token}/step/{step}")
+async def update_onboarding_step_endpoint(
+    session_token: str,
+    step: int,
+    body: Dict[str, Any] = Body(...),
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Update onboarding session step"""
+    try:
+        result = business_ops_service.update_onboarding_step(session_token, user_id, step, body)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update step: {str(e)}")
+
+
+@app.get("/api/business/onboarding/{session_token}")
+async def get_onboarding_session_endpoint(
+    session_token: str,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Get onboarding session details"""
+    try:
+        session = business_ops_service.get_onboarding_session(session_token, user_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return session
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get session: {str(e)}")
+
+
+class OnboardingComplete(BaseModel):
+    create_proposal: bool = True
+
+
+@app.post("/api/business/onboarding/{session_token}/complete")
+async def complete_onboarding_endpoint(
+    session_token: str,
+    data: OnboardingComplete,
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Complete onboarding and create client/engagement/proposal"""
+    try:
+        result = business_ops_service.complete_onboarding(session_token, user_id, data.create_proposal)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to complete onboarding: {str(e)}")
+
+
+# Industry Templates
+@app.get("/api/business/templates/assessments")
+async def list_industry_templates_endpoint(
+    industry: Optional[str] = Query(None),
+    user_id: int = Header(default=1, alias="X-User-Id")
+):
+    """Get industry assessment templates"""
+    try:
+        templates = business_ops_service.get_industry_templates(user_id, industry)
+        return templates
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get templates: {str(e)}")
+
+
+@app.post("/api/business/templates/assessments/seed")
+async def seed_industry_templates_endpoint(user_id: int = Header(default=1, alias="X-User-Id")):
+    """Seed industry assessment templates"""
+    try:
+        result = business_ops_service.seed_industry_templates(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to seed templates: {str(e)}")
+
+
+# Pipeline Dashboard
+@app.get("/api/business/pipeline/dashboard")
+async def get_pipeline_dashboard_endpoint(user_id: int = Header(default=1, alias="X-User-Id")):
+    """Get pipeline dashboard with metrics"""
+    try:
+        dashboard = business_ops_service.get_pipeline_dashboard(user_id)
+        return dashboard
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
+
+
+@app.post("/api/business/pipeline/stages/seed")
+async def seed_pipeline_stages_endpoint(user_id: int = Header(default=1, alias="X-User-Id")):
+    """Seed default pipeline stages"""
+    try:
+        result = business_ops_service.seed_pipeline_stages(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to seed stages: {str(e)}")
 
 
 if __name__ == "__main__":

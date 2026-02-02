@@ -1494,6 +1494,107 @@ class ComplianceAPI {
       body: JSON.stringify(metricsData),
     });
   }
+
+  // ============================================================================
+  // BUSINESS OPERATIONS - Service Catalog, Proposals, Onboarding, Templates
+  // ============================================================================
+
+  // Service Catalog
+  async getServiceCatalog(category = null) {
+    const params = category ? `?category=${encodeURIComponent(category)}` : '';
+    return this.request(`/api/business/services${params}`);
+  }
+
+  async createService(serviceData) {
+    return this.request('/api/business/services', {
+      method: 'POST',
+      body: JSON.stringify(serviceData),
+    });
+  }
+
+  async seedDefaultServices() {
+    return this.request('/api/business/services/seed', {
+      method: 'POST',
+    });
+  }
+
+  // Proposals
+  async listProposals(status = null) {
+    const params = status ? `?status=${encodeURIComponent(status)}` : '';
+    return this.request(`/api/business/proposals${params}`);
+  }
+
+  async createProposal(proposalData) {
+    return this.request('/api/business/proposals', {
+      method: 'POST',
+      body: JSON.stringify(proposalData),
+    });
+  }
+
+  async getProposal(proposalId) {
+    return this.request(`/api/business/proposals/${proposalId}`);
+  }
+
+  async updateProposalStatus(proposalId, status, notes = null) {
+    return this.request(`/api/business/proposals/${proposalId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, notes }),
+    });
+  }
+
+  async convertProposalToEngagement(proposalId) {
+    return this.request(`/api/business/proposals/${proposalId}/convert`, {
+      method: 'POST',
+    });
+  }
+
+  // Onboarding Wizard
+  async startOnboardingSession() {
+    return this.request('/api/business/onboarding/start', {
+      method: 'POST',
+    });
+  }
+
+  async updateOnboardingStep(sessionToken, step, data) {
+    return this.request(`/api/business/onboarding/${sessionToken}/step/${step}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getOnboardingSession(sessionToken) {
+    return this.request(`/api/business/onboarding/${sessionToken}`);
+  }
+
+  async completeOnboarding(sessionToken, createProposal = true) {
+    return this.request(`/api/business/onboarding/${sessionToken}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ create_proposal: createProposal }),
+    });
+  }
+
+  // Industry Templates
+  async getIndustryTemplates(industry = null) {
+    const params = industry ? `?industry=${encodeURIComponent(industry)}` : '';
+    return this.request(`/api/business/templates/assessments${params}`);
+  }
+
+  async seedIndustryTemplates() {
+    return this.request('/api/business/templates/assessments/seed', {
+      method: 'POST',
+    });
+  }
+
+  // Pipeline Dashboard
+  async getPipelineDashboard() {
+    return this.request('/api/business/pipeline/dashboard');
+  }
+
+  async seedPipelineStages() {
+    return this.request('/api/business/pipeline/stages/seed', {
+      method: 'POST',
+    });
+  }
 }
 
 export default new ComplianceAPI();

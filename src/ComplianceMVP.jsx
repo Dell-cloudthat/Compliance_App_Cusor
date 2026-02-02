@@ -12,6 +12,10 @@ import api, { API_BASE_URL } from './services/api';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
+import OnboardingWizardView from './views/OnboardingWizardView';
+import ProposalGeneratorView from './views/ProposalGeneratorView';
+import TemplateLibraryView from './views/TemplateLibraryView';
+import BusinessDashboardView from './views/BusinessDashboardView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19251,7 +19255,7 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 {/* Management Dropdown */}
                 <DropdownMenu>
                   <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    ['vendors', 'import', 'client-intake', 'consulting'].includes(activeView)
+                    ['vendors', 'import', 'client-intake', 'consulting', 'business-dashboard', 'onboarding', 'proposals', 'templates'].includes(activeView)
                       ? 'bg-primary/10 text-primary'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                   }`}>
@@ -19260,8 +19264,26 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                     <ChevronDown className="w-4 h-4" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
-                    <DropdownMenuLabel>Management</DropdownMenuLabel>
+                    <DropdownMenuLabel>Business Tools</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('business-dashboard')}>
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      <span>Business Dashboard</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('onboarding')}>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      <span>Client Onboarding</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('proposals')}>
+                      <FileText className="w-4 h-4 mr-2" />
+                      <span>Proposal Generator</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('templates')}>
+                      <ClipboardList className="w-4 h-4 mr-2" />
+                      <span>Template Library</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Portals</DropdownMenuLabel>
                     <DropdownMenuItem onClick={() => setActiveView('consulting')}>
                       <Award className="w-4 h-4 mr-2" />
                       <span>Consulting Portal</span>
@@ -19270,12 +19292,14 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                       <Upload className="w-4 h-4 mr-2" />
                       <span>Client Intake Portal</span>
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Admin</DropdownMenuLabel>
                     <DropdownMenuItem onClick={() => setActiveView('vendors')}>
                       <Users className="w-4 h-4 mr-2" />
                       <span>Vendors</span>
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('import')}>
-                      <FileText className="w-4 h-4 mr-2" />
+                      <Database className="w-4 h-4 mr-2" />
                       <span>Data Import</span>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -19502,6 +19526,18 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                ) :
                activeView === 'consulting' ? (
                  <ConsultingPortalView currentUser={currentUser} />
+               ) :
+               activeView === 'business-dashboard' ? (
+                 <BusinessDashboardView currentUser={currentUser} />
+               ) :
+               activeView === 'onboarding' ? (
+                 <OnboardingWizardView currentUser={currentUser} onComplete={() => setActiveView('business-dashboard')} />
+               ) :
+               activeView === 'proposals' ? (
+                 <ProposalGeneratorView currentUser={currentUser} />
+               ) :
+               activeView === 'templates' ? (
+                 <TemplateLibraryView currentUser={currentUser} />
                ) :
                activeView === 'architecture' ? (
                  <DataFlowArchitectureView
