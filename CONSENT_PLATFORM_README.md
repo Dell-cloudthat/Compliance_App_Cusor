@@ -40,6 +40,116 @@ The platform implements a complete consent enforcement flow:
 4. **Vendor/Platform**: Authorized data is sent to registered vendors (ad platforms, analytics, etc.)
 5. **Evidence Ledger**: Every action is recorded in an immutable, cryptographically-chained ledger
 
+## Server-Side Enforcement Proxy (Model A)
+
+**This is the killer differentiator.**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                     SERVER-SIDE ENFORCEMENT ARCHITECTURE                         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│     ┌─────────────────────────────────────────────────────────────────────┐     │
+│     │                     CONTROL PLANE (SaaS Platform)                    │     │
+│     │  • Define consent policies         • Multi-tenant datastore          │     │
+│     │  • Issue consent tokens            • Admin UI                        │     │
+│     │  • Manage vendors & purposes       • Audit & reporting               │     │
+│     └─────────────────────────────────────────────────────────────────────┘     │
+│                                        │                                         │
+│                                        │ Policy sync                             │
+│                                        ▼                                         │
+│     ┌─────────────────────────────────────────────────────────────────────┐     │
+│     │                    ENFORCEMENT PLANE (Server-Side Proxy)             │     │
+│     │                                                                      │     │
+│     │      Website / App                                                   │     │
+│     │           │                                                          │     │
+│     │           │ Server-side events                                       │     │
+│     │           ▼                                                          │     │
+│     │      ┌────────────────────────────┐                                  │     │
+│     │      │     ENFORCEMENT PROXY      │                                  │     │
+│     │      │  • Token validation        │ ◀─── Millions of events/day     │     │
+│     │      │  • Policy evaluation       │      Millisecond latency         │     │
+│     │      │  • Data transformation     │      Horizontally scalable       │     │
+│     │      │  • Allow/Strip/Block       │      Stateless                   │     │
+│     │      └────────────┬───────────────┘                                  │     │
+│     │                   │                                                  │     │
+│     │           ┌───────┴───────┐                                          │     │
+│     │           ▼               ▼                                          │     │
+│     │      ┌─────────┐    ┌─────────┐    ┌─────────┐                      │     │
+│     │      │  Meta   │    │ Google  │    │  DSP    │                      │     │
+│     │      └─────────┘    └─────────┘    └─────────┘                      │     │
+│     │                                                                      │     │
+│     └─────────────────────────────────────────────────────────────────────┘     │
+│                                        │                                         │
+│                                        │ Log every decision                      │
+│                                        ▼                                         │
+│     ┌─────────────────────────────────────────────────────────────────────┐     │
+│     │                    IMMUTABLE EVENT STORE                             │     │
+│     │  • Append-only              • Hash chaining (SHA-256)               │     │
+│     │  • Time-stamped             • Queryable                             │     │
+│     │  • Tamper-evident           • NOT blockchain - security-grade       │     │
+│     └─────────────────────────────────────────────────────────────────────┘     │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Wins
+
+1. **No client-side hacks** - Server-side processing, not browser manipulation
+2. **No browser fragility** - Works regardless of ad blockers, tracking protection
+3. **Easy to audit** - Every decision is logged with full context
+4. **Scales horizontally** - Stateless design handles millions of events
+
+This is how modern ad stacks are already moving (server-side GTM, CDPs).
+
+### Event Processing Flow
+
+**Step 1: User Consents**
+- CMP triggers consent creation
+- Control Plane issues signed consent token
+- Token encodes: scope + purposes + TTL
+
+**Step 2: Ad Event Occurs**
+- Event hits Enforcement Plane
+- Token attached to request
+- Policy engine evaluates:
+  - Is this allowed?
+  - Is scope exceeded?
+
+**Step 3: Enforcement**
+- **Allow** - Forward full data
+- **Strip fields** - Remove PII, forward rest
+- **Block** - Reject entirely
+- **Log decision** - Every action recorded
+
+All in milliseconds.
+
+### Scaling Characteristics
+
+| Aspect | Details |
+|--------|---------|
+| **Latency** | Milliseconds (avg ~2ms) |
+| **Volume** | Millions of events/day |
+| **Architecture** | Stateless, horizontally scalable |
+| **Failure Modes** | Configurable fail-open or fail-closed |
+| **Storage** | Logs compressed + batched, cold storage for retention |
+
+### Immutable Event Store
+
+What it stores:
+- Consent issuance
+- Consent revocation
+- Every enforcement decision
+- Data transformations
+- Vendor access
+
+Why it matters:
+- **Auditors trust it** - Tamper-evident logging
+- **Regulators understand it** - Clear audit trail
+- **Customers sleep better** - Proof of enforcement
+
+**This is NOT blockchain marketing nonsense. It's security-grade logging.**
+
 ## Overview
 
 The Consent as a Service Platform provides a complete solution for managing user consent across your digital properties. It includes:
@@ -335,6 +445,58 @@ function App() {
       />
     </div>
   );
+}
+```
+
+### Enforcement Proxy API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/proxy/events` | Process single ad event |
+| POST | `/api/proxy/events/batch` | Process batch of events |
+| GET | `/api/proxy/stats` | Get proxy statistics |
+| GET | `/api/proxy/tenants/{tenant_id}/decisions` | Get enforcement decisions |
+| GET | `/api/proxy/tenants/{tenant_id}/decisions/verify` | Verify decision chain |
+| GET | `/api/proxy/tenants/{tenant_id}/config` | Get proxy config |
+| PUT | `/api/proxy/tenants/{tenant_id}/config` | Update proxy config |
+| GET | `/api/proxy/event-store/stats` | Get event store stats |
+| GET | `/api/proxy/event-store/events` | Query events |
+| GET | `/api/proxy/event-store/verify` | Verify chain integrity |
+| POST | `/api/proxy/demo/generate-event` | Generate demo event |
+
+#### Example: Process Ad Event
+
+```bash
+curl -X POST http://localhost:8000/api/proxy/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_type": "Purchase",
+    "platform": "meta",
+    "tenant_id": "demo-tenant",
+    "email": "user@example.com",
+    "value": 99.99,
+    "currency": "USD",
+    "consent_token": "cst_abc123...",
+    "consent_purposes": ["marketing", "advertising"],
+    "pixel_id": "123456789"
+  }'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "decision": {
+    "decision_id": "abc-123",
+    "action": "allow",
+    "allowed": true,
+    "latency_ms": 1.23,
+    "token_valid": true,
+    "fields_stripped": [],
+    "forwarded": true,
+    "platform_response_code": 200,
+    "reason": "Allowed: Valid consent for all requested purposes"
+  }
 }
 ```
 

@@ -86,6 +86,10 @@ from services.tenant_service import (
 from services.audit_reporting_service import (
     audit_reporting_service, AuditEventType, ReportType, ExportFormat
 )
+from services.enforcement_proxy import (
+    enforcement_proxy, EnforcementAction, FailureMode, AdPlatform, EventType,
+    AdEvent, ProxyConfig
+)
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -6047,6 +6051,151 @@ async def export_report(report_id: str, format: str = "json"):
         return result
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid format: {format}")
+
+
+# ==================== Enforcement Proxy API ====================
+# Server-side event proxy - the high-performance enforcement plane
+
+@app.post("/api/proxy/events")
+async def process_ad_event(event: AdEvent):
+    """
+    Process a single ad event through the enforcement proxy.
+    
+    This is the main endpoint for server-side ad event processing.
+    
+    Flow:
+    1. Validate consent token
+    2. Evaluate policy
+    3. Transform data (strip/anonymize)
+    4. Forward to ad platform
+    5. Log decision to immutable store
+    
+    All in milliseconds.
+    """
+    try:
+        decision = await enforcement_proxy.process_event(event)
+        return {
+            "success": True,
+            "decision": decision.model_dump()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Event processing failed: {str(e)}")
+
+
+@app.post("/api/proxy/events/batch")
+async def process_ad_events_batch(events: List[AdEvent]):
+    """Process a batch of ad events concurrently"""
+    try:
+        decisions = await enforcement_proxy.process_batch(events)
+        return {
+            "success": True,
+            "decisions": [d.model_dump() for d in decisions],
+            "processed": len(decisions)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch processing failed: {str(e)}")
+
+
+@app.get("/api/proxy/stats")
+async def get_proxy_stats():
+    """Get enforcement proxy statistics"""
+    return enforcement_proxy.get_stats()
+
+
+@app.get("/api/proxy/tenants/{tenant_id}/decisions")
+async def get_enforcement_decisions(tenant_id: str, limit: int = 100):
+    """Get recent enforcement decisions for a tenant"""
+    decisions = enforcement_proxy.get_decisions(tenant_id, limit)
+    return {"decisions": decisions, "count": len(decisions)}
+
+
+@app.get("/api/proxy/tenants/{tenant_id}/decisions/verify")
+async def verify_decision_chain(tenant_id: str):
+    """Verify the integrity of the enforcement decision chain"""
+    return enforcement_proxy.verify_decision_chain(tenant_id)
+
+
+@app.get("/api/proxy/tenants/{tenant_id}/config")
+async def get_proxy_config(tenant_id: str):
+    """Get proxy configuration for a tenant"""
+    config = enforcement_proxy.get_config(tenant_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuration not found")
+    return {"config": config.model_dump()}
+
+
+@app.put("/api/proxy/tenants/{tenant_id}/config")
+async def update_proxy_config(tenant_id: str, config: ProxyConfig):
+    """Update proxy configuration for a tenant"""
+    config.tenant_id = tenant_id
+    enforcement_proxy.set_config(config)
+    return {"success": True, "message": "Configuration updated"}
+
+
+@app.get("/api/proxy/event-store/stats")
+async def get_event_store_stats():
+    """Get immutable event store statistics"""
+    return enforcement_proxy.event_store.get_stats()
+
+
+@app.get("/api/proxy/event-store/events")
+async def query_event_store(
+    tenant_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    limit: int = 100
+):
+    """Query events from the immutable event store"""
+    events = enforcement_proxy.event_store.query(
+        tenant_id=tenant_id,
+        event_type=event_type,
+        limit=limit
+    )
+    return {"events": events, "count": len(events)}
+
+
+@app.get("/api/proxy/event-store/verify")
+async def verify_event_store(tenant_id: Optional[str] = None):
+    """Verify the integrity of the event store hash chain"""
+    return enforcement_proxy.event_store.verify_chain(tenant_id)
+
+
+# Demo endpoint to simulate ad events
+@app.post("/api/proxy/demo/generate-event")
+async def generate_demo_event(
+    event_type: str = Body("Purchase"),
+    platform: str = Body("meta"),
+    with_consent: bool = Body(True),
+    tenant_id: str = Body("demo-tenant")
+):
+    """Generate and process a demo ad event"""
+    try:
+        event = AdEvent(
+            event_type=EventType(event_type),
+            platform=AdPlatform(platform),
+            tenant_id=tenant_id,
+            user_id=f"user_{secrets.token_hex(4)}",
+            email=f"demo_{secrets.token_hex(4)}@example.com",
+            phone="+1555123456",
+            ip_address="192.168.1.1",
+            user_agent="Mozilla/5.0 (Demo)",
+            event_source_url="https://demo.example.com/checkout",
+            value=99.99,
+            currency="USD",
+            content_ids=["product-123"],
+            content_type="product",
+            consent_token=f"cst_{secrets.token_hex(16)}" if with_consent else None,
+            consent_purposes=["marketing", "advertising"] if with_consent else [],
+            pixel_id="demo-pixel-123"
+        )
+        
+        decision = await enforcement_proxy.process_event(event)
+        
+        return {
+            "event": event.model_dump(),
+            "decision": decision.model_dump()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Demo event failed: {str(e)}")
 
 
 if __name__ == "__main__":

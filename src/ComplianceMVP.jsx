@@ -16,6 +16,7 @@ import ConsentDashboardView from './views/ConsentDashboardView';
 import ConsentPreferenceCenterView from './views/ConsentPreferenceCenterView';
 import ConsentFlowView from './views/ConsentFlowView';
 import ConsentSaaSAdminView from './views/ConsentSaaSAdminView';
+import EnforcementProxyView from './views/EnforcementProxyView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19303,6 +19304,10 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                       <Settings className="w-4 h-4 mr-2" />
                       <span>SaaS Admin</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('enforcement-proxy')}>
+                      <Server className="w-4 h-4 mr-2" />
+                      <span>Enforcement Proxy</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('consent-flow')}>
                       <Activity className="w-4 h-4 mr-2" />
                       <span>Consent Flow</span>
@@ -19542,6 +19547,9 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                ) :
                activeView === 'consent-saas-admin' ? (
                  <ConsentSaaSAdminView />
+               ) :
+               activeView === 'enforcement-proxy' ? (
+                 <EnforcementProxyView />
                ) :
                activeView === 'consent-flow' ? (
                  <ConsentFlowView />
