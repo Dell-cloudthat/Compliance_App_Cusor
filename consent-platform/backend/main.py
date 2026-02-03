@@ -129,9 +129,57 @@ async def setup_demo_tenant():
 
 app = FastAPI(
     title="Consent as a Service Platform",
-    description="Server-side consent enforcement for ad data",
+    description="""
+## Server-Side Consent Enforcement Platform
+
+A comprehensive platform for managing user consent and enforcing data privacy policies 
+for ad tech and marketing data flows.
+
+### Key Features
+
+- **Consent Token Management**: Issue, validate, and revoke JWT-based consent tokens
+- **Server-Side Enforcement**: Enforce consent decisions at the data flow level
+- **Vendor Certification**: Technical reputation system for data vendors
+- **Industry Standards**: TCF 2.2 and Google Consent Mode v2 support
+- **Audit Trail**: Immutable, hash-chained evidence logging
+
+### Authentication
+
+All endpoints (except `/health` and `/metrics`) require API key authentication.
+
+Include your API key in the `X-API-Key` header:
+```
+X-API-Key: your_api_key_here
+```
+
+### Rate Limiting
+
+Rate limits are applied per API key. Check response headers:
+- `X-RateLimit-Limit`: Maximum requests per window
+- `X-RateLimit-Remaining`: Remaining requests
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+
+### SDKs
+
+Client libraries available:
+- JavaScript: `@consent-platform/js`
+- Python: `consent-platform-python`
+- Node.js: `@consent-platform/node`
+    """,
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Consent", "description": "Consent token management"},
+        {"name": "Events", "description": "Ad event processing and enforcement"},
+        {"name": "Audit", "description": "Audit trail and evidence export"},
+        {"name": "Vendors", "description": "Vendor management and certification"},
+        {"name": "Webhooks", "description": "Webhook configuration and delivery"},
+        {"name": "Standards", "description": "TCF 2.2 and Google Consent Mode v2"},
+        {"name": "Admin", "description": "API keys and settings"},
+        {"name": "Health", "description": "Health check and metrics"},
+    ],
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 # CORS
@@ -308,9 +356,14 @@ class APIKeyCreateRequest(BaseModel):
 
 # ============== Health ==============
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health_check():
-    """Health check endpoint"""
+    """
+    Health check endpoint.
+    
+    Returns the current health status of the service.
+    No authentication required.
+    """
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -318,18 +371,26 @@ async def health_check():
     }
 
 
-@app.get("/metrics", response_class=PlainTextResponse)
+@app.get("/metrics", response_class=PlainTextResponse, tags=["Health"])
 async def get_metrics():
     """
     Prometheus metrics endpoint.
     
     Returns metrics in Prometheus exposition format.
     Scrape this endpoint with Prometheus at regular intervals.
+    No authentication required.
+    
+    **Metrics exposed:**
+    - `consent_platform_requests_total` - HTTP request counter
+    - `consent_platform_tokens_issued_total` - Consent tokens issued
+    - `consent_platform_enforcement_decisions_total` - Enforcement decisions
+    - `consent_platform_enforcement_duration_seconds` - Latency histogram
+    - `consent_platform_vendor_trust_score` - Vendor trust scores
     """
     return metrics.export_prometheus()
 
 
-@app.get("/metrics/summary")
+@app.get("/metrics/summary", tags=["Health"])
 async def get_metrics_summary():
     """Get a JSON summary of key metrics"""
     return metrics.get_summary()
@@ -337,15 +398,24 @@ async def get_metrics_summary():
 
 # ============== Consent Endpoints ==============
 
-@app.post("/consent", response_model=ConsentResponse)
+@app.post("/consent", response_model=ConsentResponse, tags=["Consent"])
 async def create_consent(
     request: ConsentRequest,
     auth: AuthContext = Depends(check_rate_limit)
 ):
     """
-    Issue a consent token.
+    Issue a new consent token.
     
-    Requires scope: consent:write
+    Creates a signed JWT token containing the user's consent preferences.
+    The token can be attached to ad events for enforcement.
+    
+    **Required scope:** `consent:write`
+    
+    **Flow:**
+    1. User provides consent on your website
+    2. You call this endpoint with purposes and vendors
+    3. Platform returns a signed consent token
+    4. Attach token to ad events as Bearer token
     """
     if not auth.authenticated:
         raise APIError(401, "unauthorized", "Authentication required")
@@ -443,7 +513,7 @@ async def create_consent(
         raise APIError(400, "invalid_request", str(e))
 
 
-@app.post("/consent/revoke")
+@app.post("/consent/revoke", tags=["Consent"])
 async def revoke_consent(
     token_id: str = Body(...),
     reason: str = Body(default="user_requested"),
@@ -474,7 +544,7 @@ async def revoke_consent(
     return {"success": success, "token_id": token_id}
 
 
-@app.get("/consent/tokens")
+@app.get("/consent/tokens", tags=["Consent"])
 async def list_tokens(
     subject_id: Optional[str] = None,
     limit: int = Query(default=50, le=100),
@@ -507,7 +577,7 @@ async def list_tokens(
 
 # ============== Event Processing ==============
 
-@app.post("/event", response_model=EventResponse)
+@app.post("/event", response_model=EventResponse, tags=["Events"])
 async def process_event(
     request: EventRequest,
     authorization: Optional[str] = Header(default=None),
@@ -515,9 +585,21 @@ async def process_event(
     auth: AuthContext = Depends(check_rate_limit)
 ):
     """
-    Process an ad event through enforcement.
+    Process an ad event through the enforcement engine.
     
-    Requires scope: events:write
+    This is the core enforcement endpoint. Events are validated against
+    the consent token and policies, then forwarded to vendors if allowed.
+    
+    **Required scope:** `events:write`
+    
+    **Decision outcomes:**
+    - `allowed` - Event forwarded unchanged
+    - `modified` - Event forwarded with fields stripped
+    - `blocked` - Event not forwarded
+    
+    **Headers:**
+    - `Authorization: Bearer <consent_token>` - The consent token
+    - `X-Idempotency-Key` - Optional, for duplicate detection
     """
     if not auth.authenticated:
         raise APIError(401, "unauthorized", "Authentication required")
@@ -694,7 +776,7 @@ async def process_event(
 
 # ============== Audit Endpoints ==============
 
-@app.get("/decisions")
+@app.get("/decisions", tags=["Audit"])
 async def get_decisions(
     limit: int = Query(default=100, le=1000),
     offset: int = Query(default=0),
@@ -711,7 +793,7 @@ async def get_decisions(
     }
 
 
-@app.get("/audit/export")
+@app.get("/audit/export", tags=["Audit"])
 async def export_audit(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -735,7 +817,7 @@ async def export_audit(
     return export.model_dump()
 
 
-@app.get("/audit/verify")
+@app.get("/audit/verify", tags=["Audit"])
 async def verify_chain(auth: AuthContext = Depends(require_auth)):
     """Verify evidence chain integrity"""
     auth.require_scope(Scope.AUDIT_READ)
@@ -746,7 +828,7 @@ async def verify_chain(auth: AuthContext = Depends(require_auth)):
 
 # ============== Vendor Endpoints ==============
 
-@app.get("/vendors")
+@app.get("/vendors", tags=["Vendors"])
 async def list_vendors(auth: AuthContext = Depends(require_auth)):
     """List vendors"""
     auth.require_scope(Scope.ADMIN_READ)
@@ -755,7 +837,7 @@ async def list_vendors(auth: AuthContext = Depends(require_auth)):
     return {"vendors": vendors}
 
 
-@app.post("/vendors")
+@app.post("/vendors", tags=["Vendors"])
 async def create_vendor(
     vendor: Vendor,
     auth: AuthContext = Depends(require_auth)
@@ -773,7 +855,7 @@ async def create_vendor(
 
 # ============== Webhook Endpoints ==============
 
-@app.get("/webhooks")
+@app.get("/webhooks", tags=["Webhooks"])
 async def list_webhooks(auth: AuthContext = Depends(require_auth)):
     """List webhooks"""
     auth.require_scope(Scope.WEBHOOKS_READ)
@@ -782,7 +864,7 @@ async def list_webhooks(auth: AuthContext = Depends(require_auth)):
     return {"webhooks": webhooks}
 
 
-@app.post("/webhooks")
+@app.post("/webhooks", tags=["Webhooks"])
 async def create_webhook(
     request: WebhookCreateRequest,
     auth: AuthContext = Depends(require_auth)
@@ -807,7 +889,7 @@ async def create_webhook(
     }
 
 
-@app.get("/webhooks/{webhook_id}/logs")
+@app.get("/webhooks/{webhook_id}/logs", tags=["Webhooks"])
 async def get_webhook_logs(
     webhook_id: str,
     limit: int = Query(default=50, le=200),
@@ -836,7 +918,7 @@ async def get_webhook_logs(
     }
 
 
-@app.post("/webhooks/{webhook_id}/test")
+@app.post("/webhooks/{webhook_id}/test", tags=["Webhooks"])
 async def test_webhook(
     webhook_id: str,
     auth: AuthContext = Depends(require_auth)
@@ -887,7 +969,7 @@ async def test_webhook(
     }
 
 
-@app.get("/webhooks/logs")
+@app.get("/webhooks/logs", tags=["Webhooks"])
 async def get_all_webhook_logs(
     limit: int = Query(default=100, le=500),
     auth: AuthContext = Depends(require_auth)
@@ -919,7 +1001,7 @@ async def get_all_webhook_logs(
 
 # ============== API Key Endpoints ==============
 
-@app.get("/api-keys")
+@app.get("/api-keys", tags=["Admin"])
 async def list_api_keys(auth: AuthContext = Depends(require_auth)):
     """List API keys"""
     auth.require_scope(Scope.ADMIN_READ)
@@ -940,7 +1022,7 @@ async def list_api_keys(auth: AuthContext = Depends(require_auth)):
     }
 
 
-@app.post("/api-keys")
+@app.post("/api-keys", tags=["Admin"])
 async def create_api_key(
     request: APIKeyCreateRequest,
     auth: AuthContext = Depends(require_auth)
@@ -975,7 +1057,7 @@ async def create_api_key(
     }
 
 
-@app.delete("/api-keys/{key_id}")
+@app.delete("/api-keys/{key_id}", tags=["Admin"])
 async def revoke_api_key(
     key_id: str,
     auth: AuthContext = Depends(require_auth)
@@ -989,7 +1071,7 @@ async def revoke_api_key(
 
 # ============== Stats ==============
 
-@app.get("/stats")
+@app.get("/stats", tags=["Health"])
 async def get_stats(auth: AuthContext = Depends(get_auth_context)):
     """Get platform statistics"""
     return {
@@ -1107,7 +1189,7 @@ class TCFGenerateRequest(BaseModel):
     special_features: List[int] = []
 
 
-@app.post("/tcf/generate")
+@app.post("/tcf/generate", tags=["Standards"])
 async def generate_tcf_string(
     request: TCFGenerateRequest,
     auth: AuthContext = Depends(get_auth_context)
@@ -1134,7 +1216,7 @@ async def generate_tcf_string(
     }
 
 
-@app.get("/tcf/decode")
+@app.get("/tcf/decode", tags=["Standards"])
 async def decode_tcf_string(
     tc_string: str = Query(..., description="TC string to decode")
 ):
@@ -1143,13 +1225,13 @@ async def decode_tcf_string(
     return {"decoded": decoded}
 
 
-@app.get("/tcf/purposes")
+@app.get("/tcf/purposes", tags=["Standards"])
 async def get_tcf_purposes():
     """Get list of TCF 2.2 standard purposes"""
     return {"purposes": tcf_service.get_purpose_info()}
 
 
-@app.get("/tcf/api-response")
+@app.get("/tcf/api-response", tags=["Standards"])
 async def get_tcf_api_response(
     tc_string: str = Query(...),
     command: str = Query(default="getTCData")
@@ -1162,7 +1244,7 @@ async def get_tcf_api_response(
     return tcf_service.get_tcf_api_response(tc_string, command)
 
 
-@app.post("/tcf/from-token")
+@app.post("/tcf/from-token", tags=["Standards"])
 async def generate_tcf_from_token(
     token: str = Body(..., embed=True),
     language: str = Body(default="EN", embed=True),
@@ -1202,7 +1284,7 @@ class GCMGenerateRequest(BaseModel):
     ga4_measurement_id: Optional[str] = None
 
 
-@app.post("/gcm/generate")
+@app.post("/gcm/generate", tags=["Standards"])
 async def generate_gcm_config(
     request: GCMGenerateRequest,
     auth: AuthContext = Depends(get_auth_context)
@@ -1238,7 +1320,7 @@ async def generate_gcm_config(
     }
 
 
-@app.get("/gcm/default-script")
+@app.get("/gcm/default-script", tags=["Standards"])
 async def get_gcm_default_script(
     region: str = Query(default="EU"),
     gtm_container_id: Optional[str] = None
@@ -1256,7 +1338,7 @@ async def get_gcm_default_script(
     }
 
 
-@app.get("/gcm/update-function")
+@app.get("/gcm/update-function", tags=["Standards"])
 async def get_gcm_update_function():
     """
     Get the JavaScript function for updating consent.
@@ -1267,7 +1349,7 @@ async def get_gcm_update_function():
     }
 
 
-@app.post("/gcm/server-payload")
+@app.post("/gcm/server-payload", tags=["Standards"])
 async def generate_gcm_server_payload(
     purposes: List[str] = Body(...),
     event_name: str = Body(default="consent_update")
@@ -1280,13 +1362,13 @@ async def generate_gcm_server_payload(
     return gcm_service.generate_server_side_payload(purposes, event_name)
 
 
-@app.get("/gcm/info")
+@app.get("/gcm/info", tags=["Standards"])
 async def get_gcm_info():
     """Get information about Google Consent Mode v2"""
     return gcm_service.get_consent_info()
 
 
-@app.post("/gcm/validate")
+@app.post("/gcm/validate", tags=["Standards"])
 async def validate_gcm_implementation(
     has_default_consent: bool = Body(...),
     default_before_tags: bool = Body(...),
@@ -1308,7 +1390,7 @@ async def validate_gcm_implementation(
 
 # ============== Combined Standards Endpoint ==============
 
-@app.post("/standards/generate-all")
+@app.post("/standards/generate-all", tags=["Standards"])
 async def generate_all_standards(
     purposes: List[str] = Body(...),
     vendors: List[str] = Body(...),
@@ -1362,7 +1444,7 @@ async def generate_all_standards(
 
 # ============== Vendor Certification Endpoints ==============
 
-@app.get("/vendors/trust-registry")
+@app.get("/vendors/trust-registry", tags=["Vendors"])
 async def get_trust_registry():
     """
     Get the public vendor trust registry.
@@ -1379,7 +1461,7 @@ async def get_trust_registry():
     }
 
 
-@app.get("/vendors/trust-registry/{vendor_id}")
+@app.get("/vendors/trust-registry/{vendor_id}", tags=["Vendors"])
 async def get_vendor_trust_entry(vendor_id: str):
     """Get trust registry entry for a specific vendor"""
     entry = vendor_certification_service.get_registry_entry(vendor_id)
@@ -1388,7 +1470,7 @@ async def get_vendor_trust_entry(vendor_id: str):
     return entry.model_dump()
 
 
-@app.get("/vendors/certifications")
+@app.get("/vendors/certifications", tags=["Vendors"])
 async def list_certifications(
     tier: Optional[str] = Query(default=None, description="Filter by trust tier"),
     auth: AuthContext = Depends(require_auth)
@@ -1405,7 +1487,7 @@ async def list_certifications(
     }
 
 
-@app.get("/vendors/certifications/{vendor_id}")
+@app.get("/vendors/certifications/{vendor_id}", tags=["Vendors"])
 async def get_certification(
     vendor_id: str,
     auth: AuthContext = Depends(require_auth)
@@ -1426,7 +1508,7 @@ class VendorRegistrationRequest(BaseModel):
     vendor_name: str
 
 
-@app.post("/vendors/certifications/register")
+@app.post("/vendors/certifications/register", tags=["Vendors"])
 async def register_vendor_for_certification(
     request: VendorRegistrationRequest,
     auth: AuthContext = Depends(require_auth)
@@ -1451,7 +1533,7 @@ class VendorApprovalRequest(BaseModel):
     reason: str = "Requirements met"
 
 
-@app.post("/vendors/certifications/{vendor_id}/approve")
+@app.post("/vendors/certifications/{vendor_id}/approve", tags=["Vendors"])
 async def approve_vendor(
     vendor_id: str,
     request: VendorApprovalRequest,
@@ -1472,7 +1554,7 @@ async def approve_vendor(
     }
 
 
-@app.get("/vendors/certifications/{vendor_id}/checks")
+@app.get("/vendors/certifications/{vendor_id}/checks", tags=["Vendors"])
 async def get_vendor_checks(
     vendor_id: str,
     check_type: Optional[str] = None,
@@ -1491,7 +1573,7 @@ async def get_vendor_checks(
     }
 
 
-@app.post("/vendors/certifications/{vendor_id}/check")
+@app.post("/vendors/certifications/{vendor_id}/check", tags=["Vendors"])
 async def run_compliance_check(
     vendor_id: str,
     auth: AuthContext = Depends(require_auth)
@@ -1513,7 +1595,7 @@ async def run_compliance_check(
 
 # ============== Violation Management ==============
 
-@app.get("/vendors/certifications/{vendor_id}/violations")
+@app.get("/vendors/certifications/{vendor_id}/violations", tags=["Vendors"])
 async def get_vendor_violations(
     vendor_id: str,
     open_only: bool = Query(default=False),
@@ -1540,7 +1622,7 @@ class ViolationReportRequest(BaseModel):
     users_affected: int = 0
 
 
-@app.post("/vendors/certifications/{vendor_id}/violations")
+@app.post("/vendors/certifications/{vendor_id}/violations", tags=["Vendors"])
 async def report_violation(
     vendor_id: str,
     request: ViolationReportRequest,
@@ -1594,7 +1676,7 @@ class ViolationResolutionRequest(BaseModel):
     resolution_notes: str
 
 
-@app.post("/violations/{violation_id}/resolve")
+@app.post("/violations/{violation_id}/resolve", tags=["Vendors"])
 async def resolve_violation(
     violation_id: str,
     request: ViolationResolutionRequest,
@@ -1619,7 +1701,7 @@ async def resolve_violation(
 
 # ============== Vendor Check During Enforcement ==============
 
-@app.get("/vendors/{vendor_id}/allowed")
+@app.get("/vendors/{vendor_id}/allowed", tags=["Vendors"])
 async def check_vendor_allowed(
     vendor_id: str,
     auth: AuthContext = Depends(get_auth_context)
@@ -1644,7 +1726,7 @@ async def check_vendor_allowed(
 
 # ============== Certification Stats ==============
 
-@app.get("/vendors/certification-stats")
+@app.get("/vendors/certification-stats", tags=["Vendors"])
 async def get_certification_stats():
     """Get vendor certification statistics"""
     return vendor_certification_service.get_stats()
@@ -1652,7 +1734,7 @@ async def get_certification_stats():
 
 # ============== Violation Types ==============
 
-@app.get("/vendors/violation-types")
+@app.get("/vendors/violation-types", tags=["Vendors"])
 async def get_violation_types():
     """Get list of possible violation types"""
     from services.vendor_certification import VIOLATION_SEVERITY_MAP, SEVERITY_POINTS

@@ -1,0 +1,32 @@
+# Prometheus configuration for Consent Platform
+# 
+# Usage:
+# 1. Install Prometheus: https://prometheus.io/download/
+# 2. Copy this file to your Prometheus config directory
+# 3. Start Prometheus: prometheus --config.file=prometheus.yml
+# 4. Access Prometheus UI at http://localhost:9090
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+rule_files: []
+
+scrape_configs:
+  # Consent Platform API
+  - job_name: 'consent-platform'
+    static_configs:
+      - targets: ['localhost:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

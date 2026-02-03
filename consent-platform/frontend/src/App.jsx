@@ -146,6 +146,13 @@ function PoliciesView() {
   const [vendors, setVendors] = useState([]);
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showAddVendor, setShowAddVendor] = useState(false);
+  const [newVendor, setNewVendor] = useState({
+    name: '',
+    display_name: '',
+    vendor_type: 'ad_platform',
+    allowed_data_classes: ['behavioral']
+  });
   
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,6 +170,21 @@ function PoliciesView() {
   }, []);
   
   useEffect(() => { load(); }, [load]);
+
+  const createVendor = async () => {
+    if (!newVendor.name || !newVendor.display_name) return;
+    try {
+      await api.post('/vendors', newVendor);
+      setShowAddVendor(false);
+      setNewVendor({ name: '', display_name: '', vendor_type: 'ad_platform', allowed_data_classes: ['behavioral'] });
+      load();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const vendorTypes = ['ad_platform', 'analytics', 'cdp', 'dsp', 'crm', 'other'];
+  const dataClasses = ['behavioral', 'device', 'identity', 'transaction', 'location', 'demographic'];
   
   // Purposes (hardcoded for MVP)
   const purposes = [
@@ -202,7 +224,95 @@ function PoliciesView() {
       
       {/* Vendors */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Vendors</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Vendors</h3>
+          <button 
+            onClick={() => setShowAddVendor(true)}
+            className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center gap-1 text-sm"
+          >
+            <Plus size={16} />
+            Add Vendor
+          </button>
+        </div>
+
+        {/* Add Vendor Form */}
+        {showAddVendor && (
+          <div className="mb-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+            <h4 className="font-medium text-indigo-900 mb-3">Add New Vendor</h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vendor ID</label>
+                <input
+                  type="text"
+                  value={newVendor.name}
+                  onChange={(e) => setNewVendor(prev => ({ ...prev, name: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+                  placeholder="e.g., meta, google"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                <input
+                  type="text"
+                  value={newVendor.display_name}
+                  onChange={(e) => setNewVendor(prev => ({ ...prev, display_name: e.target.value }))}
+                  placeholder="e.g., Meta (Facebook)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Type</label>
+                <select
+                  value={newVendor.vendor_type}
+                  onChange={(e) => setNewVendor(prev => ({ ...prev, vendor_type: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                >
+                  {vendorTypes.map(type => (
+                    <option key={type} value={type}>{type.replace('_', ' ')}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Allowed Data Classes</label>
+                <div className="flex flex-wrap gap-1">
+                  {dataClasses.map(dc => (
+                    <button
+                      key={dc}
+                      onClick={() => setNewVendor(prev => ({
+                        ...prev,
+                        allowed_data_classes: prev.allowed_data_classes.includes(dc)
+                          ? prev.allowed_data_classes.filter(d => d !== dc)
+                          : [...prev.allowed_data_classes, dc]
+                      }))}
+                      className={`text-xs px-2 py-1 rounded ${
+                        newVendor.allowed_data_classes.includes(dc)
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {dc}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => setShowAddVendor(false)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createVendor}
+                disabled={!newVendor.name || !newVendor.display_name}
+                className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 disabled:opacity-50"
+              >
+                Create Vendor
+              </button>
+            </div>
+          </div>
+        )}
         {vendors.length === 0 ? (
           <p className="text-gray-500">No vendors configured</p>
         ) : (
