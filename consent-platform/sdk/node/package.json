@@ -1,0 +1,43 @@
+{
+  "name": "@consent-platform/node",
+  "version": "1.0.0",
+  "description": "Node.js SDK for Consent as a Service Platform",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "jest",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "consent",
+    "privacy",
+    "gdpr",
+    "ccpa",
+    "tcf",
+    "cmp",
+    "ads"
+  ],
+  "author": "Consent Platform",
+  "license": "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/consent-platform"
+  }
+}
