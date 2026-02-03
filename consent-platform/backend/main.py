@@ -40,6 +40,8 @@ from services.enforcement_engine import (
 from services.evidence_store import evidence_store, EventType
 from services.vendor_service import vendor_service, ForwardingRequest, Vendor, VendorType
 from services.webhook_service import webhook_service, WebhookEvent
+from services.tcf_service import tcf_service, TCFPurpose
+from services.gcm_service import gcm_service, GCMConsentSettings, GCMTagConfig
 
 
 # ============== Lifespan ==============
@@ -865,6 +867,269 @@ async def demo_full_flow(auth: AuthContext = Depends(get_auth_context)):
             "latency_ms": round(result.latency_ms, 2),
             "forwarded": forwarded,
             "vendor_event_id": vendor_event_id
+        }
+    }
+
+
+# ============== TCF 2.2 Endpoints ==============
+
+class TCFGenerateRequest(BaseModel):
+    """Request to generate TCF string"""
+    purposes: List[str]
+    vendors: List[str]
+    language: str = "EN"
+    special_features: List[int] = []
+
+
+@app.post("/tcf/generate")
+async def generate_tcf_string(
+    request: TCFGenerateRequest,
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Generate a TCF 2.2 compliant consent string.
+    
+    Maps our purposes/vendors to IAB TCF format.
+    """
+    result = tcf_service.generate_tc_string(
+        purposes=request.purposes,
+        vendors=request.vendors,
+        language=request.language,
+        special_features=request.special_features
+    )
+    
+    return {
+        "tc_string": result.tc_string,
+        "version": result.version,
+        "created": result.created.isoformat(),
+        "tcf_purposes": result.purposes_consented,
+        "tcf_vendors": result.vendors_consented,
+        "decoded": result.decoded
+    }
+
+
+@app.get("/tcf/decode")
+async def decode_tcf_string(
+    tc_string: str = Query(..., description="TC string to decode")
+):
+    """Decode a TCF consent string"""
+    decoded = tcf_service.decode_tc_string(tc_string)
+    return {"decoded": decoded}
+
+
+@app.get("/tcf/purposes")
+async def get_tcf_purposes():
+    """Get list of TCF 2.2 standard purposes"""
+    return {"purposes": tcf_service.get_purpose_info()}
+
+
+@app.get("/tcf/api-response")
+async def get_tcf_api_response(
+    tc_string: str = Query(...),
+    command: str = Query(default="getTCData")
+):
+    """
+    Get __tcfapi response format.
+    
+    Useful for testing TCF API integration.
+    """
+    return tcf_service.get_tcf_api_response(tc_string, command)
+
+
+@app.post("/tcf/from-token")
+async def generate_tcf_from_token(
+    token: str = Body(..., embed=True),
+    language: str = Body(default="EN", embed=True),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Generate TCF string from an existing consent token.
+    """
+    tenant_id = auth.tenant_id or "demo-tenant"
+    
+    # Validate and decode token
+    validation = token_service.validate_token(tenant_id, token)
+    if not validation.valid:
+        raise HTTPException(status_code=400, detail=f"Invalid token: {validation.reason}")
+    
+    # Generate TCF string from token contents
+    result = tcf_service.generate_for_consent_token(
+        token_purposes={p: {"allowed": v.allowed} for p, v in validation.purposes.items()},
+        token_vendors={v: {"allowed": d.allowed} for v, d in validation.vendors.items()},
+        language=language
+    )
+    
+    return {
+        "tc_string": result.tc_string,
+        "tcf_purposes": result.purposes_consented,
+        "tcf_vendors": result.vendors_consented
+    }
+
+
+# ============== Google Consent Mode v2 Endpoints ==============
+
+class GCMGenerateRequest(BaseModel):
+    """Request to generate GCM configuration"""
+    purposes: List[str]
+    region: str = "EU"
+    gtm_container_id: Optional[str] = None
+    ga4_measurement_id: Optional[str] = None
+
+
+@app.post("/gcm/generate")
+async def generate_gcm_config(
+    request: GCMGenerateRequest,
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Generate Google Consent Mode v2 configuration.
+    
+    Returns consent settings and JavaScript snippets.
+    """
+    # Map purposes to GCM settings
+    settings = gcm_service.map_purposes_to_gcm(request.purposes)
+    
+    # Generate config
+    tag_config = GCMTagConfig(
+        gtm_container_id=request.gtm_container_id,
+        ga4_measurement_id=request.ga4_measurement_id
+    )
+    
+    snippet = gcm_service.generate_full_snippet(tag_config, request.region)
+    
+    return {
+        "consent_settings": {
+            "ad_storage": settings.ad_storage.value,
+            "analytics_storage": settings.analytics_storage.value,
+            "ad_user_data": settings.ad_user_data.value,
+            "ad_personalization": settings.ad_personalization.value,
+        },
+        "snippets": {
+            "default_consent": snippet.default_consent_script,
+            "update_function": snippet.update_consent_function,
+            "gtm": snippet.gtag_config
+        }
+    }
+
+
+@app.get("/gcm/default-script")
+async def get_gcm_default_script(
+    region: str = Query(default="EU"),
+    gtm_container_id: Optional[str] = None
+):
+    """
+    Get the default consent script to place before Google tags.
+    """
+    tag_config = GCMTagConfig(gtm_container_id=gtm_container_id)
+    script = gcm_service.generate_default_consent_script(region, tag_config=tag_config)
+    
+    return {
+        "script": script,
+        "placement": "Place this script BEFORE any Google tags (GTM, GA4, Ads)",
+        "region": region
+    }
+
+
+@app.get("/gcm/update-function")
+async def get_gcm_update_function():
+    """
+    Get the JavaScript function for updating consent.
+    """
+    return {
+        "function": gcm_service.generate_update_function(),
+        "usage": "Call updateGoogleConsent({analytics: true, marketing: false, personalization: false})"
+    }
+
+
+@app.post("/gcm/server-payload")
+async def generate_gcm_server_payload(
+    purposes: List[str] = Body(...),
+    event_name: str = Body(default="consent_update")
+):
+    """
+    Generate payload for server-side GTM.
+    
+    Send this to your GTM server container.
+    """
+    return gcm_service.generate_server_side_payload(purposes, event_name)
+
+
+@app.get("/gcm/info")
+async def get_gcm_info():
+    """Get information about Google Consent Mode v2"""
+    return gcm_service.get_consent_info()
+
+
+@app.post("/gcm/validate")
+async def validate_gcm_implementation(
+    has_default_consent: bool = Body(...),
+    default_before_tags: bool = Body(...),
+    has_update_mechanism: bool = Body(...),
+    has_ad_user_data: bool = Body(default=True),
+    has_ad_personalization: bool = Body(default=True)
+):
+    """
+    Validate your GCM implementation against requirements.
+    """
+    return gcm_service.validate_implementation(
+        has_default_consent=has_default_consent,
+        default_before_tags=default_before_tags,
+        has_update_mechanism=has_update_mechanism,
+        has_ad_user_data=has_ad_user_data,
+        has_ad_personalization=has_ad_personalization
+    )
+
+
+# ============== Combined Standards Endpoint ==============
+
+@app.post("/standards/generate-all")
+async def generate_all_standards(
+    purposes: List[str] = Body(...),
+    vendors: List[str] = Body(...),
+    language: str = Body(default="EN"),
+    region: str = Body(default="EU"),
+    gtm_container_id: Optional[str] = Body(default=None),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Generate all industry standard consent formats at once.
+    
+    Returns:
+    - TCF 2.2 string
+    - Google Consent Mode v2 settings
+    - JavaScript snippets
+    """
+    # Generate TCF string
+    tcf_result = tcf_service.generate_tc_string(purposes, vendors, language)
+    
+    # Generate GCM settings
+    gcm_settings = gcm_service.map_purposes_to_gcm(purposes)
+    
+    # Generate snippets
+    tag_config = GCMTagConfig(gtm_container_id=gtm_container_id)
+    gcm_snippet = gcm_service.generate_full_snippet(tag_config, region)
+    
+    return {
+        "tcf": {
+            "tc_string": tcf_result.tc_string,
+            "version": "2.2",
+            "purposes_consented": tcf_result.purposes_consented,
+            "vendors_consented": tcf_result.vendors_consented
+        },
+        "gcm": {
+            "ad_storage": gcm_settings.ad_storage.value,
+            "analytics_storage": gcm_settings.analytics_storage.value,
+            "ad_user_data": gcm_settings.ad_user_data.value,
+            "ad_personalization": gcm_settings.ad_personalization.value
+        },
+        "snippets": {
+            "tcf_string_for_vendors": tcf_result.tc_string,
+            "gcm_default_consent": gcm_snippet.default_consent_script,
+            "gcm_update_function": gcm_snippet.update_consent_function
+        },
+        "integration_notes": {
+            "tcf": "Pass tc_string to ad tech vendors in gdpr_consent parameter",
+            "gcm": "Load default_consent script BEFORE Google tags, call update function after user choice"
         }
     }
 

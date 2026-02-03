@@ -16,6 +16,15 @@ import {
   Lock,
   ArrowRight,
   Zap,
+  Key,
+  Webhook,
+  Copy,
+  Trash2,
+  Plus,
+  Eye,
+  EyeOff,
+  Code,
+  Globe,
 } from 'lucide-react';
 
 /**
@@ -89,6 +98,7 @@ export default function App() {
               { id: 'policies', label: 'Consent Policies', icon: Settings },
               { id: 'live', label: 'Live Enforcement', icon: Activity },
               { id: 'audit', label: 'Audit Export', icon: FileText },
+              { id: 'settings', label: 'Settings', icon: Key },
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -112,6 +122,7 @@ export default function App() {
         {activeView === 'policies' && <PoliciesView />}
         {activeView === 'live' && <LiveEnforcementView />}
         {activeView === 'audit' && <AuditExportView />}
+        {activeView === 'settings' && <SettingsView />}
       </main>
     </div>
   );
@@ -641,6 +652,390 @@ function AuditExportView() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============== Screen 4: Settings ==============
+
+function SettingsView() {
+  const [activeTab, setActiveTab] = useState('apikeys');
+  const [apiKeys, setApiKeys] = useState([]);
+  const [webhooks, setWebhooks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyScopes, setNewKeyScopes] = useState(['consent:write', 'events:write']);
+  const [newWebhookUrl, setNewWebhookUrl] = useState('');
+  const [newWebhookEvents, setNewWebhookEvents] = useState(['*']);
+  const [createdKey, setCreatedKey] = useState(null);
+  const [createdWebhook, setCreatedWebhook] = useState(null);
+  const [showKey, setShowKey] = useState(false);
+
+  const availableScopes = [
+    'consent:read', 'consent:write', 'events:write', 
+    'audit:read', 'audit:export', 'admin:read', 'admin:write',
+    'webhooks:read', 'webhooks:write'
+  ];
+
+  const availableEvents = [
+    '*', 'consent.issued', 'consent.revoked', 
+    'enforcement.allowed', 'enforcement.modified', 'enforcement.blocked'
+  ];
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [keysRes, webhooksRes] = await Promise.all([
+        api.get('/api-keys'),
+        api.get('/webhooks')
+      ]);
+      setApiKeys(keysRes.api_keys || []);
+      setWebhooks(webhooksRes.webhooks || []);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const createApiKey = async () => {
+    if (!newKeyName) return;
+    try {
+      const res = await api.post('/api-keys', {
+        name: newKeyName,
+        scopes: newKeyScopes
+      });
+      setCreatedKey(res.api_key);
+      setNewKeyName('');
+      load();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const createWebhook = async () => {
+    if (!newWebhookUrl) return;
+    try {
+      const res = await api.post('/webhooks', {
+        url: newWebhookUrl,
+        events: newWebhookEvents
+      });
+      setCreatedWebhook(res.webhook);
+      setNewWebhookUrl('');
+      load();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-gray-900">Settings</h2>
+        <button onClick={load} className="p-2 hover:bg-gray-100 rounded-lg">
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-4 border-b">
+        {[
+          { id: 'apikeys', label: 'API Keys', icon: Key },
+          { id: 'webhooks', label: 'Webhooks', icon: Webhook },
+          { id: 'integration', label: 'Integration', icon: Code },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={`flex items-center gap-2 px-4 py-2 border-b-2 -mb-px transition-colors ${
+              activeTab === id
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Icon size={16} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* API Keys Tab */}
+      {activeTab === 'apikeys' && (
+        <div className="space-y-6">
+          {/* Created Key Alert */}
+          {createdKey && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-green-800">API Key Created!</span>
+                <button onClick={() => setCreatedKey(null)} className="text-green-600 hover:text-green-800">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <p className="text-sm text-green-700 mb-2">Save this key now. It won't be shown again.</p>
+              <div className="flex items-center gap-2 bg-white rounded-lg p-3 border border-green-300">
+                <code className="flex-1 text-sm font-mono break-all">
+                  {showKey ? createdKey.key : '••••••••••••••••••••••••••••••••'}
+                </code>
+                <button onClick={() => setShowKey(!showKey)} className="p-1 hover:bg-green-100 rounded">
+                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+                <button onClick={() => copyToClipboard(createdKey.key)} className="p-1 hover:bg-green-100 rounded">
+                  <Copy size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Create New Key */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Create API Key</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Key Name</label>
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="e.g., Production Backend"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Scopes</label>
+                <div className="flex flex-wrap gap-1">
+                  {availableScopes.map(scope => (
+                    <button
+                      key={scope}
+                      onClick={() => setNewKeyScopes(prev => 
+                        prev.includes(scope) ? prev.filter(s => s !== scope) : [...prev, scope]
+                      )}
+                      className={`text-xs px-2 py-1 rounded ${
+                        newKeyScopes.includes(scope)
+                          ? 'bg-indigo-100 text-indigo-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {scope}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={createApiKey}
+              disabled={!newKeyName}
+              className="mt-4 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Plus size={16} />
+              Create Key
+            </button>
+          </div>
+
+          {/* Existing Keys */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Existing Keys</h3>
+            {apiKeys.length === 0 ? (
+              <p className="text-gray-500">No API keys created yet</p>
+            ) : (
+              <div className="space-y-3">
+                {apiKeys.map(key => (
+                  <div key={key.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Key size={16} className="text-gray-400" />
+                        <span className="font-medium">{key.name || 'Unnamed Key'}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          key.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
+                          {key.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Created: {new Date(key.created_at).toLocaleDateString()}
+                        {key.last_used_at && ` • Last used: ${new Date(key.last_used_at).toLocaleDateString()}`}
+                      </p>
+                    </div>
+                    <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Webhooks Tab */}
+      {activeTab === 'webhooks' && (
+        <div className="space-y-6">
+          {/* Created Webhook Alert */}
+          {createdWebhook && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-green-800">Webhook Created!</span>
+                <button onClick={() => setCreatedWebhook(null)} className="text-green-600 hover:text-green-800">
+                  <XCircle size={20} />
+                </button>
+              </div>
+              <p className="text-sm text-green-700 mb-2">Save this secret for verifying signatures.</p>
+              <div className="flex items-center gap-2 bg-white rounded-lg p-3 border border-green-300">
+                <code className="flex-1 text-sm font-mono">{createdWebhook.secret}</code>
+                <button onClick={() => copyToClipboard(createdWebhook.secret)} className="p-1 hover:bg-green-100 rounded">
+                  <Copy size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Create New Webhook */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Create Webhook</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL</label>
+                <input
+                  type="url"
+                  value={newWebhookUrl}
+                  onChange={(e) => setNewWebhookUrl(e.target.value)}
+                  placeholder="https://your-server.com/webhooks"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Events</label>
+                <div className="flex flex-wrap gap-1">
+                  {availableEvents.map(event => (
+                    <button
+                      key={event}
+                      onClick={() => setNewWebhookEvents(prev => 
+                        prev.includes(event) ? prev.filter(e => e !== event) : [...prev, event]
+                      )}
+                      className={`text-xs px-2 py-1 rounded ${
+                        newWebhookEvents.includes(event)
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {event}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={createWebhook}
+              disabled={!newWebhookUrl}
+              className="mt-4 px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 flex items-center gap-2"
+            >
+              <Plus size={16} />
+              Create Webhook
+            </button>
+          </div>
+
+          {/* Existing Webhooks */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Existing Webhooks</h3>
+            {webhooks.length === 0 ? (
+              <p className="text-gray-500">No webhooks configured yet</p>
+            ) : (
+              <div className="space-y-3">
+                {webhooks.map(webhook => (
+                  <div key={webhook.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Globe size={16} className="text-gray-400" />
+                        <span className="font-mono text-sm">{webhook.url}</span>
+                      </div>
+                      <div className="flex gap-1 mt-2">
+                        {webhook.events?.map(event => (
+                          <span key={event} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                            {event}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Integration Tab */}
+      {activeTab === 'integration' && (
+        <div className="space-y-6">
+          {/* JavaScript SDK */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Code size={18} className="text-amber-500" />
+              JavaScript SDK
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">Add consent collection to your website.</p>
+            <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+              <pre className="text-sm text-green-400 font-mono">{`<script src="https://cdn.consent-platform.com/v1/consent.min.js"
+  data-auto-init="true"
+  data-api-url="${window.location.origin}"
+  data-tenant-id="demo-tenant"
+></script>`}</pre>
+            </div>
+            <button 
+              onClick={() => copyToClipboard(`<script src="https://cdn.consent-platform.com/v1/consent.min.js" data-auto-init="true" data-api-url="${window.location.origin}" data-tenant-id="demo-tenant"></script>`)}
+              className="mt-3 text-sm text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+            >
+              <Copy size={14} /> Copy snippet
+            </button>
+          </div>
+
+          {/* TCF 2.2 */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Shield size={18} className="text-blue-500" />
+              TCF 2.2 (IAB)
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">Generate TCF consent strings for ad tech partners.</p>
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm font-medium mb-2">API Endpoint:</p>
+              <code className="text-sm text-purple-600">POST /tcf/generate</code>
+              <p className="text-xs text-gray-500 mt-2">Returns IAB-compliant TC string for programmatic advertising</p>
+            </div>
+          </div>
+
+          {/* Google Consent Mode */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Globe size={18} className="text-green-500" />
+              Google Consent Mode v2
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">Required for Google Ads/Analytics in EU.</p>
+            <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto">
+              <pre className="text-sm text-green-400 font-mono whitespace-pre-wrap">{`// Get default consent script
+GET /gcm/default-script?region=EU
+
+// Get update function
+GET /gcm/update-function`}</pre>
+            </div>
+          </div>
+
+          {/* Combined Standards */}
+          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 p-6">
+            <h3 className="font-semibold text-indigo-900 mb-2">Generate All Standards at Once</h3>
+            <p className="text-sm text-indigo-700 mb-4">Get TCF string + GCM settings in one API call.</p>
+            <code className="text-sm bg-white/50 px-3 py-2 rounded block">
+              POST /standards/generate-all
+            </code>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
