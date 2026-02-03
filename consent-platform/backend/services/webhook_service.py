@@ -107,6 +107,10 @@ class WebhookService:
         # In-memory queue for async delivery
         self._queue: asyncio.Queue = None
         self._worker_task: asyncio.Task = None
+        
+        # Delivery logs (in-memory, for recent history)
+        self._delivery_logs: List[WebhookDelivery] = []
+        self._max_logs = 1000
     
     async def start(self):
         """Start the webhook delivery worker"""
@@ -213,6 +217,8 @@ class WebhookService:
                       attempt: int = 1):
         """Deliver a webhook payload"""
         payload_json = payload.model_dump_json()
+        delivery_id = str(uuid.uuid4())
+        start_time = datetime.now(timezone.utc)
         
         # Build headers
         headers = {
@@ -242,17 +248,87 @@ class WebhookService:
                 )
                 
                 if response.status_code >= 200 and response.status_code < 300:
-                    # Success
+                    # Success - log it
+                    self._log_delivery(WebhookDelivery(
+                        id=delivery_id,
+                        webhook_id=webhook["id"],
+                        event_id=payload.id,
+                        status=DeliveryStatus.SUCCESS,
+                        attempts=attempt,
+                        last_attempt_at=start_time,
+                        response_code=response.status_code,
+                        response_body=response.text[:500] if response.text else None,
+                        error=None,
+                        next_retry_at=None
+                    ))
                     print(f"Webhook delivered: {webhook['id']} -> {payload.event}")
                 else:
-                    # Failure - retry if attempts remaining
+                    # Failure - log and retry if attempts remaining
+                    self._log_delivery(WebhookDelivery(
+                        id=delivery_id,
+                        webhook_id=webhook["id"],
+                        event_id=payload.id,
+                        status=DeliveryStatus.RETRYING if attempt < self.max_retries else DeliveryStatus.FAILED,
+                        attempts=attempt,
+                        last_attempt_at=start_time,
+                        response_code=response.status_code,
+                        response_body=response.text[:500] if response.text else None,
+                        error=f"HTTP {response.status_code}",
+                        next_retry_at=None
+                    ))
                     await self._handle_failure(
                         webhook, payload, attempt,
                         f"HTTP {response.status_code}"
                     )
                     
         except Exception as e:
+            # Log failure
+            self._log_delivery(WebhookDelivery(
+                id=delivery_id,
+                webhook_id=webhook["id"],
+                event_id=payload.id,
+                status=DeliveryStatus.RETRYING if attempt < self.max_retries else DeliveryStatus.FAILED,
+                attempts=attempt,
+                last_attempt_at=start_time,
+                response_code=None,
+                response_body=None,
+                error=str(e),
+                next_retry_at=None
+            ))
             await self._handle_failure(webhook, payload, attempt, str(e))
+    
+    def _log_delivery(self, delivery: WebhookDelivery):
+        """Log a delivery attempt"""
+        self._delivery_logs.append(delivery)
+        # Keep only recent logs
+        if len(self._delivery_logs) > self._max_logs:
+            self._delivery_logs = self._delivery_logs[-self._max_logs:]
+    
+    def get_delivery_logs(self, webhook_id: str = None, limit: int = 100) -> List[WebhookDelivery]:
+        """Get delivery logs, optionally filtered by webhook ID"""
+        logs = self._delivery_logs
+        if webhook_id:
+            logs = [l for l in logs if l.webhook_id == webhook_id]
+        return sorted(logs, key=lambda l: l.last_attempt_at or datetime.min, reverse=True)[:limit]
+    
+    def get_delivery_stats(self, webhook_id: str = None) -> Dict[str, Any]:
+        """Get delivery statistics"""
+        logs = self._delivery_logs
+        if webhook_id:
+            logs = [l for l in logs if l.webhook_id == webhook_id]
+        
+        total = len(logs)
+        success = len([l for l in logs if l.status == DeliveryStatus.SUCCESS])
+        failed = len([l for l in logs if l.status == DeliveryStatus.FAILED])
+        retrying = len([l for l in logs if l.status == DeliveryStatus.RETRYING])
+        
+        return {
+            "total": total,
+            "success": success,
+            "failed": failed,
+            "retrying": retrying,
+            "success_rate": round(success / total * 100, 2) if total > 0 else 100.0
+        }
     
     async def _handle_failure(self, webhook: Dict[str, Any], payload: WebhookPayload,
                              attempt: int, error: str):

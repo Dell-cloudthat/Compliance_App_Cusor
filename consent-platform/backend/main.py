@@ -16,12 +16,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, HTTPException, Header, Body, Query, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 import hashlib
 import uuid
 import traceback
+import time
 
 # Services
 from services.database import db
@@ -47,6 +48,11 @@ from services.vendor_certification import (
     TrustTier, ViolationType, ViolationSeverity, CheckType,
     VendorCertification, Violation, ComplianceCheck, TrustRegistryEntry
 )
+from services.metrics_service import metrics
+from services.logging_service import (
+    logger, audit_logger, LogEvent, 
+    set_request_id, set_tenant_id, generate_request_id
+)
 
 
 # ============== Lifespan ==============
@@ -55,16 +61,18 @@ from services.vendor_certification import (
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic"""
     # Startup
+    logger.info(LogEvent.SERVICE_STARTED, version="1.0.0")
     await db.initialize()
+    logger.info(LogEvent.DATABASE_CONNECTED)
     await webhook_service.start()
     await setup_demo_tenant()
-    print("Consent Platform started")
+    logger.info("Platform ready", status="healthy")
     
     yield
     
     # Shutdown
     await webhook_service.stop()
-    print("Consent Platform stopped")
+    logger.info(LogEvent.SERVICE_STOPPED)
 
 
 async def setup_demo_tenant():
@@ -180,6 +188,49 @@ async def general_error_handler(request: Request, exc: Exception):
 # ============== Middleware ==============
 
 @app.middleware("http")
+async def request_tracking_middleware(request: Request, call_next):
+    """Track requests with ID and metrics"""
+    start_time = time.time()
+    
+    # Generate or extract request ID
+    request_id = request.headers.get("X-Request-ID", generate_request_id())
+    set_request_id(request_id)
+    
+    # Extract tenant ID if present
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if tenant_id:
+        set_tenant_id(tenant_id)
+    
+    # Process request
+    try:
+        response = await call_next(request)
+        
+        # Record metrics
+        duration = time.time() - start_time
+        endpoint = request.url.path
+        metrics.record_request(
+            method=request.method,
+            endpoint=endpoint,
+            status=response.status_code,
+            duration=duration
+        )
+        
+        # Add request ID to response
+        response.headers["X-Request-ID"] = request_id
+        
+        return response
+    except Exception as e:
+        duration = time.time() - start_time
+        metrics.record_request(
+            method=request.method,
+            endpoint=request.url.path,
+            status=500,
+            duration=duration
+        )
+        raise
+
+
+@app.middleware("http")
 async def add_rate_limit_headers(request: Request, call_next):
     """Add rate limit headers to response"""
     response = await call_next(request)
@@ -267,6 +318,23 @@ async def health_check():
     }
 
 
+@app.get("/metrics", response_class=PlainTextResponse)
+async def get_metrics():
+    """
+    Prometheus metrics endpoint.
+    
+    Returns metrics in Prometheus exposition format.
+    Scrape this endpoint with Prometheus at regular intervals.
+    """
+    return metrics.export_prometheus()
+
+
+@app.get("/metrics/summary")
+async def get_metrics_summary():
+    """Get a JSON summary of key metrics"""
+    return metrics.get_summary()
+
+
 # ============== Consent Endpoints ==============
 
 @app.post("/consent", response_model=ConsentResponse)
@@ -348,6 +416,19 @@ async def create_consent(
             purposes=request.purposes,
             vendors=request.vendors,
             expires_at=token.expires_at
+        )
+        
+        # Record metrics
+        metrics.record_token_issued(tenant_id, request.jurisdiction)
+        
+        # Audit log
+        audit_logger.log_consent_issued(
+            tenant_id=tenant_id,
+            token_id=token.token_id,
+            subject_id=request.user_id,
+            purposes=request.purposes,
+            vendors=request.vendors,
+            jurisdiction=request.jurisdiction
         )
         
         return ConsentResponse(
@@ -584,6 +665,23 @@ async def process_event(
         forwarded=forwarded
     )
     
+    # Record metrics
+    metrics.record_enforcement(tenant_id, event.vendor, result.decision.value, result.latency_ms)
+    if forwarded:
+        metrics.record_event_forwarded(event.vendor, True)
+    elif result.decision == Decision.BLOCKED:
+        metrics.record_event_forwarded(event.vendor, False)
+    
+    # Audit log
+    audit_logger.log_enforcement(
+        tenant_id=tenant_id,
+        event_id=event.event_id,
+        vendor=event.vendor,
+        decision=result.decision.value,
+        reason=result.reason,
+        token_hash=token_hash
+    )
+    
     return EventResponse(
         decision=result.decision.value,
         reason=result.reason,
@@ -705,6 +803,116 @@ async def create_webhook(
             "url": webhook.url,
             "events": webhook.events,
             "secret": webhook.secret  # Only returned on creation
+        }
+    }
+
+
+@app.get("/webhooks/{webhook_id}/logs")
+async def get_webhook_logs(
+    webhook_id: str,
+    limit: int = Query(default=50, le=200),
+    auth: AuthContext = Depends(require_auth)
+):
+    """Get delivery logs for a webhook"""
+    auth.require_scope(Scope.WEBHOOKS_READ)
+    
+    logs = webhook_service.get_delivery_logs(webhook_id, limit)
+    stats = webhook_service.get_delivery_stats(webhook_id)
+    
+    return {
+        "logs": [
+            {
+                "id": l.id,
+                "event_id": l.event_id,
+                "status": l.status.value,
+                "attempts": l.attempts,
+                "last_attempt_at": l.last_attempt_at.isoformat() if l.last_attempt_at else None,
+                "response_code": l.response_code,
+                "error": l.error
+            }
+            for l in logs
+        ],
+        "stats": stats
+    }
+
+
+@app.post("/webhooks/{webhook_id}/test")
+async def test_webhook(
+    webhook_id: str,
+    auth: AuthContext = Depends(require_auth)
+):
+    """
+    Send a test webhook to verify the endpoint.
+    """
+    auth.require_scope(Scope.WEBHOOKS_WRITE)
+    
+    # Get webhook
+    webhooks = await webhook_service.list_webhooks(auth.tenant_id)
+    webhook = next((w for w in webhooks if w["id"] == webhook_id), None)
+    
+    if not webhook:
+        raise APIError(404, "not_found", "Webhook not found")
+    
+    # Create test payload
+    from services.webhook_service import WebhookPayload, WebhookEvent
+    
+    test_payload = WebhookPayload(
+        id=str(uuid.uuid4()),
+        event="test.ping",
+        created_at=datetime.now(timezone.utc),
+        tenant_id=auth.tenant_id,
+        data={
+            "message": "This is a test webhook delivery",
+            "webhook_id": webhook_id,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        },
+        idempotency_key=f"test_{uuid.uuid4().hex}"
+    )
+    
+    # Deliver synchronously for test
+    await webhook_service._deliver(webhook, test_payload, attempt=1)
+    
+    # Get latest log for this webhook
+    logs = webhook_service.get_delivery_logs(webhook_id, limit=1)
+    latest = logs[0] if logs else None
+    
+    return {
+        "success": latest.status.value == "success" if latest else False,
+        "delivery": {
+            "id": latest.id if latest else None,
+            "status": latest.status.value if latest else "unknown",
+            "response_code": latest.response_code if latest else None,
+            "error": latest.error if latest else None
+        }
+    }
+
+
+@app.get("/webhooks/logs")
+async def get_all_webhook_logs(
+    limit: int = Query(default=100, le=500),
+    auth: AuthContext = Depends(require_auth)
+):
+    """Get all delivery logs for tenant's webhooks"""
+    auth.require_scope(Scope.WEBHOOKS_READ)
+    
+    logs = webhook_service.get_delivery_logs(limit=limit)
+    stats = webhook_service.get_delivery_stats()
+    
+    return {
+        "logs": [
+            {
+                "id": l.id,
+                "webhook_id": l.webhook_id,
+                "event_id": l.event_id,
+                "status": l.status.value,
+                "attempts": l.attempts,
+                "last_attempt_at": l.last_attempt_at.isoformat() if l.last_attempt_at else None,
+                "response_code": l.response_code,
+                "error": l.error
+            }
+            for l in logs
+        ],
+        "stats": stats
         }
     }
 

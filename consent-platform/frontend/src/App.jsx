@@ -1391,24 +1391,7 @@ function SettingsView() {
             ) : (
               <div className="space-y-3">
                 {webhooks.map(webhook => (
-                  <div key={webhook.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Globe size={16} className="text-gray-400" />
-                        <span className="font-mono text-sm">{webhook.url}</span>
-                      </div>
-                      <div className="flex gap-1 mt-2">
-                        {webhook.events?.map(event => (
-                          <span key={event} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                            {event}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
+                  <WebhookCard key={webhook.id} webhook={webhook} onRefresh={load} />
                 ))}
               </div>
             )}
@@ -1486,6 +1469,143 @@ GET /gcm/update-function`}</pre>
 }
 
 // ============== Helper Components ==============
+
+function WebhookCard({ webhook, onRefresh }) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [showLogs, setShowLogs] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [stats, setStats] = useState(null);
+
+  const testWebhook = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await api.post(`/webhooks/${webhook.id}/test`, {});
+      setTestResult(result);
+    } catch (e) {
+      setTestResult({ success: false, error: e.message });
+    }
+    setTesting(false);
+  };
+
+  const loadLogs = async () => {
+    try {
+      const res = await api.get(`/webhooks/${webhook.id}/logs?limit=20`);
+      setLogs(res.logs || []);
+      setStats(res.stats);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (showLogs) loadLogs();
+  }, [showLogs]);
+
+  return (
+    <div className="p-4 bg-gray-50 rounded-lg">
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <Globe size={16} className="text-gray-400" />
+            <span className="font-mono text-sm truncate max-w-md">{webhook.url}</span>
+          </div>
+          <div className="flex gap-1 mt-2">
+            {webhook.events?.map(event => (
+              <span key={event} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                {event}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={testWebhook}
+            disabled={testing}
+            className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 flex items-center gap-1"
+          >
+            {testing ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
+            Test
+          </button>
+          <button 
+            onClick={() => setShowLogs(!showLogs)}
+            className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 flex items-center gap-1"
+          >
+            <FileText size={14} />
+            Logs
+          </button>
+          <button className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Test Result */}
+      {testResult && (
+        <div className={`mt-3 p-3 rounded-lg ${testResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+          <div className="flex items-center gap-2">
+            {testResult.success ? 
+              <CheckCircle size={16} className="text-green-500" /> : 
+              <XCircle size={16} className="text-red-500" />}
+            <span className={`text-sm font-medium ${testResult.success ? 'text-green-700' : 'text-red-700'}`}>
+              {testResult.success ? 'Delivery Successful!' : 'Delivery Failed'}
+            </span>
+          </div>
+          {testResult.delivery && (
+            <p className="text-xs mt-1 text-gray-600">
+              {testResult.delivery.response_code && `Status: ${testResult.delivery.response_code}`}
+              {testResult.delivery.error && ` • Error: ${testResult.delivery.error}`}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Delivery Logs */}
+      {showLogs && (
+        <div className="mt-3 border-t pt-3">
+          {stats && (
+            <div className="flex gap-4 mb-3 text-xs">
+              <span className="text-gray-500">Total: <strong>{stats.total}</strong></span>
+              <span className="text-green-600">Success: <strong>{stats.success}</strong></span>
+              <span className="text-red-600">Failed: <strong>{stats.failed}</strong></span>
+              <span className="text-gray-600">Success Rate: <strong>{stats.success_rate}%</strong></span>
+            </div>
+          )}
+          {logs.length === 0 ? (
+            <p className="text-sm text-gray-500">No delivery logs yet</p>
+          ) : (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {logs.map(log => (
+                <div key={log.id} className="flex items-center justify-between text-xs p-2 bg-white rounded border">
+                  <div className="flex items-center gap-2">
+                    {log.status === 'success' ? 
+                      <CheckCircle size={12} className="text-green-500" /> : 
+                      log.status === 'retrying' ?
+                      <RefreshCw size={12} className="text-amber-500" /> :
+                      <XCircle size={12} className="text-red-500" />}
+                    <span className="font-mono">{log.event_id?.slice(0, 8)}...</span>
+                    <span className={`px-1.5 py-0.5 rounded ${
+                      log.status === 'success' ? 'bg-green-100 text-green-700' :
+                      log.status === 'retrying' ? 'bg-amber-100 text-amber-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>
+                      {log.status}
+                    </span>
+                  </div>
+                  <div className="text-gray-500">
+                    {log.response_code && <span className="mr-2">HTTP {log.response_code}</span>}
+                    {log.last_attempt_at && new Date(log.last_attempt_at).toLocaleTimeString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatCard({ label, value, icon: Icon, color }) {
   const colors = {
