@@ -42,6 +42,11 @@ from services.vendor_service import vendor_service, ForwardingRequest, Vendor, V
 from services.webhook_service import webhook_service, WebhookEvent
 from services.tcf_service import tcf_service, TCFPurpose
 from services.gcm_service import gcm_service, GCMConsentSettings, GCMTagConfig
+from services.vendor_certification import (
+    vendor_certification_service, 
+    TrustTier, ViolationType, ViolationSeverity, CheckType,
+    VendorCertification, Violation, ComplianceCheck, TrustRegistryEntry
+)
 
 
 # ============== Lifespan ==============
@@ -477,12 +482,25 @@ async def process_event(
     # Enforce
     result = enforcement_engine.enforce(tenant_id, event, token_string)
     
-    # Forward if allowed
+    # Check vendor certification before forwarding
+    vendor_allowed, vendor_reason = vendor_certification_service.check_vendor_allowed(event.vendor)
+    
+    # Forward if consent allowed AND vendor is certified
     forwarded = False
     vendor_event_id = None
     vendor_response_code = None
+    vendor_blocked_reason = None
     
     if result.decision in [Decision.ALLOWED, Decision.MODIFIED]:
+        if not vendor_allowed:
+            # Vendor not certified - block forwarding
+            vendor_blocked_reason = vendor_reason
+            result.decision = Decision.BLOCKED
+            result.reason = f"Vendor certification: {vendor_reason}"
+        else:
+            # Record event processed for vendor compliance tracking
+            vendor_certification_service.record_event_processed(event.vendor, True)
+        
         modified = result.modified_event or {}
         
         forward_request = ForwardingRequest(
@@ -1131,6 +1149,333 @@ async def generate_all_standards(
             "tcf": "Pass tc_string to ad tech vendors in gdpr_consent parameter",
             "gcm": "Load default_consent script BEFORE Google tags, call update function after user choice"
         }
+    }
+
+
+# ============== Vendor Certification Endpoints ==============
+
+@app.get("/vendors/trust-registry")
+async def get_trust_registry():
+    """
+    Get the public vendor trust registry.
+    
+    This is the customer-visible list of all certified vendors
+    with their trust scores, compliance rates, and badges.
+    
+    Reputation becomes technical, not PR-based.
+    """
+    registry = vendor_certification_service.get_trust_registry()
+    return {
+        "vendors": [entry.model_dump() for entry in registry],
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@app.get("/vendors/trust-registry/{vendor_id}")
+async def get_vendor_trust_entry(vendor_id: str):
+    """Get trust registry entry for a specific vendor"""
+    entry = vendor_certification_service.get_registry_entry(vendor_id)
+    if not entry:
+        raise APIError(404, "not_found", f"Vendor {vendor_id} not in trust registry")
+    return entry.model_dump()
+
+
+@app.get("/vendors/certifications")
+async def list_certifications(
+    tier: Optional[str] = Query(default=None, description="Filter by trust tier"),
+    auth: AuthContext = Depends(require_auth)
+):
+    """List all vendor certifications (admin view)"""
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    tier_filter = TrustTier(tier) if tier else None
+    certs = vendor_certification_service.list_certifications(tier_filter)
+    
+    return {
+        "certifications": [cert.model_dump() for cert in certs],
+        "stats": vendor_certification_service.get_stats()
+    }
+
+
+@app.get("/vendors/certifications/{vendor_id}")
+async def get_certification(
+    vendor_id: str,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Get detailed certification for a vendor"""
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    cert = vendor_certification_service.get_certification(vendor_id)
+    if not cert:
+        raise APIError(404, "not_found", f"Vendor {vendor_id} not found")
+    
+    return cert.model_dump()
+
+
+class VendorRegistrationRequest(BaseModel):
+    """Request to register a vendor for certification"""
+    vendor_id: str
+    vendor_name: str
+
+
+@app.post("/vendors/certifications/register")
+async def register_vendor_for_certification(
+    request: VendorRegistrationRequest,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Register a new vendor for certification"""
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    cert = vendor_certification_service.register_vendor(
+        request.vendor_id, 
+        request.vendor_name
+    )
+    
+    return {
+        "certification": cert.model_dump(),
+        "message": "Vendor registered. Complete requirements for approval."
+    }
+
+
+class VendorApprovalRequest(BaseModel):
+    """Request to approve a vendor"""
+    tier: str = "approved"
+    reason: str = "Requirements met"
+
+
+@app.post("/vendors/certifications/{vendor_id}/approve")
+async def approve_vendor(
+    vendor_id: str,
+    request: VendorApprovalRequest,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Approve a vendor for a specific trust tier"""
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    cert = vendor_certification_service.approve_vendor(
+        vendor_id,
+        TrustTier(request.tier),
+        request.reason
+    )
+    
+    return {
+        "certification": cert.model_dump(),
+        "message": f"Vendor approved at {request.tier} tier"
+    }
+
+
+@app.get("/vendors/certifications/{vendor_id}/checks")
+async def get_vendor_checks(
+    vendor_id: str,
+    check_type: Optional[str] = None,
+    limit: int = Query(default=50, le=200),
+    auth: AuthContext = Depends(require_auth)
+):
+    """Get compliance checks for a vendor"""
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    type_filter = CheckType(check_type) if check_type else None
+    checks = vendor_certification_service.get_checks(vendor_id, type_filter, limit)
+    
+    return {
+        "checks": [check.model_dump() for check in checks],
+        "count": len(checks)
+    }
+
+
+@app.post("/vendors/certifications/{vendor_id}/check")
+async def run_compliance_check(
+    vendor_id: str,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Run automated compliance checks for a vendor"""
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    results = vendor_certification_service.run_automated_checks(vendor_id)
+    
+    # Get updated certification
+    cert = vendor_certification_service.get_certification(vendor_id)
+    
+    return {
+        "checks": [r.model_dump() for r in results],
+        "updated_certification": cert.model_dump() if cert else None,
+        "message": f"Ran {len(results)} compliance checks"
+    }
+
+
+# ============== Violation Management ==============
+
+@app.get("/vendors/certifications/{vendor_id}/violations")
+async def get_vendor_violations(
+    vendor_id: str,
+    open_only: bool = Query(default=False),
+    auth: AuthContext = Depends(require_auth)
+):
+    """Get violations for a vendor"""
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    violations = vendor_certification_service.get_violations(vendor_id, open_only)
+    
+    return {
+        "violations": [v.model_dump() for v in violations],
+        "count": len(violations),
+        "open_count": len([v for v in violations if v.resolved_at is None])
+    }
+
+
+class ViolationReportRequest(BaseModel):
+    """Request to report a violation"""
+    violation_type: str
+    description: str
+    evidence: Dict[str, Any] = {}
+    events_affected: int = 0
+    users_affected: int = 0
+
+
+@app.post("/vendors/certifications/{vendor_id}/violations")
+async def report_violation(
+    vendor_id: str,
+    request: ViolationReportRequest,
+    auth: AuthContext = Depends(require_auth)
+):
+    """
+    Report a policy violation for a vendor.
+    
+    This will:
+    - Record the violation
+    - Deduct trust score points
+    - Potentially downgrade trust tier
+    - Make the violation visible to customers
+    """
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    violation = vendor_certification_service.record_violation(
+        vendor_id=vendor_id,
+        violation_type=ViolationType(request.violation_type),
+        description=request.description,
+        evidence=request.evidence,
+        events_affected=request.events_affected,
+        users_affected=request.users_affected
+    )
+    
+    # Log to evidence store
+    evidence_store.append(
+        tenant_id="system",
+        event_type=EventType.SYSTEM,
+        event_data={
+            "type": "vendor_violation",
+            "vendor_id": vendor_id,
+            "violation_id": violation.id,
+            "violation_type": violation.violation_type.value,
+            "severity": violation.severity.value,
+            "tier_before": violation.tier_before.value if violation.tier_before else None,
+            "tier_after": violation.tier_after.value if violation.tier_after else None,
+            "action_taken": violation.action_taken
+        }
+    )
+    
+    return {
+        "violation": violation.model_dump(),
+        "action_taken": violation.action_taken,
+        "message": "Violation recorded and appropriate action taken"
+    }
+
+
+class ViolationResolutionRequest(BaseModel):
+    """Request to resolve a violation"""
+    resolution_notes: str
+
+
+@app.post("/violations/{violation_id}/resolve")
+async def resolve_violation(
+    violation_id: str,
+    request: ViolationResolutionRequest,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Resolve a violation"""
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    violation = vendor_certification_service.resolve_violation(
+        violation_id,
+        request.resolution_notes
+    )
+    
+    if not violation:
+        raise APIError(404, "not_found", f"Violation {violation_id} not found")
+    
+    return {
+        "violation": violation.model_dump(),
+        "message": "Violation resolved"
+    }
+
+
+# ============== Vendor Check During Enforcement ==============
+
+@app.get("/vendors/{vendor_id}/allowed")
+async def check_vendor_allowed(
+    vendor_id: str,
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Check if a vendor is allowed to receive events.
+    
+    Returns allowed=false for suspended/revoked vendors.
+    """
+    allowed, reason = vendor_certification_service.check_vendor_allowed(vendor_id)
+    
+    cert = vendor_certification_service.get_certification(vendor_id)
+    
+    return {
+        "vendor_id": vendor_id,
+        "allowed": allowed,
+        "reason": reason,
+        "trust_tier": cert.trust_tier.value if cert else None,
+        "trust_score": cert.trust_score if cert else None
+    }
+
+
+# ============== Certification Stats ==============
+
+@app.get("/vendors/certification-stats")
+async def get_certification_stats():
+    """Get vendor certification statistics"""
+    return vendor_certification_service.get_stats()
+
+
+# ============== Violation Types ==============
+
+@app.get("/vendors/violation-types")
+async def get_violation_types():
+    """Get list of possible violation types"""
+    from services.vendor_certification import VIOLATION_SEVERITY_MAP, SEVERITY_POINTS
+    
+    return {
+        "violation_types": [
+            {
+                "type": vt.value,
+                "severity": VIOLATION_SEVERITY_MAP.get(vt, ViolationSeverity.MEDIUM).value,
+                "description": {
+                    ViolationType.MISSING_CONSENT_CHECK: "Processed events without consent validation",
+                    ViolationType.BYPASSED_PROXY: "Received events that didn't go through consent gateway",
+                    ViolationType.INVALID_TOKEN_USAGE: "Used consent tokens incorrectly",
+                    ViolationType.UNAUTHORIZED_DATA_ACCESS: "Accessed data classes not authorized",
+                    ViolationType.DATA_CLASS_VIOLATION: "Processed restricted data classes",
+                    ViolationType.CROSS_SITE_VIOLATION: "Cross-site tracking when not allowed",
+                    ViolationType.PURPOSE_VIOLATION: "Used data for non-consented purpose",
+                    ViolationType.MISSING_AUDIT_TRAIL: "Failed to provide audit logs",
+                    ViolationType.TAMPERED_LOGS: "Audit logs show signs of tampering",
+                    ViolationType.LATE_REPORTING: "Compliance reports submitted late",
+                    ViolationType.FAILED_AUDIT: "Failed periodic compliance audit",
+                    ViolationType.EXPIRED_CERTIFICATION: "Certification expired without renewal",
+                    ViolationType.POLICY_BREACH: "General policy breach"
+                }.get(vt, "Policy violation")
+            }
+            for vt in ViolationType
+        ],
+        "severities": [
+            {"level": s.value, "points_deducted": SEVERITY_POINTS[s]}
+            for s in ViolationSeverity
+        ]
     }
 
 

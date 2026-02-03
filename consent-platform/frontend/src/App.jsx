@@ -25,6 +25,16 @@ import {
   EyeOff,
   Code,
   Globe,
+  Award,
+  TrendingUp,
+  TrendingDown,
+  AlertOctagon,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  ShieldQuestion,
+  Users,
+  BarChart3,
 } from 'lucide-react';
 
 /**
@@ -97,6 +107,7 @@ export default function App() {
             {[
               { id: 'policies', label: 'Consent Policies', icon: Settings },
               { id: 'live', label: 'Live Enforcement', icon: Activity },
+              { id: 'trust', label: 'Vendor Trust', icon: Award },
               { id: 'audit', label: 'Audit Export', icon: FileText },
               { id: 'settings', label: 'Settings', icon: Key },
             ].map(({ id, label, icon: Icon }) => (
@@ -121,6 +132,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         {activeView === 'policies' && <PoliciesView />}
         {activeView === 'live' && <LiveEnforcementView />}
+        {activeView === 'trust' && <VendorTrustView />}
         {activeView === 'audit' && <AuditExportView />}
         {activeView === 'settings' && <SettingsView />}
       </main>
@@ -656,7 +668,440 @@ function AuditExportView() {
   );
 }
 
-// ============== Screen 4: Settings ==============
+// ============== Screen 4: Vendor Trust ==============
+
+function VendorTrustView() {
+  const [registry, setRegistry] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [vendorDetails, setVendorDetails] = useState(null);
+  const [violations, setViolations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportData, setReportData] = useState({
+    violation_type: 'data_class_violation',
+    description: '',
+    events_affected: 0,
+    users_affected: 0
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [registryRes, statsRes] = await Promise.all([
+        api.get('/vendors/trust-registry'),
+        api.get('/vendors/certification-stats')
+      ]);
+      setRegistry(registryRes.vendors || []);
+      setStats(statsRes);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const loadVendorDetails = async (vendorId) => {
+    try {
+      const [certRes, violationsRes] = await Promise.all([
+        api.get(`/vendors/certifications/${vendorId}`),
+        api.get(`/vendors/certifications/${vendorId}/violations`)
+      ]);
+      setVendorDetails(certRes);
+      setViolations(violationsRes.violations || []);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const selectVendor = (vendor) => {
+    setSelectedVendor(vendor);
+    loadVendorDetails(vendor.vendor_id);
+  };
+
+  const reportViolation = async () => {
+    if (!selectedVendor || !reportData.description) return;
+    try {
+      await api.post(`/vendors/certifications/${selectedVendor.vendor_id}/violations`, reportData);
+      loadVendorDetails(selectedVendor.vendor_id);
+      load();
+      setShowReportModal(false);
+      setReportData({ violation_type: 'data_class_violation', description: '', events_affected: 0, users_affected: 0 });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const getTierIcon = (tier) => {
+    switch (tier) {
+      case 'certified': return <ShieldCheck className="text-green-500" size={20} />;
+      case 'approved': return <Shield className="text-blue-500" size={20} />;
+      case 'probation': return <ShieldAlert className="text-amber-500" size={20} />;
+      case 'suspended': return <ShieldX className="text-red-500" size={20} />;
+      default: return <ShieldQuestion className="text-gray-400" size={20} />;
+    }
+  };
+
+  const getTierColor = (tier) => {
+    switch (tier) {
+      case 'certified': return 'bg-green-100 text-green-700 border-green-200';
+      case 'approved': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'probation': return 'bg-amber-100 text-amber-700 border-amber-200';
+      case 'suspended': return 'bg-red-100 text-red-700 border-red-200';
+      default: return 'bg-gray-100 text-gray-700 border-gray-200';
+    }
+  };
+
+  const violationTypes = [
+    { value: 'missing_consent_check', label: 'Missing Consent Check' },
+    { value: 'bypassed_proxy', label: 'Bypassed Proxy' },
+    { value: 'invalid_token_usage', label: 'Invalid Token Usage' },
+    { value: 'unauthorized_data_access', label: 'Unauthorized Data Access' },
+    { value: 'data_class_violation', label: 'Data Class Violation' },
+    { value: 'cross_site_violation', label: 'Cross-Site Violation' },
+    { value: 'purpose_violation', label: 'Purpose Violation' },
+    { value: 'missing_audit_trail', label: 'Missing Audit Trail' },
+    { value: 'failed_audit', label: 'Failed Audit' },
+    { value: 'policy_breach', label: 'Policy Breach' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Vendor Trust Registry</h2>
+          <p className="text-gray-500 text-sm">Technical reputation, not PR-based</p>
+        </div>
+        <button onClick={load} className="p-2 hover:bg-gray-100 rounded-lg">
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Stats Overview */}
+      {stats && (
+        <div className="grid grid-cols-5 gap-4">
+          <StatCard 
+            label="Total Vendors" 
+            value={stats.total_vendors} 
+            icon={Building2} 
+            color="blue" 
+          />
+          <StatCard 
+            label="Certified" 
+            value={stats.tier_distribution?.certified || 0} 
+            icon={ShieldCheck} 
+            color="green" 
+          />
+          <StatCard 
+            label="On Probation" 
+            value={stats.tier_distribution?.probation || 0} 
+            icon={ShieldAlert} 
+            color="amber" 
+          />
+          <StatCard 
+            label="Open Violations" 
+            value={stats.open_violations} 
+            icon={AlertOctagon} 
+            color="red" 
+          />
+          <StatCard 
+            label="Avg Compliance" 
+            value={`${stats.avg_compliance_rate}%`} 
+            icon={TrendingUp} 
+            color="green" 
+          />
+        </div>
+      )}
+
+      {/* Explanation Banner */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-200 p-6">
+        <h3 className="font-semibold text-indigo-900 mb-2">How Vendor Trust Works</h3>
+        <div className="grid grid-cols-4 gap-4 text-sm">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldCheck size={16} className="text-green-500" />
+              <span className="font-medium text-gray-800">Certified</span>
+            </div>
+            <p className="text-gray-600">Fully compliant, verified integration, clean history</p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Shield size={16} className="text-blue-500" />
+              <span className="font-medium text-gray-800">Approved</span>
+            </div>
+            <p className="text-gray-600">Meets requirements, minor issues allowed</p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldAlert size={16} className="text-amber-500" />
+              <span className="font-medium text-gray-800">Probation</span>
+            </div>
+            <p className="text-gray-600">Recent violations, under monitoring</p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldX size={16} className="text-red-500" />
+              <span className="font-medium text-gray-800">Suspended</span>
+            </div>
+            <p className="text-gray-600">Serious violations, events blocked</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-6">
+        {/* Trust Registry List */}
+        <div className="col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+          <h3 className="font-semibold text-gray-900 mb-4">Public Trust Registry</h3>
+          {registry.length === 0 ? (
+            <p className="text-gray-500">No vendors registered</p>
+          ) : (
+            <div className="space-y-3">
+              {registry.map(vendor => (
+                <div 
+                  key={vendor.vendor_id}
+                  onClick={() => selectVendor(vendor)}
+                  className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                    selectedVendor?.vendor_id === vendor.vendor_id 
+                      ? 'border-indigo-500 bg-indigo-50' 
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {getTierIcon(vendor.trust_tier)}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{vendor.vendor_name}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${getTierColor(vendor.trust_tier)}`}>
+                            {vendor.trust_tier.toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Compliance: {vendor.compliance_rate}% • 
+                          Score: {vendor.trust_score}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {vendor.badges?.map(badge => (
+                        <span key={badge} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                          {badge.replace('_', ' ')}
+                        </span>
+                      ))}
+                      {vendor.has_open_violations && (
+                        <AlertTriangle size={16} className="text-amber-500" />
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Trust Score Bar */}
+                  <div className="mt-3">
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all ${
+                          vendor.trust_score >= 90 ? 'bg-green-500' :
+                          vendor.trust_score >= 70 ? 'bg-blue-500' :
+                          vendor.trust_score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${vendor.trust_score}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Vendor Details Panel */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          {selectedVendor && vendorDetails ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900">{vendorDetails.vendor_name}</h3>
+                <button 
+                  onClick={() => setShowReportModal(true)}
+                  className="text-xs px-3 py-1 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                >
+                  Report Violation
+                </button>
+              </div>
+              
+              {/* Trust Status */}
+              <div className={`p-4 rounded-lg ${getTierColor(vendorDetails.trust_tier)}`}>
+                <div className="flex items-center gap-2 mb-2">
+                  {getTierIcon(vendorDetails.trust_tier)}
+                  <span className="font-bold">{vendorDetails.trust_tier.toUpperCase()}</span>
+                </div>
+                <div className="text-3xl font-bold">{vendorDetails.trust_score}</div>
+                <p className="text-sm opacity-75">Trust Score</p>
+              </div>
+              
+              {/* Stats */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Events Processed</p>
+                  <p className="font-bold">{vendorDetails.total_events_processed?.toLocaleString()}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Compliance Rate</p>
+                  <p className="font-bold">{vendorDetails.compliance_rate}%</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Total Violations</p>
+                  <p className="font-bold">{vendorDetails.total_violations}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs text-gray-500">Open Violations</p>
+                  <p className={`font-bold ${vendorDetails.open_violations > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {vendorDetails.open_violations}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Integration Status */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Integration Status</h4>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    {vendorDetails.gateway_connected ? 
+                      <CheckCircle size={14} className="text-green-500" /> : 
+                      <XCircle size={14} className="text-red-500" />}
+                    <span>Gateway Connected</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {vendorDetails.integration_verified ? 
+                      <CheckCircle size={14} className="text-green-500" /> : 
+                      <XCircle size={14} className="text-red-500" />}
+                    <span>Integration Verified</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    {vendorDetails.logging_enabled ? 
+                      <CheckCircle size={14} className="text-green-500" /> : 
+                      <XCircle size={14} className="text-red-500" />}
+                    <span>Logging Enabled</span>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Recent Violations */}
+              {violations.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Recent Violations</h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {violations.slice(0, 5).map(v => (
+                      <div key={v.id} className="p-2 bg-red-50 rounded border border-red-100 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            v.severity === 'critical' ? 'bg-red-200 text-red-800' :
+                            v.severity === 'high' ? 'bg-orange-200 text-orange-800' :
+                            'bg-amber-200 text-amber-800'
+                          }`}>
+                            {v.severity}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {new Date(v.detected_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <p className="text-gray-700 mt-1">{v.description}</p>
+                        {v.resolved_at && (
+                          <p className="text-xs text-green-600 mt-1">✓ Resolved</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center text-gray-500 py-12">
+              <Award size={48} className="mx-auto mb-4 opacity-30" />
+              <p>Select a vendor to view details</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Report Violation Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="font-semibold text-gray-900 mb-4">Report Violation</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Reporting for: <strong>{selectedVendor?.vendor_name}</strong>
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Violation Type</label>
+                <select 
+                  value={reportData.violation_type}
+                  onChange={(e) => setReportData(prev => ({ ...prev, violation_type: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  {violationTypes.map(vt => (
+                    <option key={vt.value} value={vt.value}>{vt.label}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea 
+                  value={reportData.description}
+                  onChange={(e) => setReportData(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  placeholder="Describe the violation..."
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Events Affected</label>
+                  <input 
+                    type="number"
+                    value={reportData.events_affected}
+                    onChange={(e) => setReportData(prev => ({ ...prev, events_affected: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Users Affected</label>
+                  <input 
+                    type="number"
+                    value={reportData.users_affected}
+                    onChange={(e) => setReportData(prev => ({ ...prev, users_affected: parseInt(e.target.value) || 0 }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-3 mt-6">
+              <button 
+                onClick={() => setShowReportModal(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={reportViolation}
+                disabled={!reportData.description}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50"
+              >
+                Report Violation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============== Screen 5: Settings ==============
 
 function SettingsView() {
   const [activeTab, setActiveTab] = useState('apikeys');
