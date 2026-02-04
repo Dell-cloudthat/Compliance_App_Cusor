@@ -53,6 +53,10 @@ from services.logging_service import (
     logger, audit_logger, LogEvent, 
     set_request_id, set_tenant_id, generate_request_id
 )
+from services.security_service import (
+    security_service, SecurityEvent, SecurityEventType, ThreatLevel,
+    Environment, OriginConfig
+)
 
 
 # ============== Lifespan ==============
@@ -607,6 +611,62 @@ async def process_event(
     auth.require_scope(Scope.EVENTS_WRITE)
     tenant_id = auth.tenant_id
     
+    # Extract token from Authorization header
+    token_string = None
+    if authorization and authorization.startswith("Bearer "):
+        token_string = authorization[7:]
+    
+    # Security validation
+    token_claims = {}
+    if token_string:
+        validation = token_service.validate_token(tenant_id, token_string)
+        if validation.valid:
+            token_claims = {
+                "iss": "consent-platform",
+                "sub": validation.subject_id,
+                "jti": getattr(validation, 'token_id', ''),
+                "purposes": {p: {"allowed": v.allowed} for p, v in validation.purposes.items()} if validation.purposes else {},
+                "vendors": {v: {"allowed": d.allowed} for v, d in validation.vendors.items()} if validation.vendors else {},
+            }
+    
+    request_context = {
+        "user_id": request.user_id,
+        "ip_address": "unknown",  # Would come from request in production
+        "token_string": token_string or "",
+    }
+    
+    event_data = {
+        "event_id": str(uuid.uuid4()),
+        "event_type": request.event_type,
+        "vendor": request.vendor,
+        "user_id": request.user_id,
+        "url": request.url,
+        "value": request.value,
+    }
+    
+    # Run security checks
+    is_allowed, violations, security_events = security_service.validate_event_submission(
+        tenant_id=tenant_id,
+        event_data=event_data,
+        token_claims=token_claims,
+        request_context=request_context
+    )
+    
+    if not is_allowed:
+        # Log security block
+        logger.warning(
+            "Event blocked by security",
+            tenant_id=tenant_id,
+            violations=violations,
+            security_events=[e.event_type.value for e in security_events]
+        )
+        raise APIError(
+            403, 
+            "security_violation",
+            "Event blocked due to security policy violation",
+            errors=[{"type": "security", "message": v} for v in violations]
+        )
+    
     # Check idempotency
     if x_idempotency_key:
         existing = await db.get_decision_by_idempotency_key(tenant_id, x_idempotency_key)
@@ -619,11 +679,6 @@ async def process_event(
                 vendor_event_id=existing.get("vendor_event_id"),
                 latency_ms=existing.get("latency_ms", 0)
             )
-    
-    # Extract token from Authorization header
-    token_string = None
-    if authorization and authorization.startswith("Bearer "):
-        token_string = authorization[7:]
     
     # Build AdEvent
     event = AdEvent(
@@ -1766,6 +1821,264 @@ async def get_violation_types():
             {"level": s.value, "points_deducted": SEVERITY_POINTS[s]}
             for s in ViolationSeverity
         ]
+    }
+
+
+# ============== Security Endpoints ==============
+
+@app.get("/security/events", tags=["Admin"])
+async def get_security_events(
+    event_type: Optional[str] = None,
+    limit: int = Query(default=100, le=500),
+    auth: AuthContext = Depends(require_auth)
+):
+    """
+    Get security events for the tenant.
+    
+    Includes detected attacks, violations, and anomalies.
+    """
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    type_filter = SecurityEventType(event_type) if event_type else None
+    events = security_service.get_security_events(
+        tenant_id=auth.tenant_id,
+        event_type=type_filter,
+        limit=limit
+    )
+    
+    return {
+        "events": [
+            {
+                "id": e.id,
+                "event_type": e.event_type.value,
+                "threat_level": e.threat_level.value,
+                "description": e.description,
+                "evidence": e.evidence,
+                "timestamp": e.timestamp.isoformat(),
+                "blocked": e.blocked,
+                "flagged": e.flagged
+            }
+            for e in events
+        ],
+        "count": len(events)
+    }
+
+
+@app.get("/security/threats", tags=["Admin"])
+async def get_threat_summary(auth: AuthContext = Depends(require_auth)):
+    """
+    Get a summary of recent security threats.
+    """
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    return security_service.get_threat_summary(auth.tenant_id)
+
+
+class OriginConfigRequest(BaseModel):
+    """Request to configure origin allowlist"""
+    allowed_origins: List[str] = []
+    allowed_ip_ranges: List[str] = []
+    environment: str = "production"
+    require_mtls: bool = False
+
+
+@app.post("/security/origin-config", tags=["Admin"])
+async def configure_origin_allowlist(
+    request: OriginConfigRequest,
+    auth: AuthContext = Depends(require_auth)
+):
+    """
+    Configure origin allowlist for the tenant.
+    
+    This controls which origins and IPs can send events.
+    Critical for preventing shadow pipelines.
+    """
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    config = OriginConfig(
+        tenant_id=auth.tenant_id,
+        allowed_origins=request.allowed_origins,
+        allowed_ip_ranges=request.allowed_ip_ranges,
+        environment=Environment(request.environment),
+        require_mtls=request.require_mtls
+    )
+    
+    security_service.traffic_auth.configure_tenant(auth.tenant_id, config)
+    
+    return {
+        "success": True,
+        "config": {
+            "tenant_id": auth.tenant_id,
+            "allowed_origins": request.allowed_origins,
+            "allowed_ip_ranges": request.allowed_ip_ranges,
+            "environment": request.environment,
+            "require_mtls": request.require_mtls
+        }
+    }
+
+
+@app.get("/security/origin-config", tags=["Admin"])
+async def get_origin_config(auth: AuthContext = Depends(require_auth)):
+    """Get current origin allowlist configuration"""
+    auth.require_scope(Scope.ADMIN_READ)
+    
+    config = security_service.traffic_auth._origin_configs.get(auth.tenant_id)
+    
+    if not config:
+        return {"configured": False}
+    
+    return {
+        "configured": True,
+        "config": {
+            "allowed_origins": config.allowed_origins,
+            "allowed_ip_ranges": config.allowed_ip_ranges,
+            "environment": config.environment.value,
+            "require_mtls": config.require_mtls
+        }
+    }
+
+
+@app.post("/security/environment-binding", tags=["Admin"])
+async def bind_api_key_to_environment(
+    api_key_id: str = Body(...),
+    environment: str = Body(...),
+    auth: AuthContext = Depends(require_auth)
+):
+    """
+    Bind an API key to a specific environment.
+    
+    This ensures production keys can't be used in development and vice versa.
+    Prevents accidental data leakage and ensures audit trail integrity.
+    """
+    auth.require_scope(Scope.ADMIN_WRITE)
+    
+    # Get the key hash
+    keys = await db.list_api_keys(auth.tenant_id)
+    key_info = next((k for k in keys if k["id"] == api_key_id), None)
+    
+    if not key_info:
+        raise APIError(404, "not_found", "API key not found")
+    
+    env = Environment(environment)
+    security_service.traffic_auth.bind_key_to_environment(key_info["key_hash"], env)
+    
+    return {
+        "success": True,
+        "api_key_id": api_key_id,
+        "environment": environment
+    }
+
+
+@app.get("/security/purpose-lineage/{event_id}", tags=["Audit"])
+async def get_purpose_lineage(
+    event_id: str,
+    auth: AuthContext = Depends(require_auth)
+):
+    """
+    Get the purpose lineage for an event.
+    
+    Shows how the event's data has been used across different purposes.
+    Critical for detecting model laundering and purpose drift.
+    """
+    auth.require_scope(Scope.AUDIT_READ)
+    
+    lineage = security_service.purpose_enforcer.get_purpose_lineage(event_id)
+    
+    return {
+        "event_id": event_id,
+        "lineage": lineage,
+        "lineage_count": len(lineage)
+    }
+
+
+@app.get("/security/attack-vectors", tags=["Admin"])
+async def get_attack_vector_info():
+    """
+    Get information about attack vectors and defenses.
+    
+    Educational endpoint for understanding the security model.
+    """
+    return {
+        "attack_vectors": [
+            {
+                "name": "Fake Consent Tokens",
+                "attacks": [
+                    "Generate tokens client-side",
+                    "Replay old tokens",
+                    "Modify scopes (e.g., analytics → retargeting)"
+                ],
+                "defenses": [
+                    "Tokens are only issued server-side",
+                    "Signed (JWS) with rotating keys",
+                    "Audience + issuer binding",
+                    "Short TTL + refresh model",
+                    "Nonce or event binding for high-risk flows"
+                ],
+                "principle": "Treat consent tokens like OAuth access tokens, not cookies"
+            },
+            {
+                "name": "Shadow Event Pipelines",
+                "attacks": [
+                    "Send 'clean' events through gateway",
+                    "Send enriched/raw PII directly to vendors",
+                    "Claim 'bug' or 'misconfiguration'"
+                ],
+                "defenses": [
+                    "Require server-side-only integrations",
+                    "Outbound destination fingerprinting",
+                    "Hash-based detection (expected vs actual)",
+                    "Detect parallel pipelines"
+                ],
+                "principle": "Behavioral verification, not trust"
+            },
+            {
+                "name": "Model Laundering via AI",
+                "attacks": [
+                    "Claim data isn't used for ads",
+                    "Feed into ML 'analytics'",
+                    "Reuse model outputs for targeting"
+                ],
+                "defenses": [
+                    "Purpose binding in policy engine",
+                    "Derived data restrictions",
+                    "Purpose lineage tracking",
+                    "Cross-purpose reuse detection"
+                ],
+                "principle": "Enforce purpose binding, not just data flow"
+            },
+            {
+                "name": "Replay & Volume Flooding",
+                "attacks": [
+                    "Replay valid events at scale",
+                    "Inflate attribution",
+                    "Overwhelm gateway"
+                ],
+                "defenses": [
+                    "Event-level idempotency keys",
+                    "Rate limits per issuer + destination",
+                    "Sliding window anomaly detection",
+                    "Duplicate hash rejection"
+                ],
+                "principle": "Protect compliance and billing integrity"
+            },
+            {
+                "name": "Traffic Authentication Bypass",
+                "attacks": [
+                    "Spoof origin",
+                    "Use production keys in dev",
+                    "Bypass mTLS"
+                ],
+                "defenses": [
+                    "mTLS between servers and gateway",
+                    "Org-scoped API keys",
+                    "Environment binding",
+                    "Origin allowlists"
+                ],
+                "principle": "Prove: this event came from this customer, this app, this environment"
+            }
+        ],
+        "event_types": [e.value for e in SecurityEventType],
+        "threat_levels": [t.value for t in ThreatLevel]
     }
 
 
