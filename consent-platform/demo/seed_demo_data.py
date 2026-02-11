@@ -327,18 +327,17 @@ class DemoDataSeeder:
                 subject_id = f"anonymous_{uuid.uuid4().hex[:8]}"
                 token = None
             
-            # Create event data
+            # Create event data - matches actual API schema
             event_data = {
-                "event_name": scenario["name"],
+                "event_type": scenario["name"],
+                "user_id": subject_id,
                 "vendor": scenario["vendor"],
-                "purpose": scenario["purpose"],
-                "data_class": scenario["data_class"],
-                "event_data": {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                "data_classes": [scenario["data_class"]],
+                "url": f"https://demo.example.com/{random.choice(['home', 'products', 'checkout', 'account'])}",
+                "user_agent": "Mozilla/5.0 (Demo)",
+                "value": random.randint(10, 500) if scenario["name"] == "purchase" else None,
+                "properties": {
                     "session_id": f"sess_{uuid.uuid4().hex[:8]}",
-                    "page_url": f"https://demo.example.com/{random.choice(['home', 'products', 'checkout', 'account'])}",
-                    "user_agent": "Mozilla/5.0 (Demo)",
-                    "value": random.randint(10, 500) if scenario["name"] == "purchase" else None,
                 },
             }
             

@@ -88,6 +88,9 @@ async def lifespan(app: FastAPI):
 
 async def setup_demo_tenant():
     """Setup demo tenant with API key"""
+    import os
+    demo_mode = os.environ.get("DEMO_MODE", "true").lower() == "true"
+    
     tenant = await db.get_tenant("demo-tenant")
     if not tenant:
         # Create demo tenant
@@ -105,7 +108,15 @@ async def setup_demo_tenant():
         })
         
         # Create demo API key
-        key, key_hash = auth_service.generate_api_key()
+        # Use a well-known key for demo mode to enable easy testing
+        if demo_mode:
+            # Well-known demo key for testing
+            demo_key = "demo-api-key-12345"
+            key_hash = auth_service._hash_key(demo_key)
+            key = demo_key
+        else:
+            key, key_hash = auth_service.generate_api_key()
+        
         await db.create_api_key({
             "id": str(uuid.uuid4()),
             "tenant_id": "demo-tenant",
@@ -133,7 +144,10 @@ async def setup_demo_tenant():
             "allowed_data_classes": ["behavioral", "device", "identity", "transaction"]
         })
         
-        print(f"Demo tenant created. API Key: {key}")
+        if demo_mode:
+            print(f"Demo tenant created. API Key: {key} (well-known demo key)")
+        else:
+            print(f"Demo tenant created. API Key: {key}")
 
 
 # ============== FastAPI App ==============
@@ -627,11 +641,11 @@ async def process_event(
     token_claims = {}
     if token_string:
         validation = token_service.validate_token(tenant_id, token_string)
-        if validation.valid:
+        if validation.valid and validation.payload:
             token_claims = {
                 "iss": "consent-platform",
-                "sub": validation.subject_id,
-                "jti": getattr(validation, 'token_id', ''),
+                "sub": validation.payload.sub,
+                "jti": validation.payload.jti or '',
                 "purposes": {p: {"allowed": v.allowed} for p, v in validation.purposes.items()} if validation.purposes else {},
                 "vendors": {v: {"allowed": d.allowed} for v, d in validation.vendors.items()} if validation.vendors else {},
             }

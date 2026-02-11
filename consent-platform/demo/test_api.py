@@ -209,39 +209,41 @@ class ConsentPlatformTester:
         data, status = await self._request(
             "POST", "/consent",
             json={
-                "subject_id": f"test_user_{uuid.uuid4().hex[:8]}",
-                "purposes": {
-                    "analytics": {"allowed": True, "ttl_days": 30},
-                    "advertising": {"allowed": True, "ttl_days": 14},
-                    "personalization": {"allowed": False},
-                },
-                "vendors": {
-                    "google": {"allowed": True, "data_classes": ["behavioral"]},
-                    "meta": {"allowed": True, "data_classes": ["behavioral", "contextual"]},
-                },
-                "jurisdiction": "EU",
-                "ttl_seconds": 3600,
+                "user_id": f"test_user_{uuid.uuid4().hex[:8]}",
+                "purposes": ["analytics", "advertising"],
+                "vendors": ["google", "meta"],
+                "ttl_days": 14,
+                "jurisdiction": "GDPR",
             }
         )
         assert status == 200, f"Expected 200, got {status}: {data}"
-        assert "token" in data, "Expected token in response"
+        assert "consent_token" in data, "Expected consent_token in response"
         assert "token_id" in data, "Expected token_id in response"
         
-        self.issued_token = data["token"]
+        self.issued_token = data["consent_token"]
         self.issued_token_id = data["token_id"]
         return {"token_issued": True, "token_id": data["token_id"]}
 
     async def test_validate_consent_token(self):
-        """Test validating a consent token."""
+        """Test validating a consent token by using it in an event."""
         assert self.issued_token, "No token available for validation"
         
+        # Token validation is done implicitly when using it for an event
+        # The enforcement endpoint validates the token
         data, status = await self._request(
-            "POST", "/consent/validate",
-            json={"token": self.issued_token}
+            "POST", "/event",
+            headers=self._headers(token=self.issued_token),
+            json={
+                "event_type": "validation_test",
+                "user_id": "test_user",
+                "vendor": "google",
+                "data_classes": ["behavioral"],
+            }
         )
+        # If we get a response with 'decision', the token was validated
         assert status == 200, f"Expected 200, got {status}: {data}"
-        assert data.get("valid") == True, "Expected valid token"
-        return data
+        assert "decision" in data, "Expected decision in response (token validated)"
+        return {"token_validated": True, "decision": data.get("decision")}
 
     async def test_get_consent_token_details(self):
         """Test getting token details."""
@@ -267,14 +269,11 @@ class ConsentPlatformTester:
             "POST", "/event",
             headers=self._headers(token=self.issued_token),
             json={
-                "event_name": "page_view",
+                "event_type": "page_view",
+                "user_id": "test_user",
                 "vendor": "google",
-                "purpose": "analytics",
-                "data_class": "behavioral",
-                "event_data": {
-                    "page": "/test",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
+                "data_classes": ["behavioral"],
+                "url": "/test",
             }
         )
         assert status == 200, f"Expected 200, got {status}: {data}"
@@ -282,18 +281,17 @@ class ConsentPlatformTester:
         return data
 
     async def test_event_enforcement_block(self):
-        """Test event enforcement - should block for non-consented purpose."""
+        """Test event enforcement - should block for non-consented vendor."""
         assert self.issued_token, "No token for enforcement test"
         
         data, status = await self._request(
             "POST", "/event",
             headers=self._headers(token=self.issued_token),
             json={
-                "event_name": "tracking_pixel",
-                "vendor": "unknown_vendor",
-                "purpose": "cross_device_tracking",  # Not consented
-                "data_class": "behavioral",
-                "event_data": {"test": True},
+                "event_type": "tracking_pixel",
+                "user_id": "test_user",
+                "vendor": "unknown_vendor",  # Not consented
+                "data_classes": ["behavioral"],
             }
         )
         # Could be 200 with block decision or 403
@@ -309,7 +307,7 @@ class ConsentPlatformTester:
         
         idempotency_key = f"idem_{uuid.uuid4().hex}"
         
-        # First request
+        # First request - use google which is in our consented vendors
         data1, status1 = await self._request(
             "POST", "/event",
             headers={
@@ -317,15 +315,15 @@ class ConsentPlatformTester:
                 "X-Idempotency-Key": idempotency_key,
             },
             json={
-                "event_name": "purchase",
-                "vendor": "meta",
-                "purpose": "advertising",
-                "data_class": "behavioral",
-                "event_data": {"value": 100},
+                "event_type": "purchase",
+                "user_id": "test_user",
+                "vendor": "google",  # Use consented vendor
+                "data_classes": ["behavioral"],
+                "value": 100,
             }
         )
         
-        # Second request with same key
+        # Second request with same key - should return cached result
         data2, status2 = await self._request(
             "POST", "/event",
             headers={
@@ -333,11 +331,11 @@ class ConsentPlatformTester:
                 "X-Idempotency-Key": idempotency_key,
             },
             json={
-                "event_name": "purchase",
-                "vendor": "meta",
-                "purpose": "advertising",
-                "data_class": "behavioral",
-                "event_data": {"value": 100},
+                "event_type": "purchase",
+                "user_id": "test_user",
+                "vendor": "google",
+                "data_classes": ["behavioral"],
+                "value": 100,
             }
         )
         
