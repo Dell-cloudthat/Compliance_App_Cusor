@@ -2,6 +2,9 @@
 
 **OAuth for Ad Data** - Server-side consent enforcement for the modern ad stack.
 
+[![API Status](https://img.shields.io/badge/API-v1.0-green.svg)](http://localhost:8001/docs)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 ## The Problem
 
 Most Consent Management Platforms (CMPs) are client-side checkbox collectors. They:
@@ -38,27 +41,64 @@ Website / App
     (Hash-chained audit log)
 ```
 
-## Quick Start
+---
 
-### Backend
+## 🚀 Quick Start
+
+### Option 1: Docker (Recommended)
 
 ```bash
-cd consent-platform/backend
-pip install -r requirements.txt
-python main.py
+# Start all services
+docker-compose up -d
+
+# Access the platform
+# Dashboard: http://localhost:3001
+# API Docs:  http://localhost:8001/docs
+# Metrics:   http://localhost:8001/metrics
+
+# Seed demo data
+pip install httpx
+python demo/seed_demo_data.py
+
+# Run tests
+python demo/test_api.py
 ```
 
-Server runs on http://localhost:8001
+### Option 2: Manual Setup
 
-### Frontend
-
+**Backend:**
 ```bash
-cd consent-platform/frontend
+cd backend
+pip install -r requirements.txt
+python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+**Frontend:**
+```bash
+cd frontend
 npm install
 npm run dev
 ```
 
-UI runs on http://localhost:3001
+### Option 3: With Monitoring
+
+```bash
+# Start with Prometheus + Grafana
+docker-compose --profile monitoring up -d
+
+# Access Grafana: http://localhost:3000 (admin/admin)
+# Access Prometheus: http://localhost:9090
+```
+
+---
+
+## 📖 Full Documentation
+
+| Document | Description |
+|----------|-------------|
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Complete deployment guide for local, Docker, and cloud |
+| [API Docs](http://localhost:8001/docs) | Interactive API documentation (Swagger UI) |
+| [demo/](demo/) | Test scripts, data seeding, and examples |
 
 ## API Reference
 

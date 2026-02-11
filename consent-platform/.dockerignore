@@ -1,0 +1,45 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode
+.idea
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv
+.venv
+*.egg-info
+
+# Node
+node_modules
+npm-debug.log
+
+# Data
+*.db
+*.sqlite
+data/
+
+# Testing
+demo/
+tests/
+*.test.*
+coverage/
+
+# Build artifacts
+dist/
+build/
+*.log
+
+# Monitoring (handled separately)
+monitoring/
+docker-compose.monitoring.yml
