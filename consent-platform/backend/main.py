@@ -2711,14 +2711,16 @@ async def create_guest_user(
     auth.require_scope(Scope.ADMIN_WRITE)
     
     try:
+        created_by = auth.api_key_id or auth.api_key_name or "admin"
+        
         user = rbac_service.create_guest_user(
             tenant_id=auth.tenant_id,
             email=request.email,
             name=request.name,
             purpose=request.purpose,
             expires_in_hours=request.expires_in_hours,
-            created_by=auth.key_id or "unknown",
-            permissions=[Permission(p) for p in request.permissions if p in Permission.__members__.values()]
+            created_by=created_by,
+            permissions=[]  # Guests get default permissions
         )
         
         # Create API key for guest
@@ -2726,7 +2728,7 @@ async def create_guest_user(
             tenant_id=auth.tenant_id,
             user_id=user.id,
             name=f"Guest key - {request.purpose}",
-            created_by=auth.key_id or "unknown"
+            created_by=created_by
         )
         
         return {
