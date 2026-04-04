@@ -1,0 +1,108 @@
+# Consent Platform - Full Stack Docker Compose
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Backend API Server
+  # ============================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: consent-backend
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_PATH=/app/data/consent_platform.db
+      - DEMO_MODE=true
+      - LOG_LEVEL=INFO
+      - CORS_ORIGINS=http://localhost:3001,http://localhost:80,http://frontend
+    volumes:
+      - backend_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - consent-network
+
+  # ============================================
+  # Frontend Dashboard
+  # ============================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: consent-frontend
+    ports:
+      - "3001:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - consent-network
+
+  # ============================================
+  # Prometheus Metrics (Optional)
+  # ============================================
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: consent-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - consent-network
+    profiles:
+      - monitoring
+
+  # ============================================
+  # Grafana Dashboards (Optional)
+  # ============================================
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: consent-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana-provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/consent-platform.json
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - consent-network
+    profiles:
+      - monitoring
+
+volumes:
+  backend_data:
+    name: consent-backend-data
+  prometheus_data:
+    name: consent-prometheus-data
+  grafana_data:
+    name: consent-grafana-data
+
+networks:
+  consent-network:
+    name: consent-platform-network
+    driver: bridge

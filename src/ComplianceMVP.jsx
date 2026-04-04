@@ -12,6 +12,11 @@ import api, { API_BASE_URL } from './services/api';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
+import ConsentDashboardView from './views/ConsentDashboardView';
+import ConsentPreferenceCenterView from './views/ConsentPreferenceCenterView';
+import ConsentFlowView from './views/ConsentFlowView';
+import ConsentSaaSAdminView from './views/ConsentSaaSAdminView';
+import EnforcementProxyView from './views/EnforcementProxyView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19281,6 +19286,43 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                   </DropdownMenuContent>
                 </DropdownMenu>
 
+                {/* Consent Platform Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    ['consent-saas-admin', 'consent-dashboard', 'consent-preferences', 'consent-flow'].includes(activeView)
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}>
+                    <Shield className="w-4 h-4" />
+                    <span>Consent</span>
+                    <ChevronDown className="w-4 h-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuLabel>Consent as a Service</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setActiveView('consent-saas-admin')}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      <span>SaaS Admin</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('enforcement-proxy')}>
+                      <Server className="w-4 h-4 mr-2" />
+                      <span>Enforcement Proxy</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('consent-flow')}>
+                      <Activity className="w-4 h-4 mr-2" />
+                      <span>Consent Flow</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('consent-dashboard')}>
+                      <BarChart3 className="w-4 h-4 mr-2" />
+                      <span>Consent Dashboard</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('consent-preferences')}>
+                      <Gauge className="w-4 h-4 mr-2" />
+                      <span>Preference Center</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <button
                   type="button"
                   onClick={(e) => {
@@ -19502,6 +19544,21 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                ) :
                activeView === 'consulting' ? (
                  <ConsultingPortalView currentUser={currentUser} />
+               ) :
+               activeView === 'consent-saas-admin' ? (
+                 <ConsentSaaSAdminView />
+               ) :
+               activeView === 'enforcement-proxy' ? (
+                 <EnforcementProxyView />
+               ) :
+               activeView === 'consent-flow' ? (
+                 <ConsentFlowView />
+               ) :
+               activeView === 'consent-dashboard' ? (
+                 <ConsentDashboardView />
+               ) :
+               activeView === 'consent-preferences' ? (
+                 <ConsentPreferenceCenterView />
                ) :
                activeView === 'architecture' ? (
                  <DataFlowArchitectureView

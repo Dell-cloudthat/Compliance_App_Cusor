@@ -1,0 +1,35 @@
+{
+  "name": "@consent-platform/js",
+  "version": "1.0.0",
+  "description": "JavaScript SDK for Consent as a Service Platform",
+  "main": "dist/consent-platform.js",
+  "module": "dist/consent-platform.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "test": "jest"
+  },
+  "keywords": [
+    "consent",
+    "privacy",
+    "gdpr",
+    "ccpa",
+    "tcf",
+    "cmp"
+  ],
+  "author": "Consent Platform",
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.9.6",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/consent-platform"
+  }
+}
