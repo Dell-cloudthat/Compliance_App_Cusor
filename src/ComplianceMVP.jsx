@@ -7793,6 +7793,307 @@ const closeControlDetail = useCallback(() => {
     }
   };
 
+  // Load learned patterns and playbooks
+  const loadLearningData = async () => {
+    try {
+      const [patternsRes, playbooksRes, valueRes] = await Promise.all([
+        api.getLearnedPatterns(currentUser.id),
+        api.getAutoPlaybooks(currentUser.id),
+        api.getDataValueSummary(currentUser.id),
+      ]);
+      setLearnedPatterns(patternsRes.patterns || []);
+      setAutoPlaybooks(playbooksRes.playbooks || []);
+      setDataValueSummary(valueRes);
+    } catch (error) {
+      console.error('Failed to load learning data:', error);
+    }
+  };
+
+  // Run learning analysis
+  const runLearningAnalysis = async () => {
+    setLearningAnalysisRunning(true);
+    try {
+      const result = await api.runLearningAnalysis(currentUser.id);
+      await loadLearningData();
+      alert(`Learning complete! ${result.message}`);
+    } catch (error) {
+      console.error('Learning analysis failed:', error);
+      alert('Learning analysis failed. Please try again.');
+    } finally {
+      setLearningAnalysisRunning(false);
+    }
+  };
+
+  // Approve a playbook
+  const approvePlaybook = async (playbookId) => {
+    try {
+      await api.approvePlaybook(currentUser.id, playbookId);
+      await loadLearningData();
+      alert('Playbook approved and activated!');
+    } catch (error) {
+      console.error('Failed to approve playbook:', error);
+      alert('Failed to approve playbook.');
+    }
+  };
+
+  // Generate demo learning data for showcase
+  const generateDemoLearningData = useCallback(() => {
+    const demoPatterns = [
+      {
+        id: 1,
+        pattern_name: 'Auto Pattern: Access Control - High',
+        pattern_type: 'control_remediation',
+        trigger_conditions: { control_id: 'AC-001', severity: 'high', priority: 'High', category: 'Access Control' },
+        success_rate: 0.92,
+        usage_count: 8,
+        avg_resolution_time_minutes: 45,
+        confidence_score: 0.85,
+        pattern_steps: [
+          { action: 'remediation_started', order: 1, frequency: 1.0 },
+          { action: 'evidence_collected', order: 2, frequency: 0.9 },
+          { action: 'status_updated', order: 3, frequency: 0.95 },
+        ],
+        evidence_requirements: ['MFA Configuration', 'Access Logs'],
+        automation_opportunities: ['Auto-enable MFA', 'Generate access report'],
+        related_controls: ['AC-001', 'AC-002'],
+      },
+      {
+        id: 2,
+        pattern_name: 'Auto Pattern: Endpoint Security - Critical',
+        pattern_type: 'control_remediation',
+        trigger_conditions: { control_id: 'EP-001', severity: 'critical', priority: 'Critical', category: 'Endpoint Security' },
+        success_rate: 0.88,
+        usage_count: 12,
+        avg_resolution_time_minutes: 60,
+        confidence_score: 0.92,
+        pattern_steps: [
+          { action: 'remediation_started', order: 1, frequency: 1.0 },
+          { action: 'evidence_collected', order: 2, frequency: 0.85 },
+          { action: 'control_update', order: 3, frequency: 0.9 },
+        ],
+        evidence_requirements: ['EDR Coverage Report', 'Vulnerability Scan'],
+        automation_opportunities: ['Deploy EDR agent', 'Run vulnerability scan'],
+        related_controls: ['EP-001', 'VM-001'],
+      },
+    ];
+    const demoPlaybooks = [
+      {
+        id: 1,
+        playbook_name: 'Auto: Access Control - High',
+        source_pattern_id: 1,
+        playbook_type: 'remediation',
+        description: 'Auto-generated playbook from 8 successful remediations. Success rate: 92%',
+        trigger_conditions: { control_id: 'AC-001', severity: 'high', priority: 'High' },
+        steps: [
+          { id: 'step_1', order: 1, action: 'remediation_started', description: 'Review access control configuration', required: true, automation_ready: false, estimated_minutes: 15 },
+          { id: 'step_2', order: 2, action: 'evidence_collected', description: 'Collect MFA configuration evidence', required: true, automation_ready: true, estimated_minutes: 10 },
+          { id: 'step_3', order: 3, action: 'status_updated', description: 'Update control status to Implemented', required: true, automation_ready: true, estimated_minutes: 5 },
+        ],
+        estimated_time_minutes: 45,
+        automation_level: 'semi_automated',
+        success_metrics: { success_rate: 0.92, avg_time_minutes: 45, usage_count: 8 },
+        status: 'active',
+        approval_status: 'approved',
+        usage_count: 8,
+      },
+      {
+        id: 2,
+        playbook_name: 'Auto: Endpoint Security - Critical',
+        source_pattern_id: 2,
+        playbook_type: 'remediation',
+        description: 'Auto-generated playbook from 12 successful remediations. Success rate: 88%',
+        trigger_conditions: { control_id: 'EP-001', severity: 'critical', priority: 'Critical' },
+        steps: [
+          { id: 'step_1', order: 1, action: 'remediation_started', description: 'Assess endpoint security coverage', required: true, automation_ready: false, estimated_minutes: 20 },
+          { id: 'step_2', order: 2, action: 'evidence_collected', description: 'Collect EDR coverage evidence', required: true, automation_ready: true, estimated_minutes: 15 },
+          { id: 'step_3', order: 3, action: 'control_update', description: 'Update control status and evidence links', required: true, automation_ready: true, estimated_minutes: 10 },
+        ],
+        estimated_time_minutes: 60,
+        automation_level: 'semi_automated',
+        success_metrics: { success_rate: 0.88, avg_time_minutes: 60, usage_count: 12 },
+        status: 'active',
+        approval_status: 'approved',
+        usage_count: 12,
+      },
+    ];
+    return { patterns: demoPatterns, playbooks: demoPlaybooks };
+  }, []);
+
+  useEffect(() => {
+    if (activeView === 'csca' || activeView === 'dashboard') {
+      if (backendConnected && currentUser?.id) {
+        loadLearningData();
+      } else {
+        const demoData = generateDemoLearningData();
+        setLearnedPatterns(demoData.patterns);
+        setAutoPlaybooks(demoData.playbooks);
+      }
+    }
+  }, [activeView, backendConnected, currentUser?.id, loadLearningData, generateDemoLearningData]);
+
+  const handleUploadEvidence = async (evidenceData) => {
+    if (!selectedAudit) return;
+    if (!backendConnected || !currentUser.id) {
+      const newEvidence = {
+        id: Date.now(),
+        audit_engagement_id: selectedAudit.id,
+        control_id: evidenceData.control_id,
+        evidence_type: evidenceData.evidence_type,
+        evidence_name: evidenceData.evidence_name,
+        file_url: evidenceData.file_url,
+        file_size_bytes: evidenceData.file_size_bytes,
+        expiration_date: evidenceData.expiration_date,
+        notes: evidenceData.notes,
+        validated: false,
+        uploaded_by: currentUser.email,
+        uploaded_at: new Date().toISOString()
+      };
+      setAuditEvidence([...auditEvidence, newEvidence]);
+      setShowEvidenceUpload(false);
+      alert('Evidence uploaded (demo mode)');
+      return;
+    }
+    try {
+      await api.createEvidence(currentUser.id, selectedAudit.id, evidenceData);
+      await loadAuditDetails(selectedAudit.id);
+      setShowEvidenceUpload(false);
+    } catch (error) {
+      console.error('Error uploading evidence:', error);
+      alert('Failed to upload evidence: ' + error.message);
+    }
+  };
+
+  const handleSubmitEvidence = async () => {
+    if (!evidenceFormData.control_id || !evidenceFormData.evidence_name) {
+      alert('Please fill in required fields');
+      return;
+    }
+    await handleUploadEvidence(evidenceFormData);
+    setEvidenceFormData({ control_id: '', evidence_type: 'document', evidence_name: '', file_url: '', notes: '', expiration_date: '' });
+  };
+
+  const handleCreateAudit = async () => {
+    if (!auditFormData.audit_name || !auditFormData.start_date) {
+      alert('Please fill in required fields');
+      return;
+    }
+    if (!backendConnected || !currentUser.id) {
+      const newAudit = {
+        id: Date.now(),
+        audit_name: auditFormData.audit_name,
+        framework: auditFormData.framework,
+        audit_type: auditFormData.audit_type,
+        auditor_name: auditFormData.auditor_name,
+        auditor_contact: auditFormData.auditor_contact,
+        start_date: auditFormData.start_date,
+        end_date: auditFormData.end_date,
+        status: 'planned',
+        readiness_score: 0,
+        scope: auditFormData.scope || [],
+        finding_count: 0,
+        evidence_count: 0,
+        created_at: new Date().toISOString()
+      };
+      setAudits([...audits, newAudit]);
+      setShowAuditCreate(false);
+      setAuditFormData({ audit_name: '', framework: 'SOC2', audit_type: 'Type II', auditor_name: '', auditor_contact: '', start_date: new Date().toISOString().split('T')[0], end_date: '', scope: [] });
+      alert('Audit created (demo mode - not saved to backend)');
+      return;
+    }
+    try {
+      await api.createAudit(currentUser.id, auditFormData);
+      await loadAudits();
+      setShowAuditCreate(false);
+      setAuditFormData({ audit_name: '', framework: 'SOC2', audit_type: 'Type II', auditor_name: '', auditor_contact: '', start_date: new Date().toISOString().split('T')[0], end_date: '', scope: [] });
+    } catch (error) {
+      console.error('Error creating audit:', error);
+      alert('Failed to create audit: ' + error.message);
+    }
+  };
+
+  const handleCreateFinding = async () => {
+    if (!findingFormData.control_id || !findingFormData.description) {
+      alert('Please fill in required fields');
+      return;
+    }
+    if (!selectedAudit) {
+      alert('No audit selected');
+      return;
+    }
+    if (!backendConnected || !currentUser.id) {
+      const newFinding = {
+        id: Date.now(),
+        audit_engagement_id: selectedAudit.id,
+        control_id: findingFormData.control_id,
+        finding_type: findingFormData.finding_type,
+        severity: findingFormData.severity,
+        description: findingFormData.description,
+        remediation_plan: findingFormData.remediation_plan,
+        assigned_to: findingFormData.assigned_to,
+        due_date: findingFormData.due_date,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+      setAuditFindings([...auditFindings, newFinding]);
+      setShowFindingCreate(false);
+      setFindingFormData({ control_id: '', finding_type: 'observation', severity: 'medium', description: '', remediation_plan: '', assigned_to: '', due_date: '' });
+      alert('Finding created (demo mode)');
+      return;
+    }
+    try {
+      await api.createFinding(currentUser.id, selectedAudit.id, findingFormData);
+      await loadAuditDetails(selectedAudit.id);
+      setShowFindingCreate(false);
+      setFindingFormData({ control_id: '', finding_type: 'observation', severity: 'medium', description: '', remediation_plan: '', assigned_to: '', due_date: '' });
+    } catch (error) {
+      console.error('Error creating finding:', error);
+      alert('Failed to create finding: ' + error.message);
+    }
+  };
+
+  const getViewName = (view) => {
+    const viewNames = {
+      'dashboard': 'Dashboard', 'controls': 'Controls', 'tco': 'TCO Calculator',
+      'automation': 'Automation Plan', 'import': 'Data Import', 'vendors': 'Vendors',
+      'timeline': 'Timeline', 'responsibility': 'Responsibility Matrix',
+      'audits': 'Audits & Certifications', 'iam': 'IAM & Permissions',
+      'framework_glossary': 'Framework Glossary', 'integration-map': 'Feature Integration Map'
+    };
+    return viewNames[view] || 'Controls';
+  };
+
+  const getViewIcon = (view) => {
+    const icons = {
+      'dashboard': LayoutDashboard, 'controls': Shield, 'tco': TrendingUp,
+      'automation': Award, 'import': Upload, 'vendors': Users, 'timeline': TrendingUp,
+      'responsibility': Database, 'audits': ClipboardList, 'iam': UserCheck,
+      'framework_glossary': BookOpen, 'integration-map': Network
+    };
+    const IconComponent = icons[view] || Shield;
+    return <IconComponent className="w-4 h-4" />;
+  };
+
+  const integrationMapNodePositions = useMemo(() => {
+    if (!integrationMapDimensions.width || !integrationMapDimensions.height) return {};
+    const centerX = integrationMapDimensions.width / 2;
+    const centerY = integrationMapDimensions.height / 2;
+    const radius = Math.min(integrationMapDimensions.width, integrationMapDimensions.height) * 0.35;
+    const angleStep = (2 * Math.PI) / PRODUCT_LIBRARY.length;
+    return PRODUCT_LIBRARY.reduce((acc, feature, index) => {
+      const angle = index * angleStep - Math.PI / 2;
+      acc[feature.key] = { x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle), feature };
+      return acc;
+    }, {});
+  }, [integrationMapDimensions]);
+
+  const integrationMapFilteredRelationships = useMemo(() => {
+    if (integrationMapFilterStrength === 'all') return FEATURE_RELATIONSHIPS;
+    if (integrationMapFilterStrength === 'medium') {
+      return FEATURE_RELATIONSHIPS.filter(rel => rel.strength === 'strong' || rel.strength === 'medium');
+    }
+    return FEATURE_RELATIONSHIPS.filter(rel => rel.strength === integrationMapFilterStrength);
+  }, [integrationMapFilterStrength]);
+
   // Build the shared context value consumed by all extracted view components.
   // This single object gives every view access to all state and handlers
   // without requiring prop drilling.
@@ -7915,7 +8216,7 @@ const closeControlDetail = useCallback(() => {
     ownerOptions, dataSourceOptions, statusOptions,
     alertRiskSnapshot, alertTimeline, alertQuickActions,
     filteredDataFlowNodes, filteredDataFlowEdges,
-    goldenThreadData, dataFlowAccessSummary: dataFlowAccessSummary,
+    goldenThreadData,
     // Handlers
     updateControl, handleFileUpload, importFrameworkControls,
     importAssetData, autoMapToolData, toggleControlSelection, applyBulkEdit,

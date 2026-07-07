@@ -4,7 +4,7 @@ Automation workflow CRUD, execution, and analytics routes.
 import sqlite3, json, hashlib
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends, Header, Query, Request
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Request, Body
 from pydantic import BaseModel, Field
 from database import get_db
 from services.iam_service import check_permission

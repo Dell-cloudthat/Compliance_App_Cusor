@@ -611,7 +611,6 @@ const renderIntegrationMap = () => {
     </div>
   );
 };
-return (
 
   return renderIntegrationMap();
 }

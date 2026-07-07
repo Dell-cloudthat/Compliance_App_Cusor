@@ -911,6 +911,7 @@ const segmentApiData = (apiData, controls, apiIntegrations) => {
   });
   
   return { segmentedData, updatedControls: controls };
+};
 
 export {
   PRODUCT_LIBRARY,
