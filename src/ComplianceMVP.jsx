@@ -6,6 +6,7 @@ import {
   PRODUCT_LIBRARY, CONNECTION_TYPES, FEATURE_RELATIONSHIPS,
   FRAMEWORK_LIBRARY, FRAMEWORK_GLOSSARY, CORE_CONTROLS,
   generateMappedFields, getDefaultOwner, getControlFamily, segmentApiData,
+  NIST_AI_RMF_CONTROLS, MITRE_ATLAS_CONTROLS,
 } from './data/constants';
 // Extracted view components
 import { ComplianceProvider } from './context/ComplianceContext';
@@ -5037,7 +5038,37 @@ const closeControlDetail = useCallback(() => {
       default_owner: getDefaultOwner(ctrl.category),
       nist171_id: ctrl.id
     }));
-    
+
+    const aiRmfControls = NIST_AI_RMF_CONTROLS.map(ctrl => ({
+      id: `AIRMF-${ctrl.id.replace(/[.\s]/g, '-')}`,
+      control_name: ctrl.name,
+      description: `NIST AI RMF ${ctrl.id} (${ctrl.function}): ${ctrl.description}`,
+      frameworks: [`NIST_AI_RMF:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      ai_rmf_id: ctrl.id,
+      ai_rmf_function: ctrl.function,
+      // Full official subcategory text -- used by the recommendation
+      // verification feature to cross-check AI-generated guidance against
+      // the actual framework language rather than just a short label.
+      source_text: ctrl.description,
+    }));
+
+    const mitreAtlasControls = MITRE_ATLAS_CONTROLS.map(ctrl => ({
+      id: `ATLAS-${ctrl.id.replace(/\./g, '-')}`,
+      control_name: ctrl.name,
+      description: `MITRE ATLAS Tactic ${ctrl.id}: ${ctrl.description}`,
+      frameworks: [`MITRE_ATLAS:${ctrl.id}`],
+      category: ctrl.category,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.category, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.category),
+      atlas_id: ctrl.id,
+      source_text: ctrl.description,
+    }));
+
     // Merge all controls: existing core + all framework controls (avoid duplicates by checking id)
     const existingIds = new Set(CORE_CONTROLS.map(c => c.id));
     const allControls = [
@@ -5049,7 +5080,9 @@ const closeControlDetail = useCallback(() => {
       ...pciControls.filter(c => !existingIds.has(c.id)),
       ...soc2Controls.filter(c => !existingIds.has(c.id)),
       ...fedrampControls.filter(c => !existingIds.has(c.id)),
-      ...nist171Controls.filter(c => !existingIds.has(c.id))
+      ...nist171Controls.filter(c => !existingIds.has(c.id)),
+      ...aiRmfControls.filter(c => !existingIds.has(c.id)),
+      ...mitreAtlasControls.filter(c => !existingIds.has(c.id))
     ];
     
     // Initialize with all controls

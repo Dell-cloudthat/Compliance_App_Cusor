@@ -9,8 +9,10 @@ import { CIS_CONTROLS }         from '../frameworks/cis-controls';
 import { HIPAA_CONTROLS }       from '../frameworks/hipaa-controls';
 import { PCI_DSS_CONTROLS }     from '../frameworks/pci-dss-controls';
 import { SOC2_CONTROLS }        from '../frameworks/soc2-controls';
-import { FEDRAMP_CONTROLS }     from '../frameworks/fedramp-controls';
-import { NIST_800_171_CONTROLS } from '../frameworks/nist800171-controls';
+import { FEDRAMP_CONTROLS }        from '../frameworks/fedramp-controls';
+import { NIST_800_171_CONTROLS }   from '../frameworks/nist800171-controls';
+import { NIST_AI_RMF_CONTROLS }    from '../frameworks/nist-ai-rmf-controls';
+import { MITRE_ATLAS_CONTROLS }    from '../frameworks/mitre-atlas-controls';
 
 const PRODUCT_LIBRARY = [
   {
@@ -341,7 +343,9 @@ const FRAMEWORK_LIBRARY = {
   "CIS": { name: "CIS Controls", version: "v8" },
   "HIPAA": { name: "HIPAA", version: "Security Rule" },
   "PCI_DSS": { name: "PCI DSS", version: "v4.0" },
-  "FedRAMP": { name: "FedRAMP", version: "High Baseline" }
+  "FedRAMP": { name: "FedRAMP", version: "High Baseline" },
+  "NIST_AI_RMF": { name: "NIST AI RMF", version: "1.0" },
+  "MITRE_ATLAS": { name: "MITRE ATLAS", version: "v5.6.0" }
 };
 
 const FRAMEWORK_GLOSSARY = [
@@ -463,6 +467,36 @@ const FRAMEWORK_GLOSSARY = [
       controlFamilies: 17,
       totalControls: 325,
       assuranceLevel: 'High',
+    },
+  },
+  {
+    id: 'nistairmf',
+    name: 'NIST AI Risk Management Framework 1.0',
+    shortName: 'NIST AI RMF',
+    category: 'AI Governance & Risk Management',
+    description: 'Voluntary framework for managing risks across the AI lifecycle, organized into four functions: Govern, Map, Measure, and Manage.',
+    focusAreas: ['AI Governance', 'Risk Mapping & Context', 'Trustworthy AI Measurement', 'Risk Treatment & Monitoring'],
+    idealFor: ['Organizations building or deploying AI systems', 'AI governance and GRC teams', 'Enterprises facing AI-specific regulatory scrutiny'],
+    docLink: 'https://airc.nist.gov/airmf-resources/airmf/5-sec-core/',
+    quickFacts: {
+      controlFamilies: 19,
+      totalControls: 72,
+      assuranceLevel: 'Voluntary',
+    },
+  },
+  {
+    id: 'mitreatlas',
+    name: 'MITRE ATLAS (Adversarial Threat Landscape for AI Systems)',
+    shortName: 'MITRE ATLAS',
+    category: 'AI Adversarial Threat Modeling',
+    description: 'Living knowledge base of adversary tactics and techniques targeting AI/ML systems, modeled after MITRE ATT&CK. Updated by MITRE multiple times per year.',
+    focusAreas: ['Reconnaissance & AI Model Access', 'AI Attack Staging', 'LLM Prompt Injection & Jailbreaks', 'Exfiltration & Impact'],
+    idealFor: ['AI red teams & security engineers', 'Organizations running pre-audit AI security simulations', 'ML/LLM application security reviews'],
+    docLink: 'https://atlas.mitre.org/',
+    quickFacts: {
+      controlFamilies: 16,
+      totalControls: 101,
+      assuranceLevel: 'Living knowledge base (not a compliance standard)',
     },
   },
 ];
@@ -889,4 +923,6 @@ export {
   getDefaultOwner,
   getControlFamily,
   segmentApiData,
+  NIST_AI_RMF_CONTROLS,
+  MITRE_ATLAS_CONTROLS,
 };
