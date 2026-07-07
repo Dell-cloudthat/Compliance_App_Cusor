@@ -13,7 +13,9 @@ JWT_ALGORITHM    Signing algorithm (default: HS256).
 ACCESS_TOKEN_EXPIRE_MINUTES  Token lifetime in minutes (default: 60).
 """
 
+import logging
 import os
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,11 +26,57 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me-before-deploying-use-a-long-random-string")
+_SECRET_KEY_FILE = Path(__file__).parent.parent / ".jwt_secret_key"
+
+def _resolve_secret_key() -> str:
+    """Return the JWT signing secret.
+
+    Resolution order:
+    1. ``JWT_SECRET_KEY`` environment variable  (required for production).
+    2. Persisted key in ``.jwt_secret_key`` file next to the backend root
+       (auto-created on first run; survives restarts; NOT committed to git).
+    3. Freshly generated random key saved to that file.
+
+    A startup warning is printed whenever the env var is absent so that the
+    situation is obvious in logs before anything goes wrong in production.
+    """
+    key = os.getenv("JWT_SECRET_KEY")
+    if key:
+        return key
+
+    if _SECRET_KEY_FILE.exists():
+        key = _SECRET_KEY_FILE.read_text().strip()
+        if key:
+            logger.warning(
+                "\n"
+                "⚠️  JWT_SECRET_KEY env var is not set.\n"
+                "   Using the persisted key from: %s\n"
+                "   Set JWT_SECRET_KEY in your environment before deploying to production.",
+                _SECRET_KEY_FILE,
+            )
+            return key
+
+    # First boot — generate and persist
+    key = secrets.token_hex(32)
+    _SECRET_KEY_FILE.write_text(key)
+    logger.warning(
+        "\n"
+        "⚠️  JWT_SECRET_KEY env var is not set.\n"
+        "   A random signing key was generated and saved to: %s\n"
+        "   Add this file to .gitignore and set JWT_SECRET_KEY before deploying to production.\n"
+        "   Tokens will remain valid across restarts as long as that file exists.",
+        _SECRET_KEY_FILE,
+    )
+    return key
+
+
+SECRET_KEY = _resolve_secret_key()
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 

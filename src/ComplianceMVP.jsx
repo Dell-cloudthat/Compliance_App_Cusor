@@ -888,7 +888,7 @@ const segmentApiData = (apiData, controls, apiIntegrations) => {
   
   return { segmentedData, updatedControls: controls };
 };
-const ComplianceMVP = () => {
+const ComplianceMVP = ({ onLogout }) => {
   const [activeView, setActiveView] = useState('dashboard');
   const [controls, setControls] = useState([]);
   const [assets, setAssets] = useState([]);
@@ -5639,42 +5639,28 @@ const closeControlDetail = useCallback(() => {
       if (response.ok) {
         setBackendConnected(true);
         setApiError(null);
-        
-        // Try to get or create current user
+
+        // Resolve the authenticated user from the JWT stored by api.js
         try {
-          // For demo, create a user if doesn't exist
-          const userData = {
-            name: currentUser.email.split('@')[0],
-            email: currentUser.email,
-            organization: currentUser.organization,
-            plan: 'free',
-            role: currentUser.role
-          };
-          
-          const user = await api.createUser(userData).catch(async () => {
-            // User might already exist, try to get by email (would need GET endpoint)
-            // For now, we'll use a demo user ID
-            return { id: 1, ...userData };
+          const me = await api.request('/api/auth/me');
+          setCurrentUser({
+            id: me.id,
+            email: me.email || currentUser.email,
+            name: me.name || currentUser.email.split('@')[0],
+            organization: me.organization || currentUser.organization,
+            role: me.role || currentUser.role,
           });
-          
-          setCurrentUser({ ...currentUser, id: user.id });
-          
-          // Bootstrap: Grant admin role to first user
+
+          // Bootstrap: grant admin role to first user (no-op if admins already exist)
           try {
-            await api.bootstrapAdmin(user.id);
+            await api.bootstrapAdmin(me.id);
           } catch (e) {
             console.warn('Could not bootstrap admin role:', e);
           }
         } catch (error) {
-          console.warn('Could not create/get user, using demo mode:', error);
-          setCurrentUser({ ...currentUser, id: 1 }); // Demo user ID
-          
-          // Try to bootstrap admin for demo user
-          try {
-            await api.bootstrapAdmin(1);
-          } catch (e) {
-            console.warn('Could not bootstrap admin for demo user:', e);
-          }
+          console.warn('Could not resolve authenticated user:', error);
+          // If token is invalid the 401 handler in api.js already cleared it;
+          // App.jsx will unmount us and show the login page.
         }
       }
     } catch (error) {
@@ -5682,7 +5668,7 @@ const closeControlDetail = useCallback(() => {
       setBackendConnected(false);
       setApiError('Backend API not available - running in demo mode');
     }
-    
+
     // Load data regardless of backend status (works in demo mode too)
     loadData();
   };
@@ -19315,6 +19301,18 @@ Generated: ${new Date(summaryData.generated_at || new Date().toISOString()).toLo
                 <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
                 <div className="text-xs text-muted-foreground">{currentUser.email}</div>
               </div>
+              {/* Logout */}
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  title="Sign out"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors border border-[hsl(var(--border))]"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Sign Out</span>
+                </button>
+              )}
             </div>
           </div>
 

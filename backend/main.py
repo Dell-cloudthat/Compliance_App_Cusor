@@ -111,8 +111,16 @@ async def auth_login(payload: LoginRequest):
 
 @app.get("/api/auth/me")
 async def auth_me(user_id: int = Depends(get_current_user)):
-    """Return the authenticated user's id (useful for the frontend to confirm the token is valid)."""
-    return {"user_id": user_id}
+    """Return the authenticated user's full profile."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id, name, email, organization, role, plan FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+    return dict(row)
 
 
 class AlertWebSocketManager:
@@ -863,13 +871,13 @@ async def create_user(user: UserCreate):
     
     try:
         cursor.execute("""
-            INSERT INTO users (name, email, organization, plan, role)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO users (name, email, password_hash, organization, plan, role)
+            VALUES (?, ?, '', ?, ?, ?)
         """, (user.name, user.email, user.organization, user.plan, user.role))
-        
+
         user_id = cursor.lastrowid
         conn.commit()
-        
+
         return {
             "id": user_id,
             "name": user.name,

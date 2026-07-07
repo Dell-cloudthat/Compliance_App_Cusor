@@ -49,4 +49,6 @@ backend/database/*.db
 backend/database/*.db-journal
 backend/*.pyc
 backend/.pytest_cache/
+# Auto-generated JWT signing key — never commit this
+backend/.jwt_secret_key
 
