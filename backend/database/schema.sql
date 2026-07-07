@@ -6,9 +6,13 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
   plan TEXT DEFAULT 'free',
   organization TEXT,
   role TEXT DEFAULT 'viewer',
+  is_active BOOLEAN DEFAULT 1,
+  failed_login_attempts INTEGER DEFAULT 0,
+  locked_until TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

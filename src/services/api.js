@@ -5,9 +5,55 @@
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+const TOKEN_STORAGE_KEY = 'compliance_app_access_token';
+
 class ComplianceAPI {
   constructor(baseURL = API_BASE_URL) {
     this.baseURL = baseURL;
+  }
+
+  // --- Auth token handling -------------------------------------------
+  // Replaces the old pattern of sending a raw, unverified user id on every
+  // request. The backend now issues a signed JWT on login/register; we
+  // store it and attach it as a Bearer token on every subsequent call.
+
+  getToken() {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  }
+
+  setToken(token) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  }
+
+  clearToken() {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  }
+
+  getAuthHeaders() {
+    const token = this.getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async register(name, email, password, organization) {
+    const data = await this.request('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password, organization }),
+    });
+    this.setToken(data.access_token);
+    return data;
+  }
+
+  async login(email, password) {
+    const data = await this.request('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    this.setToken(data.access_token);
+    return data;
+  }
+
+  logout() {
+    this.clearToken();
   }
 
   async request(endpoint, options = {}) {
@@ -38,7 +84,12 @@ class ComplianceAPI {
 
     try {
       const response = await fetch(url, config);
-      
+
+      if (response.status === 401) {
+        // Token missing/expired/invalid — clear it so the app can prompt a fresh login
+        this.clearToken();
+      }
+
       if (!response.ok) {
         let errorData;
         try {
@@ -150,7 +201,7 @@ class ComplianceAPI {
     return this.request('/api/audits', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(auditData),
     });
@@ -159,7 +210,7 @@ class ComplianceAPI {
   async getAudits(userId) {
     return this.request(`/api/audits`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -167,7 +218,7 @@ class ComplianceAPI {
   async getAudit(userId, auditId) {
     return this.request(`/api/audits/${auditId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -176,7 +227,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(auditData),
     });
@@ -185,7 +236,7 @@ class ComplianceAPI {
   async getAuditReadiness(userId, auditId) {
     return this.request(`/api/audits/${auditId}/readiness`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -195,7 +246,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/findings`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(findingData),
     });
@@ -204,7 +255,7 @@ class ComplianceAPI {
   async getFindings(userId, auditId) {
     return this.request(`/api/audits/${auditId}/findings`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -213,7 +264,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/findings/${findingId}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(findingData),
     });
@@ -224,7 +275,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/evidence`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(evidenceData),
     });
@@ -236,7 +287,7 @@ class ComplianceAPI {
       : `/api/audits/${auditId}/evidence`;
     return this.request(url, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -245,7 +296,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/evidence/${evidenceId}/validate?validated=${validated}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -259,7 +310,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/evidence/collect`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
     });
@@ -271,7 +322,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/evidence/collect/${controlId}`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
     });
@@ -280,7 +331,7 @@ class ComplianceAPI {
   async getEvidenceFreshness(userId, auditId) {
     return this.request(`/api/audits/${auditId}/evidence/freshness`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -289,7 +340,7 @@ class ComplianceAPI {
     return this.request(`/api/audits/${auditId}/evidence/auto-link`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -299,7 +350,7 @@ class ComplianceAPI {
     return this.request('/api/certifications', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(certData),
     });
@@ -308,7 +359,7 @@ class ComplianceAPI {
   async getCertifications(userId) {
     return this.request('/api/certifications', {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -317,7 +368,7 @@ class ComplianceAPI {
   async generateFullAuditReport(userId, auditId) {
     return this.request(`/api/audits/${auditId}/reports/full`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -328,7 +379,7 @@ class ComplianceAPI {
       : `/api/audits/${auditId}/reports/evidence-package`;
     return this.request(url, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -336,7 +387,7 @@ class ComplianceAPI {
   async generateExecutiveSummary(userId, auditId) {
     return this.request(`/api/audits/${auditId}/reports/executive-summary`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -351,7 +402,7 @@ class ComplianceAPI {
     return this.request('/api/workflows', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(workflowData),
     });
@@ -364,7 +415,7 @@ class ComplianceAPI {
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request(`/api/workflows${query}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -372,7 +423,7 @@ class ComplianceAPI {
   async getWorkflow(userId, workflowId) {
     return this.request(`/api/workflows/${workflowId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -381,7 +432,7 @@ class ComplianceAPI {
     return this.request(`/api/workflows/${workflowId}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(workflowData),
     });
@@ -391,7 +442,7 @@ class ComplianceAPI {
     return this.request(`/api/workflows/${workflowId}`, {
       method: 'DELETE',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -400,7 +451,7 @@ class ComplianceAPI {
     return this.request(`/api/workflows/${workflowId}/execute`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(executionData),
     });
@@ -412,7 +463,7 @@ class ComplianceAPI {
     params.append('limit', limit.toString());
     return this.request(`/api/workflows/${workflowId}/executions?${params.toString()}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -420,7 +471,7 @@ class ComplianceAPI {
   async getWorkflowAnalytics(userId, days = 30) {
     return this.request(`/api/workflows/analytics?days=${days}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -433,7 +484,7 @@ class ComplianceAPI {
     return this.request('/api/permissions/grant', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: permissionData, // Will be stringified by request method
     });
@@ -443,7 +494,7 @@ class ComplianceAPI {
     return this.request('/api/permissions/revoke', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify({
         permission_id: permissionId,
@@ -462,7 +513,7 @@ class ComplianceAPI {
   async getUserPermissions(userId, targetUserId) {
     return this.request(`/api/permissions/user/${targetUserId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -471,7 +522,7 @@ class ComplianceAPI {
     return this.request('/api/vendor-access/profiles', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(profileData),
     });
@@ -481,7 +532,7 @@ class ComplianceAPI {
     return this.request('/api/vendor-access/assign', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(assignmentData),
     });
@@ -500,7 +551,7 @@ class ComplianceAPI {
 
     return this.request(url, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -509,7 +560,7 @@ class ComplianceAPI {
     return this.request('/api/permissions/bootstrap-admin', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -519,7 +570,7 @@ class ComplianceAPI {
     return this.request('/api/iam/login', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: {
         ip_address: ipAddress,
@@ -541,7 +592,7 @@ class ComplianceAPI {
     return this.request('/api/iam/access-log', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: accessData,
     });
@@ -550,7 +601,7 @@ class ComplianceAPI {
   async getUserAccessSummary(userId, targetUserId, days = 30) {
     return this.request(`/api/iam/access-summary/${targetUserId}?days=${days}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -569,7 +620,7 @@ class ComplianceAPI {
     
     return this.request(url, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -577,7 +628,7 @@ class ComplianceAPI {
   async getMappedPermissions(userId, targetUserId) {
     return this.request(`/api/iam/mapped-permissions/${targetUserId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -586,7 +637,7 @@ class ComplianceAPI {
     return this.request(`/api/iam/auto-map-permissions/${targetUserId}`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -594,7 +645,7 @@ class ComplianceAPI {
   async getComplianceMapping(userId, targetUserId, framework = 'NIST_800-53') {
     return this.request(`/api/iam/compliance-mapping/${targetUserId}?framework=${framework}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -602,7 +653,7 @@ class ComplianceAPI {
   async listAllUsers(userId) {
     return this.request('/api/iam/users', {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -616,7 +667,7 @@ class ComplianceAPI {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(eventData)
     });
@@ -632,7 +683,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/security-events${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -640,7 +691,7 @@ class ComplianceAPI {
   async getSecurityEventComplianceImpact(eventId, userId) {
     return this.request(`/api/security-events/${eventId}/compliance-impact`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -651,7 +702,7 @@ class ComplianceAPI {
     params.append('days', days);
     return this.request(`/api/compliance-score-history?${params.toString()}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -665,7 +716,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/compliance-alerts${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -674,7 +725,7 @@ class ComplianceAPI {
     return this.request(`/api/compliance-alerts/${alertId}/acknowledge`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -682,7 +733,7 @@ class ComplianceAPI {
   async getSecurityComplianceCorrelation(days = 30, userId) {
     return this.request(`/api/security-compliance-correlation?days=${days}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -694,7 +745,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/intelligence/priorities${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -702,7 +753,7 @@ class ComplianceAPI {
   async getControlGuidance(userId, controlId) {
     return this.request(`/api/intelligence/guidance?control_id=${encodeURIComponent(controlId)}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -715,7 +766,7 @@ class ComplianceAPI {
     return this.request(`/api/patterns/detect?lookback_days=${lookbackDays}`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -726,7 +777,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/patterns${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -738,7 +789,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/pattern-alerts${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -747,7 +798,7 @@ class ComplianceAPI {
     return this.request(`/api/pattern-alerts/${alertId}/acknowledge`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -755,7 +806,7 @@ class ComplianceAPI {
   async getPatternTrends(userId, lookbackDays = 30) {
     return this.request(`/api/patterns/trends?lookback_days=${lookbackDays}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -767,7 +818,7 @@ class ComplianceAPI {
   async getRealtimeComplianceScore(userId, framework) {
     return this.request(`/api/compliance/realtime/${framework}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -775,7 +826,7 @@ class ComplianceAPI {
   async getFrameworkGrowthMetrics(userId, framework, periodDays = 30) {
     return this.request(`/api/compliance/framework-growth/${framework}?period_days=${periodDays}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -783,7 +834,7 @@ class ComplianceAPI {
   async getAllFrameworksGrowth(userId, periodDays = 30) {
     return this.request(`/api/compliance/all-frameworks-growth?period_days=${periodDays}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -792,7 +843,7 @@ class ComplianceAPI {
     return this.request('/api/alerts/check-drift', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -800,7 +851,7 @@ class ComplianceAPI {
   async getActionableAlerts(userId, limit = 50) {
     return this.request(`/api/alerts/actionable?limit=${limit}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       }
     });
   }
@@ -808,7 +859,7 @@ class ComplianceAPI {
   async getDataFlowGraph(userId) {
     return this.request('/api/data-flow/graph', {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -816,7 +867,7 @@ class ComplianceAPI {
   async getDataFlowAudit(userId, limit = 50) {
     return this.request(`/api/data-flow/audit?limit=${limit}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -825,7 +876,7 @@ class ComplianceAPI {
     return this.request('/api/data-flow/nodes', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(nodePayload),
     });
@@ -835,7 +886,7 @@ class ComplianceAPI {
     return this.request(`/api/data-flow/nodes/${nodeId}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(nodePayload),
     });
@@ -846,7 +897,7 @@ class ComplianceAPI {
     return this.request(`/api/data-flow/nodes/${nodeId}${query}`, {
       method: 'DELETE',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -855,7 +906,7 @@ class ComplianceAPI {
     return this.request('/api/data-flow/edges', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(edgePayload),
     });
@@ -865,7 +916,7 @@ class ComplianceAPI {
     return this.request(`/api/data-flow/edges/${edgeId}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(edgePayload),
     });
@@ -876,7 +927,7 @@ class ComplianceAPI {
     return this.request(`/api/data-flow/edges/${edgeId}${query}`, {
       method: 'DELETE',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -884,7 +935,7 @@ class ComplianceAPI {
   async getIntegrationEventsSummary(userId, days = 30) {
     return this.request(`/api/integrations/events/summary?days=${days}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -893,7 +944,7 @@ class ComplianceAPI {
     return this.request(`/api/alerts/${alertId}/remediation`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(payload),
     });
@@ -959,7 +1010,7 @@ class ComplianceAPI {
     return this.request('/api/learning/analyze', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -967,7 +1018,7 @@ class ComplianceAPI {
   async getLearnedPatterns(userId, minConfidence = 0.3) {
     return this.request(`/api/learning/patterns?min_confidence=${minConfidence}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -978,7 +1029,7 @@ class ComplianceAPI {
       : '/api/learning/playbooks';
     return this.request(url, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -987,7 +1038,7 @@ class ComplianceAPI {
     return this.request(`/api/learning/playbooks/${playbookId}/approve`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -995,7 +1046,7 @@ class ComplianceAPI {
   async getDataValueSummary(userId) {
     return this.request('/api/learning/data-value', {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1006,7 +1057,7 @@ class ComplianceAPI {
     if (controlId) params.append('control_id', controlId);
     return this.request(`/api/learning/playbooks/match?${params.toString()}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1014,7 +1065,7 @@ class ComplianceAPI {
   async getControlPatterns(userId, controlId) {
     return this.request(`/api/learning/patterns/control/${controlId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1023,7 +1074,7 @@ class ComplianceAPI {
     return this.request(`/api/learning/playbooks/${playbookId}/execute`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify({ alert_id: alertId }),
     });
@@ -1038,7 +1089,7 @@ class ComplianceAPI {
     return this.request('/api/intake/organizations', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(orgData),
     });
@@ -1048,7 +1099,7 @@ class ComplianceAPI {
     const params = intakeTier ? `?intake_tier=${intakeTier}` : '';
     return this.request(`/api/intake/organizations${params}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1056,7 +1107,7 @@ class ComplianceAPI {
   async getClientOrganization(userId, orgId) {
     return this.request(`/api/intake/organizations/${orgId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1065,7 +1116,7 @@ class ComplianceAPI {
     return this.request(`/api/intake/organizations/${orgId}/tier?new_tier=${newTier}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1088,7 +1139,7 @@ class ComplianceAPI {
     return this.request('/api/intake/tier1/documents', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(documentData),
     });
@@ -1103,7 +1154,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/intake/tier1/documents${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1112,7 +1163,7 @@ class ComplianceAPI {
     return this.request(`/api/intake/tier1/documents/${docId}/map-controls`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify({ control_mappings: controlMappings }),
     });
@@ -1122,7 +1173,7 @@ class ComplianceAPI {
     return this.request('/api/intake/tier1/questionnaires', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(questionnaireData),
     });
@@ -1132,7 +1183,7 @@ class ComplianceAPI {
     return this.request(`/api/intake/tier1/questionnaires/${questionnaireId}/responses`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(responseData),
     });
@@ -1147,7 +1198,7 @@ class ComplianceAPI {
     return this.request('/api/intake/tier2/integrations', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(integrationData),
     });
@@ -1160,7 +1211,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/intake/tier2/integrations${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1169,7 +1220,7 @@ class ComplianceAPI {
     return this.request(`/api/intake/tier2/integrations/${integrationId}/sync`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1179,7 +1230,7 @@ class ComplianceAPI {
     return this.request('/api/intake/tier3/exports', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(exportData),
     });
@@ -1192,7 +1243,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/intake/tier3/exports${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1201,7 +1252,7 @@ class ComplianceAPI {
     return this.request(`/api/intake/tier3/exports/${configId}/process`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(processData),
     });
@@ -1212,7 +1263,7 @@ class ComplianceAPI {
     return this.request('/api/intake/tier4/continuous', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(ingestionData),
     });
@@ -1225,7 +1276,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/intake/tier4/continuous${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1242,7 +1293,7 @@ class ComplianceAPI {
     const params = clientOrgId ? `?client_org_id=${clientOrgId}` : '';
     return this.request(`/api/intake/dashboard${params}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1255,7 +1306,7 @@ class ComplianceAPI {
   async getConsultingDashboard(userId) {
     return this.request('/api/consulting/dashboard', {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1265,7 +1316,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/engagements', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(engagementData),
     });
@@ -1278,7 +1329,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/consulting/engagements${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1286,7 +1337,7 @@ class ComplianceAPI {
   async getEngagement(userId, engagementId) {
     return this.request(`/api/consulting/engagements/${engagementId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1295,7 +1346,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/engagements/${engagementId}/status?status=${status}`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1304,7 +1355,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/engagements/${engagementId}/time`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(timeData),
     });
@@ -1315,7 +1366,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/assessment-templates', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(templateData),
     });
@@ -1325,7 +1376,7 @@ class ComplianceAPI {
     const params = templateType ? `?template_type=${templateType}` : '';
     return this.request(`/api/consulting/assessment-templates${params}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1334,7 +1385,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/assessment-templates/default', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1344,7 +1395,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/assessments', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(assessmentData),
     });
@@ -1354,7 +1405,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/assessments/${assessmentId}/submit`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify({ responses }),
     });
@@ -1365,7 +1416,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/gaps', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(gapData),
     });
@@ -1379,7 +1430,7 @@ class ComplianceAPI {
     const query = params.toString();
     return this.request(`/api/consulting/gaps${query ? `?${query}` : ''}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1389,7 +1440,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/roadmaps', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(roadmapData),
     });
@@ -1399,7 +1450,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/roadmaps/${roadmapId}/phases`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(phaseData),
     });
@@ -1409,7 +1460,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/roadmaps/${roadmapId}/phases/${phaseId}/initiatives`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(initiativeData),
     });
@@ -1418,7 +1469,7 @@ class ComplianceAPI {
   async getRoadmap(userId, roadmapId) {
     return this.request(`/api/consulting/roadmaps/${roadmapId}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1428,7 +1479,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/budgets', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(budgetData),
     });
@@ -1439,7 +1490,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/report-templates', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(templateData),
     });
@@ -1449,7 +1500,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/reports/generate', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(reportData),
     });
@@ -1460,7 +1511,7 @@ class ComplianceAPI {
     return this.request('/api/consulting/msp/portfolios', {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(portfolioData),
     });
@@ -1470,7 +1521,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/msp/portfolios/${portfolioId}/clients`, {
       method: 'POST',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(clientData),
     });
@@ -1480,7 +1531,7 @@ class ComplianceAPI {
     const params = portfolioId ? `?portfolio_id=${portfolioId}` : '';
     return this.request(`/api/consulting/msp/dashboard${params}`, {
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
     });
   }
@@ -1489,7 +1540,7 @@ class ComplianceAPI {
     return this.request(`/api/consulting/msp/clients/${clientSummaryId}/metrics`, {
       method: 'PUT',
       headers: {
-        'X-User-Id': userId.toString(),
+        ...this.getAuthHeaders(),
       },
       body: JSON.stringify(metricsData),
     });

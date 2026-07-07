@@ -62,6 +62,9 @@ from services.data_flow_service import (
 )
 from services import client_intake_service
 from services import consulting_service
+from services.auth_service import (
+    get_current_user, register_user, authenticate_user
+)
 
 # Database setup
 DB_PATH = Path(__file__).parent / "database" / "compliance.db"
@@ -70,6 +73,9 @@ SCHEMA_PATH = Path(__file__).parent / "database" / "schema.sql"
 app = FastAPI(title="Compliance Platform API", version="1.0.0")
 
 # CORS middleware
+# NOTE: allow_origins is a dev-only localhost list. Before deploying anywhere
+# reachable from the internet, replace this with your real frontend domain(s) —
+# combining allow_credentials=True with a wildcard/broad origin list is unsafe.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:5176"],
@@ -78,8 +84,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security
-security = HTTPBearer()
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str = Field(..., min_length=8)
+    organization: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/register")
+async def auth_register(payload: RegisterRequest):
+    """Create a new account and return a JWT access token."""
+    return register_user(payload.name, payload.email, payload.password, payload.organization)
+
+
+@app.post("/api/auth/login")
+async def auth_login(payload: LoginRequest):
+    """Verify credentials and return a JWT access token."""
+    return authenticate_user(payload.email, payload.password)
+
+
+@app.get("/api/auth/me")
+async def auth_me(user_id: int = Depends(get_current_user)):
+    """Return the authenticated user's id (useful for the frontend to confirm the token is valid)."""
+    return {"user_id": user_id}
 
 
 class AlertWebSocketManager:
@@ -1143,7 +1176,7 @@ class CertificationCreate(BaseModel):
 
 # Audit Engagement Endpoints
 @app.post("/api/audits")
-async def create_audit_engagement(audit: AuditEngagementCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_audit_engagement(audit: AuditEngagementCreate, user_id: int = Depends(get_current_user)):
     """Create a new audit engagement"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1168,7 +1201,7 @@ async def create_audit_engagement(audit: AuditEngagementCreate, user_id: int = H
     return {"id": audit_id, "message": "Audit engagement created successfully"}
 
 @app.get("/api/audits")
-async def list_audits(user_id: int = Header(..., alias="X-User-Id")):
+async def list_audits(user_id: int = Depends(get_current_user)):
     """List all audit engagements for a user"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1194,7 +1227,7 @@ async def list_audits(user_id: int = Header(..., alias="X-User-Id")):
     return result
 
 @app.get("/api/audits/{audit_id}")
-async def get_audit(audit_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def get_audit(audit_id: int, user_id: int = Depends(get_current_user)):
     """Get audit engagement details"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1225,7 +1258,7 @@ async def get_audit(audit_id: int, user_id: int = Header(..., alias="X-User-Id")
     return audit_dict
 
 @app.put("/api/audits/{audit_id}")
-async def update_audit(audit_id: int, audit_update: AuditEngagementUpdate, user_id: int = Header(..., alias="X-User-Id")):
+async def update_audit(audit_id: int, audit_update: AuditEngagementUpdate, user_id: int = Depends(get_current_user)):
     """Update audit engagement"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1283,7 +1316,7 @@ async def update_audit(audit_id: int, audit_update: AuditEngagementUpdate, user_
     return {"message": "Audit updated successfully"}
 
 @app.get("/api/audits/{audit_id}/readiness")
-async def calculate_readiness(audit_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def calculate_readiness(audit_id: int, user_id: int = Depends(get_current_user)):
     """Calculate audit readiness score (0-100)"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1385,7 +1418,7 @@ async def calculate_readiness(audit_id: int, user_id: int = Header(..., alias="X
 
 # Audit Findings Endpoints
 @app.post("/api/audits/{audit_id}/findings")
-async def create_finding(audit_id: int, finding: AuditFindingCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_finding(audit_id: int, finding: AuditFindingCreate, user_id: int = Depends(get_current_user)):
     """Create a new audit finding"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1415,7 +1448,7 @@ async def create_finding(audit_id: int, finding: AuditFindingCreate, user_id: in
     return {"id": finding_id, "message": "Audit finding created successfully"}
 
 @app.get("/api/audits/{audit_id}/findings")
-async def list_findings(audit_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def list_findings(audit_id: int, user_id: int = Depends(get_current_user)):
     """List all findings for an audit"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1450,7 +1483,7 @@ async def list_findings(audit_id: int, user_id: int = Header(..., alias="X-User-
     return result
 
 @app.put("/api/audits/{audit_id}/findings/{finding_id}")
-async def update_finding(audit_id: int, finding_id: int, finding_update: AuditFindingUpdate, user_id: int = Header(..., alias="X-User-Id")):
+async def update_finding(audit_id: int, finding_id: int, finding_update: AuditFindingUpdate, user_id: int = Depends(get_current_user)):
     """Update audit finding"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1514,7 +1547,7 @@ async def update_finding(audit_id: int, finding_id: int, finding_update: AuditFi
 
 # Audit Evidence Endpoints
 @app.post("/api/audits/{audit_id}/evidence")
-async def create_evidence(audit_id: int, evidence: AuditEvidenceCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_evidence(audit_id: int, evidence: AuditEvidenceCreate, user_id: int = Depends(get_current_user)):
     """Upload audit evidence"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1544,7 +1577,7 @@ async def create_evidence(audit_id: int, evidence: AuditEvidenceCreate, user_id:
     return {"id": evidence_id, "message": "Evidence uploaded successfully"}
 
 @app.get("/api/audits/{audit_id}/evidence")
-async def list_evidence(audit_id: int, user_id: int = Header(..., alias="X-User-Id"), control_id: Optional[str] = None):
+async def list_evidence(audit_id: int, user_id: int = Depends(get_current_user), control_id: Optional[str] = None):
     """List audit evidence"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1579,7 +1612,7 @@ async def list_evidence(audit_id: int, user_id: int = Header(..., alias="X-User-
     return result
 
 @app.put("/api/audits/{audit_id}/evidence/{evidence_id}/validate")
-async def validate_evidence(audit_id: int, evidence_id: int, user_id: int = Header(..., alias="X-User-Id"), validated: bool = True):
+async def validate_evidence(audit_id: int, evidence_id: int, user_id: int = Depends(get_current_user), validated: bool = True):
     """Validate or reject audit evidence"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1607,7 +1640,7 @@ async def validate_evidence(audit_id: int, evidence_id: int, user_id: int = Head
 @app.post("/api/audits/{audit_id}/evidence/collect")
 async def trigger_evidence_collection(
     audit_id: int,
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     control_ids: Optional[List[str]] = None,
     integration_id: Optional[int] = None
 ):
@@ -1632,7 +1665,7 @@ async def trigger_evidence_collection(
 async def collect_evidence_for_single_control(
     audit_id: int,
     control_id: str,
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     integration_id: Optional[int] = None
 ):
     """Collect evidence for a specific control"""
@@ -1659,7 +1692,7 @@ async def collect_evidence_for_single_control(
 @app.get("/api/audits/{audit_id}/evidence/freshness")
 async def get_evidence_freshness_metrics(
     audit_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Get evidence freshness metrics for an audit"""
     conn = get_db()
@@ -1680,7 +1713,7 @@ async def get_evidence_freshness_metrics(
 @app.post("/api/audits/{audit_id}/evidence/auto-link")
 async def trigger_auto_linking(
     audit_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Automatically link evidence to controls based on content analysis"""
     conn = get_db()
@@ -1702,7 +1735,7 @@ async def trigger_auto_linking(
 @app.get("/api/audits/{audit_id}/reports/full")
 async def generate_full_report(
     audit_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Generate full audit report"""
     report = generate_full_audit_report(audit_id, user_id)
@@ -1713,7 +1746,7 @@ async def generate_full_report(
 @app.get("/api/audits/{audit_id}/reports/evidence-package")
 async def generate_evidence_package_report(
     audit_id: int,
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     control_ids: Optional[str] = None
 ):
     """Generate evidence package report"""
@@ -1726,7 +1759,7 @@ async def generate_evidence_package_report(
 @app.get("/api/audits/{audit_id}/reports/executive-summary")
 async def generate_executive_summary_report(
     audit_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Generate executive summary report"""
     summary = generate_executive_summary(audit_id, user_id)
@@ -1736,7 +1769,7 @@ async def generate_executive_summary_report(
 
 # Certification Endpoints
 @app.post("/api/certifications")
-async def create_certification(cert: CertificationCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_certification(cert: CertificationCreate, user_id: int = Depends(get_current_user)):
     """Create a new certification"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1760,7 +1793,7 @@ async def create_certification(cert: CertificationCreate, user_id: int = Header(
     return {"id": cert_id, "message": "Certification created successfully"}
 
 @app.get("/api/certifications")
-async def list_certifications(user_id: int = Header(..., alias="X-User-Id")):
+async def list_certifications(user_id: int = Depends(get_current_user)):
     """List all certifications for a user"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1787,7 +1820,7 @@ async def list_certifications(user_id: int = Header(..., alias="X-User-Id")):
 # ============================================================================
 
 @app.post("/api/permissions/grant")
-async def grant_permission(permission: PermissionGrant, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+async def grant_permission(permission: PermissionGrant, user_id: int = Depends(get_current_user), request: Request = None):
     """Grant permission to a user"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1849,7 +1882,7 @@ async def grant_permission(permission: PermissionGrant, user_id: int = Header(..
     return {"id": perm_id, "message": "Permission granted successfully"}
 
 @app.post("/api/permissions/revoke")
-async def revoke_permission(revoke: PermissionRevoke, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+async def revoke_permission(revoke: PermissionRevoke, user_id: int = Depends(get_current_user), request: Request = None):
     """Revoke a permission"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1899,7 +1932,7 @@ async def check_user_permission(check: PermissionCheck):
     return {"allowed": allowed, "reason": reason}
 
 @app.get("/api/permissions/user/{target_user_id}")
-async def list_user_permissions(target_user_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def list_user_permissions(target_user_id: int, user_id: int = Depends(get_current_user)):
     """List all permissions for a user (requires admin or self)"""
     # Check if user is viewing their own permissions or is admin
     if target_user_id != user_id:
@@ -1911,7 +1944,7 @@ async def list_user_permissions(target_user_id: int, user_id: int = Header(..., 
     return permissions
 
 @app.post("/api/permissions/bootstrap-admin")
-async def bootstrap_admin(user_id: int = Header(..., alias="X-User-Id")):
+async def bootstrap_admin(user_id: int = Depends(get_current_user)):
     """Bootstrap admin role for first user (one-time setup)"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1940,7 +1973,7 @@ async def bootstrap_admin(user_id: int = Header(..., alias="X-User-Id")):
         raise HTTPException(status_code=403, detail="Cannot bootstrap admin: admins already exist")
 
 @app.post("/api/vendor-access/profiles")
-async def create_vendor_access_profile(profile: VendorAccessProfileCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_vendor_access_profile(profile: VendorAccessProfileCreate, user_id: int = Depends(get_current_user)):
     """Create a vendor access profile"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1971,7 +2004,7 @@ async def create_vendor_access_profile(profile: VendorAccessProfileCreate, user_
     return {"id": profile_id, "message": "Vendor access profile created successfully"}
 
 @app.post("/api/vendor-access/assign")
-async def assign_vendor_user(assign: VendorUserAssign, user_id: int = Header(..., alias="X-User-Id")):
+async def assign_vendor_user(assign: VendorUserAssign, user_id: int = Depends(get_current_user)):
     """Assign a vendor user to an access profile"""
     conn = get_db()
     cursor = conn.cursor()
@@ -1997,7 +2030,7 @@ async def assign_vendor_user(assign: VendorUserAssign, user_id: int = Header(...
 async def get_audit_log(user_id: Optional[int] = None, vendor_id: Optional[int] = None,
                        start_date: Optional[str] = None, end_date: Optional[str] = None,
                        event_type: Optional[str] = None,
-                       current_user_id: int = Header(..., alias="X-User-Id")):
+                       current_user_id: int = Depends(get_current_user)):
     """Get permission audit log"""
     # Check admin permission
     allowed, _ = check_permission(current_user_id, "all", None, "read")
@@ -2063,7 +2096,7 @@ class AccessLogRequest(BaseModel):
     access_duration_ms: int = 0
 
 @app.post("/api/iam/login")
-async def login_user(login: LoginRequest, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+async def login_user(login: LoginRequest, user_id: int = Depends(get_current_user), request: Request = None):
     """Create a login session and auto-map user permissions"""
     ip_address = login.ip_address or (request.client.host if request else None)
     user_agent = login.user_agent or (request.headers.get("user-agent") if request else None)
@@ -2082,7 +2115,7 @@ async def logout_user(session_token: str = Header(..., alias="X-Session-Token"))
     return {"message": "Logged out successfully"}
 
 @app.post("/api/iam/access-log")
-async def log_access(access: AccessLogRequest, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+async def log_access(access: AccessLogRequest, user_id: int = Depends(get_current_user), request: Request = None):
     """Log a user access event with r/w/x permission tracking"""
     ip_address = access.ip_address or (request.client.host if request else None)
     user_agent = access.user_agent or (request.headers.get("user-agent") if request else None)
@@ -2107,7 +2140,7 @@ async def log_access(access: AccessLogRequest, user_id: int = Header(..., alias=
 async def get_access_summary(
     target_user_id: int,
     days: int = Query(30, ge=1, le=365),
-    current_user_id: int = Header(..., alias="X-User-Id")
+    current_user_id: int = Depends(get_current_user)
 ):
     """Get comprehensive access summary for a user"""
     # Check if user is viewing their own summary or is admin
@@ -2126,7 +2159,7 @@ async def get_access_logs(
     resource_type: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    current_user_id: int = Header(..., alias="X-User-Id")
+    current_user_id: int = Depends(get_current_user)
 ):
     """Get access logs for a user"""
     # Check if user is viewing their own logs or is admin
@@ -2141,7 +2174,7 @@ async def get_access_logs(
 @app.get("/api/iam/mapped-permissions/{target_user_id}")
 async def get_mapped_permissions(
     target_user_id: int,
-    current_user_id: int = Header(..., alias="X-User-Id")
+    current_user_id: int = Depends(get_current_user)
 ):
     """Get auto-mapped permissions for a user with r/w/x breakdown"""
     # Check if user is viewing their own permissions or is admin
@@ -2187,7 +2220,7 @@ async def get_mapped_permissions(
 @app.post("/api/iam/auto-map-permissions/{target_user_id}")
 async def trigger_auto_map(
     target_user_id: int,
-    current_user_id: int = Header(..., alias="X-User-Id")
+    current_user_id: int = Depends(get_current_user)
 ):
     """Manually trigger auto-mapping of user permissions"""
     # Check admin permission
@@ -2202,7 +2235,7 @@ async def trigger_auto_map(
 async def get_compliance_mapping(
     target_user_id: int,
     framework: str = Query('NIST_800-53'),
-    current_user_id: int = Header(..., alias="X-User-Id")
+    current_user_id: int = Depends(get_current_user)
 ):
     """Get compliance control mappings for user permissions"""
     # Check if user is viewing their own mapping or is admin
@@ -2245,7 +2278,7 @@ async def get_compliance_mapping(
 
 @app.get("/api/iam/users")
 async def list_all_users(
-    current_user_id: int = Header(..., alias="X-User-Id")
+    current_user_id: int = Depends(get_current_user)
 ):
     """List all users with their access statistics (admin only)"""
     # Check admin permission
@@ -2324,7 +2357,7 @@ class CloudPlatformEvent(BaseModel):
 @app.post("/api/integrations/register")
 async def register_integration_endpoint(
     integration: IntegrationRegister,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Register a new integration (EDR, Network Appliance, Identity Provider, etc.)"""
     allowed, _ = check_permission(user_id, "all", None, "write")
@@ -2347,7 +2380,7 @@ async def register_integration_endpoint(
 async def ingest_edr_event_endpoint(
     event: EDREvent,
     integration_id: int = Header(..., alias="X-Integration-Id"),
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Ingest events from EDR systems (CrowdStrike, SentinelOne, Microsoft Defender, etc.)"""
     event_data = event.dict()
@@ -2362,7 +2395,7 @@ async def ingest_edr_event_endpoint(
 async def ingest_network_log_endpoint(
     log: NetworkApplianceLog,
     integration_id: int = Header(..., alias="X-Integration-Id"),
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Ingest logs from network appliances (Firewalls, Proxies, VPNs, etc.)"""
     log_data = log.dict()
@@ -2377,7 +2410,7 @@ async def ingest_network_log_endpoint(
 async def ingest_identity_event_endpoint(
     event: IdentityProviderEvent,
     integration_id: int = Header(..., alias="X-Integration-Id"),
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Ingest events from Identity Providers (Okta, Azure AD, Google Workspace, etc.)"""
     event_data = event.dict()
@@ -2392,7 +2425,7 @@ async def ingest_identity_event_endpoint(
 async def ingest_cloud_event_endpoint(
     event: CloudPlatformEvent,
     integration_id: int = Header(..., alias="X-Integration-Id"),
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Ingest events from Cloud Platforms (AWS CloudTrail, Azure Activity Logs, GCP Audit Logs)"""
     event_data = event.dict()
@@ -2405,7 +2438,7 @@ async def ingest_cloud_event_endpoint(
 
 @app.get("/api/integrations/events/summary")
 async def get_integration_events_summary(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     days: int = 30
 ):
     """Get summary of integration events for data flow visualization"""
@@ -2515,7 +2548,7 @@ async def get_integration_events_summary(
 # ============================================================================
 
 @app.get("/api/data-flow/graph")
-async def get_data_flow_graph_endpoint(user_id: int = Header(..., alias="X-User-Id")):
+async def get_data_flow_graph_endpoint(user_id: int = Depends(get_current_user)):
     """Retrieve the full data flow graph (nodes + edges)"""
     allowed, reason = check_permission(user_id, "all", None, "read")
     if not allowed:
@@ -2527,7 +2560,7 @@ async def get_data_flow_graph_endpoint(user_id: int = Header(..., alias="X-User-
 
 
 @app.get("/api/data-flow/nodes/{node_id}")
-async def get_data_flow_node_endpoint(node_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def get_data_flow_node_endpoint(node_id: int, user_id: int = Depends(get_current_user)):
     """Retrieve a single data flow node"""
     allowed, reason = check_permission(user_id, "all", None, "read")
     if not allowed:
@@ -2541,7 +2574,7 @@ async def get_data_flow_node_endpoint(node_id: int, user_id: int = Header(..., a
 
 
 @app.post("/api/data-flow/nodes")
-async def create_data_flow_node_endpoint(node: DataFlowNodeCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_data_flow_node_endpoint(node: DataFlowNodeCreate, user_id: int = Depends(get_current_user)):
     """Create a new data flow node"""
     allowed, reason = check_permission(user_id, "all", None, "write")
     if not allowed:
@@ -2556,7 +2589,7 @@ async def create_data_flow_node_endpoint(node: DataFlowNodeCreate, user_id: int 
 
 
 @app.put("/api/data-flow/nodes/{node_id}")
-async def update_data_flow_node_endpoint(node_id: int, node: DataFlowNodeUpdate, user_id: int = Header(..., alias="X-User-Id")):
+async def update_data_flow_node_endpoint(node_id: int, node: DataFlowNodeUpdate, user_id: int = Depends(get_current_user)):
     """Update an existing data flow node"""
     allowed, reason = check_permission(user_id, "all", None, "write")
     if not allowed:
@@ -2573,7 +2606,7 @@ async def update_data_flow_node_endpoint(node_id: int, node: DataFlowNodeUpdate,
 
 
 @app.delete("/api/data-flow/nodes/{node_id}")
-async def delete_data_flow_node_endpoint(node_id: int, reason: Optional[str] = Query(None), user_id: int = Header(..., alias="X-User-Id")):
+async def delete_data_flow_node_endpoint(node_id: int, reason: Optional[str] = Query(None), user_id: int = Depends(get_current_user)):
     """Delete a data flow node (and cascading edges)"""
     allowed, reason_perm = check_permission(user_id, "all", None, "write")
     if not allowed:
@@ -2588,7 +2621,7 @@ async def delete_data_flow_node_endpoint(node_id: int, reason: Optional[str] = Q
 
 
 @app.get("/api/data-flow/edges/{edge_id}")
-async def get_data_flow_edge_endpoint(edge_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def get_data_flow_edge_endpoint(edge_id: int, user_id: int = Depends(get_current_user)):
     """Retrieve a single data flow edge"""
     allowed, reason = check_permission(user_id, "all", None, "read")
     if not allowed:
@@ -2602,7 +2635,7 @@ async def get_data_flow_edge_endpoint(edge_id: int, user_id: int = Header(..., a
 
 
 @app.post("/api/data-flow/edges")
-async def create_data_flow_edge_endpoint(edge: DataFlowEdgeCreate, user_id: int = Header(..., alias="X-User-Id")):
+async def create_data_flow_edge_endpoint(edge: DataFlowEdgeCreate, user_id: int = Depends(get_current_user)):
     """Create a data flow edge connecting two nodes"""
     allowed, reason = check_permission(user_id, "all", None, "write")
     if not allowed:
@@ -2617,7 +2650,7 @@ async def create_data_flow_edge_endpoint(edge: DataFlowEdgeCreate, user_id: int 
 
 
 @app.put("/api/data-flow/edges/{edge_id}")
-async def update_data_flow_edge_endpoint(edge_id: int, edge: DataFlowEdgeUpdate, user_id: int = Header(..., alias="X-User-Id")):
+async def update_data_flow_edge_endpoint(edge_id: int, edge: DataFlowEdgeUpdate, user_id: int = Depends(get_current_user)):
     """Update metadata for a data flow edge"""
     allowed, reason = check_permission(user_id, "all", None, "write")
     if not allowed:
@@ -2634,7 +2667,7 @@ async def update_data_flow_edge_endpoint(edge_id: int, edge: DataFlowEdgeUpdate,
 
 
 @app.delete("/api/data-flow/edges/{edge_id}")
-async def delete_data_flow_edge_endpoint(edge_id: int, reason: Optional[str] = Query(None), user_id: int = Header(..., alias="X-User-Id")):
+async def delete_data_flow_edge_endpoint(edge_id: int, reason: Optional[str] = Query(None), user_id: int = Depends(get_current_user)):
     """Delete a data flow edge"""
     allowed, reason_perm = check_permission(user_id, "all", None, "write")
     if not allowed:
@@ -2649,7 +2682,7 @@ async def delete_data_flow_edge_endpoint(edge_id: int, reason: Optional[str] = Q
 
 
 @app.get("/api/data-flow/audit")
-async def get_data_flow_audit_endpoint(limit: int = 100, user_id: int = Header(..., alias="X-User-Id")):
+async def get_data_flow_audit_endpoint(limit: int = 100, user_id: int = Depends(get_current_user)):
     """Retrieve recent data flow architecture changes"""
     allowed, reason = check_permission(user_id, "all", None, "read")
     if not allowed:
@@ -2664,7 +2697,7 @@ async def get_data_flow_audit_endpoint(limit: int = 100, user_id: int = Header(.
 # ============================================================================
 
 @app.post("/api/security-events")
-async def create_security_event(event: SecurityEventCreate, user_id: int = Header(..., alias="X-User-Id"), request: Request = None):
+async def create_security_event(event: SecurityEventCreate, user_id: int = Depends(get_current_user), request: Request = None):
     """Ingest a security event and automatically map to compliance controls"""
     conn = get_db()
     cursor = conn.cursor()
@@ -2733,7 +2766,7 @@ async def create_security_event(event: SecurityEventCreate, user_id: int = Heade
     }
 
 @app.get("/api/security-events")
-async def list_security_events(user_id: int = Header(..., alias="X-User-Id"), 
+async def list_security_events(user_id: int = Depends(get_current_user), 
                               event_type: Optional[str] = None,
                               severity: Optional[str] = None,
                               status: Optional[str] = None,
@@ -2784,7 +2817,7 @@ async def list_security_events(user_id: int = Header(..., alias="X-User-Id"),
     return result
 
 @app.get("/api/security-events/{event_id}/compliance-impact")
-async def get_security_event_compliance_impact(event_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def get_security_event_compliance_impact(event_id: int, user_id: int = Depends(get_current_user)):
     """Get compliance impact of a specific security event"""
     conn = get_db()
     cursor = conn.cursor()
@@ -2814,7 +2847,7 @@ async def get_security_event_compliance_impact(event_id: int, user_id: int = Hea
     }
 
 @app.get("/api/compliance-score-history")
-async def get_compliance_score_history(user_id: int = Header(..., alias="X-User-Id"),
+async def get_compliance_score_history(user_id: int = Depends(get_current_user),
                                        framework: Optional[str] = None,
                                        days: int = 30):
     """Get compliance score history with security event impacts"""
@@ -2840,7 +2873,7 @@ async def get_compliance_score_history(user_id: int = Header(..., alias="X-User-
     return [dict(h) for h in history]
 
 @app.get("/api/compliance-alerts")
-async def get_compliance_alerts(user_id: int = Header(..., alias="X-User-Id"),
+async def get_compliance_alerts(user_id: int = Depends(get_current_user),
                                acknowledged: Optional[bool] = None,
                                severity: Optional[str] = None,
                                limit: int = 50):
@@ -2869,7 +2902,7 @@ async def get_compliance_alerts(user_id: int = Header(..., alias="X-User-Id"),
     return [dict(a) for a in alerts]
 
 @app.post("/api/compliance-alerts/{alert_id}/acknowledge")
-async def acknowledge_compliance_alert(alert_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def acknowledge_compliance_alert(alert_id: int, user_id: int = Depends(get_current_user)):
     """Acknowledge a compliance alert"""
     conn = get_db()
     cursor = conn.cursor()
@@ -2894,7 +2927,7 @@ async def acknowledge_compliance_alert(alert_id: int, user_id: int = Header(...,
 
 
 @app.get("/api/alerts/{alert_id}")
-async def get_alert_detail(alert_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def get_alert_detail(alert_id: int, user_id: int = Depends(get_current_user)):
     """Retrieve detailed alert drill-down data"""
     detail = alert_service.get_alert_detail(alert_id, user_id)
     if not detail:
@@ -2903,7 +2936,7 @@ async def get_alert_detail(alert_id: int, user_id: int = Header(..., alias="X-Us
 
 
 @app.post("/api/alerts/{alert_id}/remediation")
-async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdate, user_id: int = Header(..., alias="X-User-Id")):
+async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdate, user_id: int = Depends(get_current_user)):
     """Update remediation workflow for an alert and optionally modify related controls"""
     conn = get_db()
     cursor = conn.cursor()
@@ -3089,7 +3122,7 @@ async def update_alert_remediation(alert_id: int, payload: AlertRemediationUpdat
     return detail_payload or updated_alert
 
 @app.get("/api/security-compliance-correlation")
-async def get_security_compliance_correlation_endpoint(user_id: int = Header(..., alias="X-User-Id"), days: int = 30):
+async def get_security_compliance_correlation_endpoint(user_id: int = Depends(get_current_user), days: int = 30):
     """Get correlation metrics between security events and compliance scores"""
     correlation = get_security_compliance_correlation(user_id, days)
     return correlation
@@ -3097,7 +3130,7 @@ async def get_security_compliance_correlation_endpoint(user_id: int = Header(...
 
 @app.get("/api/intelligence/priorities")
 async def get_control_priorities_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     limit: int = 20,
     control_id: Optional[str] = None,
 ):
@@ -3124,7 +3157,7 @@ async def get_control_priorities_endpoint(
 @app.get("/api/intelligence/guidance")
 async def get_control_guidance_endpoint(
     control_id: str,
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
 ):
     """
     Generate guided remediation insights for a control.
@@ -3140,7 +3173,7 @@ async def get_control_guidance_endpoint(
 # ============================================================================
 
 @app.post("/api/patterns/detect")
-async def detect_security_patterns(user_id: int = Header(..., alias="X-User-Id"), lookback_days: int = 30):
+async def detect_security_patterns(user_id: int = Depends(get_current_user), lookback_days: int = 30):
     """Detect security event patterns and save them"""
     from services.pattern_detector import detect_patterns, save_patterns
     
@@ -3157,7 +3190,7 @@ async def detect_security_patterns(user_id: int = Header(..., alias="X-User-Id")
         raise HTTPException(status_code=500, detail=f"Pattern detection failed: {str(e)}")
 
 @app.get("/api/patterns")
-async def get_patterns_endpoint(user_id: int = Header(..., alias="X-User-Id"), status: Optional[str] = None):
+async def get_patterns_endpoint(user_id: int = Depends(get_current_user), status: Optional[str] = None):
     """Get all detected patterns"""
     from services.pattern_detector import get_patterns
     
@@ -3184,7 +3217,7 @@ async def get_patterns_endpoint(user_id: int = Header(..., alias="X-User-Id"), s
     return patterns
 
 @app.get("/api/pattern-alerts")
-async def get_pattern_alerts(user_id: int = Header(..., alias="X-User-Id"), acknowledged: Optional[bool] = None, limit: int = 50):
+async def get_pattern_alerts(user_id: int = Depends(get_current_user), acknowledged: Optional[bool] = None, limit: int = 50):
     """Get pattern alerts"""
     conn = get_db()
     cursor = conn.cursor()
@@ -3217,7 +3250,7 @@ async def get_pattern_alerts(user_id: int = Header(..., alias="X-User-Id"), ackn
     return result
 
 @app.post("/api/pattern-alerts/{alert_id}/acknowledge")
-async def acknowledge_pattern_alert(alert_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def acknowledge_pattern_alert(alert_id: int, user_id: int = Depends(get_current_user)):
     """Acknowledge a pattern alert"""
     conn = get_db()
     cursor = conn.cursor()
@@ -3238,7 +3271,7 @@ async def acknowledge_pattern_alert(alert_id: int, user_id: int = Header(..., al
     return {"message": "Alert acknowledged"}
 
 @app.get("/api/patterns/trends")
-async def get_pattern_trends_endpoint(user_id: int = Header(..., alias="X-User-Id"), lookback_days: int = 30):
+async def get_pattern_trends_endpoint(user_id: int = Depends(get_current_user), lookback_days: int = 30):
     """Get pattern trend analysis"""
     from services.pattern_detector import get_pattern_trends
     
@@ -3250,7 +3283,7 @@ async def get_pattern_trends_endpoint(user_id: int = Header(..., alias="X-User-I
 # ============================================================================
 
 @app.get("/api/compliance/realtime/{framework}")
-async def get_realtime_compliance_score(framework: str, user_id: int = Header(..., alias="X-User-Id")):
+async def get_realtime_compliance_score(framework: str, user_id: int = Depends(get_current_user)):
     """Get real-time compliance score for a framework"""
     from services.realtime_compliance_engine import calculate_realtime_compliance_score
     
@@ -3261,7 +3294,7 @@ async def get_realtime_compliance_score(framework: str, user_id: int = Header(..
         raise HTTPException(status_code=500, detail=f"Failed to calculate compliance score: {str(e)}")
 
 @app.get("/api/compliance/framework-growth/{framework}")
-async def get_framework_growth_metrics(framework: str, user_id: int = Header(..., alias="X-User-Id"), 
+async def get_framework_growth_metrics(framework: str, user_id: int = Depends(get_current_user), 
                                        period_days: int = 30):
     """Get framework growth metrics for dashboard"""
     from services.realtime_compliance_engine import get_framework_growth_metrics
@@ -3273,7 +3306,7 @@ async def get_framework_growth_metrics(framework: str, user_id: int = Header(...
         raise HTTPException(status_code=500, detail=f"Failed to get growth metrics: {str(e)}")
 
 @app.get("/api/compliance/all-frameworks-growth")
-async def get_all_frameworks_growth(user_id: int = Header(..., alias="X-User-Id"), period_days: int = 30):
+async def get_all_frameworks_growth(user_id: int = Depends(get_current_user), period_days: int = 30):
     """Get growth metrics for all frameworks"""
     from services.realtime_compliance_engine import get_all_frameworks_growth
     
@@ -3288,7 +3321,7 @@ async def get_all_frameworks_growth(user_id: int = Header(..., alias="X-User-Id"
 # ============================================================================
 
 @app.post("/api/learning/analyze")
-async def run_learning_analysis(user_id: int = Header(..., alias="X-User-Id")):
+async def run_learning_analysis(user_id: int = Depends(get_current_user)):
     """Run learning cycle to discover patterns and generate playbooks"""
     try:
         results = learning_service.run_learning_cycle(user_id)
@@ -3302,7 +3335,7 @@ async def run_learning_analysis(user_id: int = Header(..., alias="X-User-Id")):
 
 
 @app.get("/api/learning/patterns")
-async def get_learned_patterns(user_id: int = Header(..., alias="X-User-Id"), min_confidence: float = 0.3):
+async def get_learned_patterns(user_id: int = Depends(get_current_user), min_confidence: float = 0.3):
     """Get all learned remediation patterns"""
     try:
         patterns = learning_service.get_learned_patterns(user_id, min_confidence)
@@ -3315,7 +3348,7 @@ async def get_learned_patterns(user_id: int = Header(..., alias="X-User-Id"), mi
 
 
 @app.get("/api/learning/playbooks")
-async def get_auto_playbooks(user_id: int = Header(..., alias="X-User-Id"), status: Optional[str] = None):
+async def get_auto_playbooks(user_id: int = Depends(get_current_user), status: Optional[str] = None):
     """Get auto-generated playbooks"""
     try:
         playbooks = learning_service.get_auto_playbooks(user_id, status)
@@ -3328,7 +3361,7 @@ async def get_auto_playbooks(user_id: int = Header(..., alias="X-User-Id"), stat
 
 
 @app.post("/api/learning/playbooks/{playbook_id}/approve")
-async def approve_playbook(playbook_id: int, user_id: int = Header(..., alias="X-User-Id")):
+async def approve_playbook(playbook_id: int, user_id: int = Depends(get_current_user)):
     """Approve an auto-generated playbook for use"""
     conn = get_db()
     cursor = conn.cursor()
@@ -3353,7 +3386,7 @@ async def approve_playbook(playbook_id: int, user_id: int = Header(..., alias="X
 
 
 @app.get("/api/learning/data-value")
-async def get_data_value_summary(user_id: int = Header(..., alias="X-User-Id")):
+async def get_data_value_summary(user_id: int = Depends(get_current_user)):
     """Get summary of how data is being used and its value"""
     try:
         summary = learning_service.get_data_value_summary(user_id)
@@ -3366,7 +3399,7 @@ async def get_data_value_summary(user_id: int = Header(..., alias="X-User-Id")):
 async def get_matching_playbooks(
     alert_id: Optional[int] = None,
     control_id: Optional[str] = None,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Get playbooks that match an alert or control"""
     try:
@@ -3401,7 +3434,7 @@ async def get_matching_playbooks(
 
 
 @app.get("/api/learning/patterns/control/{control_id}")
-async def get_control_patterns(control_id: str, user_id: int = Header(..., alias="X-User-Id")):
+async def get_control_patterns(control_id: str, user_id: int = Depends(get_current_user)):
     """Get learned patterns for a specific control"""
     try:
         patterns = learning_service.find_patterns_for_control(user_id, control_id)
@@ -3417,7 +3450,7 @@ async def get_control_patterns(control_id: str, user_id: int = Header(..., alias
 async def execute_playbook(
     playbook_id: int,
     request: Request,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Track playbook execution and update usage metrics"""
     try:
@@ -3474,7 +3507,7 @@ async def execute_playbook(
 
 
 @app.post("/api/alerts/check-drift")
-async def check_compliance_drift(user_id: int = Header(..., alias="X-User-Id")):
+async def check_compliance_drift(user_id: int = Depends(get_current_user)):
     """Check all frameworks for compliance drift and generate alerts"""
     try:
         alerts = alert_service.check_and_generate_alerts(user_id)
@@ -3490,7 +3523,7 @@ async def check_compliance_drift(user_id: int = Header(..., alias="X-User-Id")):
         raise HTTPException(status_code=500, detail=f"Failed to check drift: {str(e)}")
 
 @app.get("/api/alerts/actionable")
-async def get_actionable_alerts_endpoint(user_id: int = Header(..., alias="X-User-Id"), limit: int = 50):
+async def get_actionable_alerts_endpoint(user_id: int = Depends(get_current_user), limit: int = 50):
     """Get all actionable alerts with remediation guidance"""
     try:
         alerts = alert_service.get_actionable_alerts(user_id, limit)
@@ -3681,7 +3714,7 @@ class ClientOrganizationCreate(BaseModel):
 @app.post("/api/intake/organizations")
 async def create_client_organization_endpoint(
     data: ClientOrganizationCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a new client organization for intake management"""
     try:
@@ -3702,7 +3735,7 @@ async def create_client_organization_endpoint(
 
 @app.get("/api/intake/organizations")
 async def list_client_organizations_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     intake_tier: Optional[int] = Query(None)
 ):
     """List all client organizations"""
@@ -3716,7 +3749,7 @@ async def list_client_organizations_endpoint(
 @app.get("/api/intake/organizations/{org_id}")
 async def get_client_organization_endpoint(
     org_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Get a specific client organization"""
     try:
@@ -3734,7 +3767,7 @@ async def get_client_organization_endpoint(
 async def update_intake_tier_endpoint(
     org_id: int,
     new_tier: int = Query(...),
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Update client's intake tier (upgrade/downgrade)"""
     try:
@@ -3777,7 +3810,7 @@ class DocumentUpload(BaseModel):
 @app.post("/api/intake/tier1/documents")
 async def upload_document_endpoint(
     data: DocumentUpload,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Upload a document for Tier 1 manual intake"""
     try:
@@ -3802,7 +3835,7 @@ async def upload_document_endpoint(
 
 @app.get("/api/intake/tier1/documents")
 async def list_documents_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     client_org_id: Optional[int] = Query(None),
     document_type: Optional[str] = Query(None),
     parsing_status: Optional[str] = Query(None),
@@ -3826,7 +3859,7 @@ class DocumentControlMapping(BaseModel):
 async def map_document_to_controls_endpoint(
     doc_id: int,
     data: DocumentControlMapping,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Map document data to compliance controls"""
     try:
@@ -3855,7 +3888,7 @@ class QuestionnaireCreate(BaseModel):
 @app.post("/api/intake/tier1/questionnaires")
 async def create_questionnaire_endpoint(
     data: QuestionnaireCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a questionnaire template"""
     try:
@@ -3883,7 +3916,7 @@ class QuestionnaireResponse(BaseModel):
 async def submit_questionnaire_response_endpoint(
     questionnaire_id: int,
     data: QuestionnaireResponse,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Submit responses to a questionnaire"""
     try:
@@ -3930,7 +3963,7 @@ class APIIntegrationConfig(BaseModel):
 @app.post("/api/intake/tier2/integrations")
 async def configure_api_integration_endpoint(
     data: APIIntegrationConfig,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Configure a new read-only API integration"""
     try:
@@ -3956,7 +3989,7 @@ async def configure_api_integration_endpoint(
 
 @app.get("/api/intake/tier2/integrations")
 async def list_api_integrations_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     client_org_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None)
 ):
@@ -3971,7 +4004,7 @@ async def list_api_integrations_endpoint(
 @app.post("/api/intake/tier2/integrations/{integration_id}/sync")
 async def trigger_api_sync_endpoint(
     integration_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Trigger a sync for an API integration"""
     try:
@@ -4005,7 +4038,7 @@ class ScheduledExportConfig(BaseModel):
 @app.post("/api/intake/tier3/exports")
 async def configure_scheduled_export_endpoint(
     data: ScheduledExportConfig,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Configure a scheduled export ingestion"""
     try:
@@ -4031,7 +4064,7 @@ async def configure_scheduled_export_endpoint(
 
 @app.get("/api/intake/tier3/exports")
 async def list_scheduled_exports_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     client_org_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None)
 ):
@@ -4053,7 +4086,7 @@ class ScheduledExportProcess(BaseModel):
 async def process_scheduled_export_endpoint(
     config_id: int,
     data: ScheduledExportProcess,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Process a received scheduled export file"""
     try:
@@ -4094,7 +4127,7 @@ class ContinuousIngestionConfig(BaseModel):
 @app.post("/api/intake/tier4/continuous")
 async def configure_continuous_ingestion_endpoint(
     data: ContinuousIngestionConfig,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Configure continuous data ingestion (Tier 4 - SaaS territory)"""
     try:
@@ -4118,7 +4151,7 @@ async def configure_continuous_ingestion_endpoint(
 
 @app.get("/api/intake/tier4/continuous")
 async def list_continuous_ingestion_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     client_org_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None)
 ):
@@ -4164,7 +4197,7 @@ async def ingest_continuous_event_endpoint(
 
 @app.get("/api/intake/dashboard")
 async def get_intake_dashboard_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     client_org_id: Optional[int] = Query(None)
 ):
     """Get intake dashboard metrics across all tiers"""
@@ -4278,7 +4311,7 @@ class EngagementCreate(BaseModel):
 @app.post("/api/consulting/engagements")
 async def create_engagement_endpoint(
     data: EngagementCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a new consulting engagement"""
     try:
@@ -4304,7 +4337,7 @@ async def create_engagement_endpoint(
 
 @app.get("/api/consulting/engagements")
 async def list_engagements_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     status: Optional[str] = Query(None),
     client_org_id: Optional[int] = Query(None)
 ):
@@ -4319,7 +4352,7 @@ async def list_engagements_endpoint(
 @app.get("/api/consulting/engagements/{engagement_id}")
 async def get_engagement_endpoint(
     engagement_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Get engagement details"""
     try:
@@ -4337,7 +4370,7 @@ async def get_engagement_endpoint(
 async def update_engagement_status_endpoint(
     engagement_id: int,
     status: str = Query(...),
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Update engagement status"""
     try:
@@ -4359,7 +4392,7 @@ class TimeEntryCreate(BaseModel):
 async def log_time_entry_endpoint(
     engagement_id: int,
     data: TimeEntryCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Log time entry for engagement"""
     try:
@@ -4392,7 +4425,7 @@ class AssessmentTemplateCreate(BaseModel):
 @app.post("/api/consulting/assessment-templates")
 async def create_assessment_template_endpoint(
     data: AssessmentTemplateCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a proprietary assessment template"""
     try:
@@ -4413,7 +4446,7 @@ async def create_assessment_template_endpoint(
 
 @app.get("/api/consulting/assessment-templates")
 async def list_assessment_templates_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     template_type: Optional[str] = Query(None)
 ):
     """List assessment templates"""
@@ -4426,7 +4459,7 @@ async def list_assessment_templates_endpoint(
 
 @app.post("/api/consulting/assessment-templates/default")
 async def create_default_template_endpoint(
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create default security maturity assessment template"""
     try:
@@ -4447,7 +4480,7 @@ class AssessmentCreate(BaseModel):
 @app.post("/api/consulting/assessments")
 async def create_assessment_endpoint(
     data: AssessmentCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a new assessment instance"""
     try:
@@ -4472,7 +4505,7 @@ class AssessmentResponses(BaseModel):
 async def submit_assessment_endpoint(
     assessment_id: int,
     data: AssessmentResponses,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Submit assessment responses and calculate scores"""
     try:
@@ -4510,7 +4543,7 @@ class GapCreate(BaseModel):
 @app.post("/api/consulting/gaps")
 async def create_gap_endpoint(
     data: GapCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a gap analysis record"""
     try:
@@ -4536,7 +4569,7 @@ async def create_gap_endpoint(
 
 @app.get("/api/consulting/gaps")
 async def list_gaps_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     client_org_id: Optional[int] = Query(None),
     engagement_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None)
@@ -4568,7 +4601,7 @@ class RoadmapCreate(BaseModel):
 @app.post("/api/consulting/roadmaps")
 async def create_roadmap_endpoint(
     data: RoadmapCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a compliance/security roadmap"""
     try:
@@ -4606,7 +4639,7 @@ class RoadmapPhaseCreate(BaseModel):
 async def add_roadmap_phase_endpoint(
     roadmap_id: int,
     data: RoadmapPhaseCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Add a phase to a roadmap"""
     try:
@@ -4644,7 +4677,7 @@ async def add_initiative_endpoint(
     roadmap_id: int,
     phase_id: int,
     data: InitiativeCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Add an initiative to a roadmap phase"""
     try:
@@ -4669,7 +4702,7 @@ async def add_initiative_endpoint(
 @app.get("/api/consulting/roadmaps/{roadmap_id}")
 async def get_roadmap_endpoint(
     roadmap_id: int,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Get roadmap with all phases and initiatives"""
     try:
@@ -4696,7 +4729,7 @@ class BudgetPlanCreate(BaseModel):
 @app.post("/api/consulting/budgets")
 async def create_budget_plan_endpoint(
     data: BudgetPlanCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a budget plan"""
     try:
@@ -4729,7 +4762,7 @@ class ReportTemplateCreate(BaseModel):
 @app.post("/api/consulting/report-templates")
 async def create_report_template_endpoint(
     data: ReportTemplateCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create a report template"""
     try:
@@ -4761,7 +4794,7 @@ class ReportGenerate(BaseModel):
 @app.post("/api/consulting/reports/generate")
 async def generate_report_endpoint(
     data: ReportGenerate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Generate a report"""
     try:
@@ -4791,7 +4824,7 @@ class MSPPortfolioCreate(BaseModel):
 @app.post("/api/consulting/msp/portfolios")
 async def create_msp_portfolio_endpoint(
     data: MSPPortfolioCreate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Create an MSP portfolio"""
     try:
@@ -4815,7 +4848,7 @@ class MSPClientAdd(BaseModel):
 async def add_client_to_portfolio_endpoint(
     portfolio_id: int,
     data: MSPClientAdd,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Add a client to MSP portfolio"""
     try:
@@ -4836,7 +4869,7 @@ async def add_client_to_portfolio_endpoint(
 
 @app.get("/api/consulting/msp/dashboard")
 async def get_msp_dashboard_endpoint(
-    user_id: int = Header(..., alias="X-User-Id"),
+    user_id: int = Depends(get_current_user),
     portfolio_id: Optional[int] = Query(None)
 ):
     """Get MSP portfolio dashboard"""
@@ -4858,7 +4891,7 @@ class ClientMetricsUpdate(BaseModel):
 async def update_client_metrics_endpoint(
     client_summary_id: int,
     data: ClientMetricsUpdate,
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Update client metrics in MSP portfolio"""
     try:
@@ -4878,7 +4911,7 @@ async def update_client_metrics_endpoint(
 
 @app.get("/api/consulting/dashboard")
 async def get_consulting_dashboard_endpoint(
-    user_id: int = Header(..., alias="X-User-Id")
+    user_id: int = Depends(get_current_user)
 ):
     """Get consulting dashboard overview"""
     try:
