@@ -14,6 +14,8 @@ from services.csca_engine import (
     map_security_event_to_compliance, calculate_compliance_impact,
     update_compliance_scores_from_security_event, get_security_compliance_correlation,
 )
+from services import alert_service
+from websocket import alert_ws_manager
 
 router = APIRouter()
 

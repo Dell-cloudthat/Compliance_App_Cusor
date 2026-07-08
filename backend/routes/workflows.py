@@ -28,12 +28,11 @@ async def get_workflow_templates_endpoint():
 
 @router.post("/api/workflows", response_model=Dict[str, Any])
 async def create_workflow_endpoint(
-    request: Request,
-    workflow_data: Dict[str, Any] = Body(...)
+    workflow_data: Dict[str, Any] = Body(...),
+    user_id: int = Depends(get_current_user)
 ):
     """Create a new workflow"""
     try:
-        user_id = get_user_id_from_request(request)
         workflow = create_workflow(
             user_id=user_id,
             name=workflow_data.get('name'),
@@ -51,26 +50,36 @@ async def create_workflow_endpoint(
 
 @router.get("/api/workflows", response_model=List[Dict[str, Any]])
 async def list_workflows_endpoint(
-    request: Request,
     workflow_type: Optional[str] = Query(None),
-    status: Optional[str] = Query(None)
+    status: Optional[str] = Query(None),
+    user_id: int = Depends(get_current_user)
 ):
     """List workflows for the current user"""
     try:
-        user_id = get_user_id_from_request(request)
         workflows = list_workflows(user_id, workflow_type, status)
         return workflows
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list workflows: {str(e)}")
 
+@router.get("/api/workflows/analytics", response_model=Dict[str, Any])
+async def get_workflow_analytics_endpoint(
+    days: int = Query(30),
+    user_id: int = Depends(get_current_user)
+):
+    """Get workflow analytics"""
+    try:
+        analytics = get_workflow_analytics(user_id, days)
+        return analytics
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get workflow analytics: {str(e)}")
+
 @router.get("/api/workflows/{workflow_id}", response_model=Dict[str, Any])
 async def get_workflow_endpoint(
     workflow_id: int,
-    request: Request
+    user_id: int = Depends(get_current_user)
 ):
     """Get a specific workflow"""
     try:
-        user_id = get_user_id_from_request(request)
         workflow = get_workflow(workflow_id, user_id)
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow not found")
@@ -83,12 +92,11 @@ async def get_workflow_endpoint(
 @router.put("/api/workflows/{workflow_id}", response_model=Dict[str, Any])
 async def update_workflow_endpoint(
     workflow_id: int,
-    request: Request,
-    workflow_data: Dict[str, Any] = Body(...)
+    workflow_data: Dict[str, Any] = Body(...),
+    user_id: int = Depends(get_current_user)
 ):
     """Update a workflow"""
     try:
-        user_id = get_user_id_from_request(request)
         workflow = update_workflow(
             workflow_id=workflow_id,
             user_id=user_id,
@@ -112,11 +120,10 @@ async def update_workflow_endpoint(
 @router.delete("/api/workflows/{workflow_id}")
 async def delete_workflow_endpoint(
     workflow_id: int,
-    request: Request
+    user_id: int = Depends(get_current_user)
 ):
     """Delete a workflow"""
     try:
-        user_id = get_user_id_from_request(request)
         deleted = delete_workflow(workflow_id, user_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Workflow not found")
@@ -129,12 +136,11 @@ async def delete_workflow_endpoint(
 @router.post("/api/workflows/{workflow_id}/execute", response_model=Dict[str, Any])
 async def execute_workflow_endpoint(
     workflow_id: int,
-    request: Request,
-    execution_data: Dict[str, Any] = Body(...)
+    execution_data: Dict[str, Any] = Body(...),
+    user_id: int = Depends(get_current_user)
 ):
     """Execute a workflow"""
     try:
-        user_id = get_user_id_from_request(request)
         result = execute_workflow(
             workflow_id=workflow_id,
             user_id=user_id,
@@ -148,13 +154,12 @@ async def execute_workflow_endpoint(
 @router.get("/api/workflows/{workflow_id}/executions", response_model=List[Dict[str, Any]])
 async def get_workflow_executions_endpoint(
     workflow_id: int,
-    request: Request,
     status: Optional[str] = Query(None),
-    limit: int = Query(50)
+    limit: int = Query(50),
+    user_id: int = Depends(get_current_user)
 ):
     """Get execution history for a workflow"""
     try:
-        user_id = get_user_id_from_request(request)
         executions = get_workflow_executions(
             workflow_id=workflow_id,
             user_id=user_id,
@@ -164,19 +169,6 @@ async def get_workflow_executions_endpoint(
         return executions
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get workflow executions: {str(e)}")
-
-@router.get("/api/workflows/analytics", response_model=Dict[str, Any])
-async def get_workflow_analytics_endpoint(
-    request: Request,
-    days: int = Query(30)
-):
-    """Get workflow analytics"""
-    try:
-        user_id = get_user_id_from_request(request)
-        analytics = get_workflow_analytics(user_id, days)
-        return analytics
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get workflow analytics: {str(e)}")
 
 
 # ============================================================================

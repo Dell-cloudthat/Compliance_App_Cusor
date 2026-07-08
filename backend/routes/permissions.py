@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 from database import get_db
-from services.iam_service import check_permission
 from services.auth_service import get_current_user
 
 from services.iam_service import (

@@ -11,6 +11,7 @@ from services.iam_service import check_permission
 from services.auth_service import get_current_user
 
 from services import learning_service
+from services import alert_service
 
 router = APIRouter()
 
