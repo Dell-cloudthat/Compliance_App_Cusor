@@ -122,6 +122,7 @@ export default function IntegrationMapView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    CONNECTION_TYPES, PRODUCT_LIBRARY, integrationMapSvgRef,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,

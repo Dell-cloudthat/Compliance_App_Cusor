@@ -122,6 +122,7 @@ export default function AutomationView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    exportAutomationPlan, generateAutomationPlan,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,

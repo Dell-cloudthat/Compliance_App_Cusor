@@ -14,6 +14,7 @@ import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock
   Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network,
   BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap
 } from 'lucide-react';
+import api from '../services/api';
 import { useCompliance } from '../context/ComplianceContext';
 
 export default function CscaView() {
@@ -122,6 +123,7 @@ export default function CscaView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    loadDemoCSCAData, setSelectedSecurityEvent, setShowSecurityEventModal,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,

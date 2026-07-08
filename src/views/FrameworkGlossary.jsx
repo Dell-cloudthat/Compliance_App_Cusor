@@ -122,6 +122,7 @@ export default function FrameworkGlossary() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    FRAMEWORK_GLOSSARY,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,

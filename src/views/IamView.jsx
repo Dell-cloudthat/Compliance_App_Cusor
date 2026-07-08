@@ -14,6 +14,7 @@ import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock
   Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network,
   BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap
 } from 'lucide-react';
+import api from '../services/api';
 import { useCompliance } from '../context/ComplianceContext';
 
 export default function IamView() {
@@ -122,6 +123,7 @@ export default function IamView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    accessByArea, allUsers, complianceMapping, expandedArea, iamSectionsExpanded, mappedPermissions, roles, selectedUserForDetails, selectedUserForTracking, setExpandedArea, setIamSectionsExpanded, setSelectedUserForDetails, setSelectedUserForTracking, vendorAccessProfiles,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,
@@ -188,6 +190,80 @@ export default function IamView() {
     playbookExecutionProgress, setPlaybookExecutionProgress,
     alertPlaybooksMap, setAlertPlaybooksMap,
   } = ctx;
+
+  const renderPermissionGrantModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-foreground">Grant Permission</h3>
+            <button onClick={() => setShowPermissionGrant(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="space-y-4">
+            <div><label className="block text-sm font-medium text-foreground mb-1">User ID</label><input type="number" value={permissionFormData.user_id || ''} onChange={(e) => setPermissionFormData({...permissionFormData, user_id: parseInt(e.target.value)})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground" placeholder="Enter user ID" /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-1">Resource Type</label><select value={permissionFormData.resource_type} onChange={(e) => setPermissionFormData({...permissionFormData, resource_type: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"><option value="control">Control</option><option value="audit">Audit</option><option value="report">Report</option><option value="evidence">Evidence</option><option value="all">All Resources</option></select></div>
+            <div><label className="block text-sm font-medium text-foreground mb-1">Resource ID (optional)</label><input type="text" value={permissionFormData.resource_id} onChange={(e) => setPermissionFormData({...permissionFormData, resource_id: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground" placeholder="Leave empty for all resources" /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-1">Permission Type</label><select value={permissionFormData.permission_type} onChange={(e) => setPermissionFormData({...permissionFormData, permission_type: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground"><option value="read">Read</option><option value="write">Write</option><option value="execute">Execute</option><option value="delete">Delete</option></select></div>
+            <div><label className="block text-sm font-medium text-foreground mb-1">Expires At (optional)</label><input type="datetime-local" value={permissionFormData.expires_at} onChange={(e) => setPermissionFormData({...permissionFormData, expires_at: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground" /></div>
+            <div className="flex gap-2 pt-4">
+              <button onClick={async () => {
+                if (!permissionFormData.user_id) { alert('Please enter a user ID'); return; }
+                const userId = parseInt(permissionFormData.user_id);
+                if (isNaN(userId)) { alert('Please enter a valid user ID (number)'); return; }
+                try {
+                  const payload = { user_id: userId, resource_type: permissionFormData.resource_type, permission_type: permissionFormData.permission_type };
+                  if (permissionFormData.resource_id?.trim()) payload.resource_id = permissionFormData.resource_id;
+                  if (permissionFormData.expires_at?.trim()) payload.expires_at = permissionFormData.expires_at;
+                  await api.grantPermission(currentUser.id, payload);
+                  await loadIAMData();
+                  setShowPermissionGrant(false);
+                  setPermissionFormData({ user_id: null, resource_type: 'control', resource_id: '', permission_type: 'read', expires_at: '', metadata: {} });
+                } catch (error) {
+                  alert('Error granting permission: ' + (error.detail || error.message || String(error)));
+                }
+              }} className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">Grant Permission</button>
+              <button onClick={() => setShowPermissionGrant(false)} className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderVendorProfileModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-foreground">Create Vendor Access Profile</h3>
+            <button onClick={() => setShowVendorProfile(false)} className="text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="space-y-4">
+            <div><label className="block text-sm font-medium text-foreground mb-1">Vendor Name</label><input type="text" value={vendorProfileFormData.vendor_name} onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, vendor_name: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground" placeholder="e.g., SOC Provider, MDR Vendor" /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-1">Profile Name</label><input type="text" value={vendorProfileFormData.profile_name} onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, profile_name: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground" placeholder="e.g., SOC Team Read-Only" /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-1">Access Expires At (optional)</label><input type="datetime-local" value={vendorProfileFormData.access_expires_at} onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, access_expires_at: e.target.value})} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground" /></div>
+            <div className="flex items-center gap-2"><input type="checkbox" checked={vendorProfileFormData.auto_renew} onChange={(e) => setVendorProfileFormData({...vendorProfileFormData, auto_renew: e.target.checked})} className="w-4 h-4" /><label className="text-sm text-foreground">Auto-renew access</label></div>
+            <div className="pt-4 border-t border-[hsl(var(--border))]"><p className="text-sm text-muted-foreground">Note: Scope and permissions configuration will be added in a future update.</p></div>
+            <div className="flex gap-2 pt-4">
+              <button onClick={async () => {
+                if (!vendorProfileFormData.vendor_name || !vendorProfileFormData.profile_name) { alert('Please fill in vendor name and profile name'); return; }
+                try {
+                  await api.createVendorAccessProfile(currentUser.id, vendorProfileFormData);
+                  await loadIAMData();
+                  setShowVendorProfile(false);
+                  setVendorProfileFormData({ vendor_name: '', profile_name: '', scope: { controls: [], frameworks: [], audits: [] }, permissions: { controls: ['read'], audits: ['read'], evidence: ['read'] }, access_expires_at: '', auto_renew: false });
+                  alert('Vendor access profile created successfully');
+                } catch (error) {
+                  alert('Error creating vendor profile: ' + (error.detail || error.message || String(error)));
+                }
+              }} className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">Create Profile</button>
+              <button onClick={() => setShowVendorProfile(false)} className="px-4 py-2 bg-card border border-[hsl(var(--border))] text-foreground rounded-lg hover:bg-muted">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
 const renderIAM = () => {
   console.log('renderIAM called, allUsers:', allUsers?.length, 'accessByArea:', accessByArea?.length, 'backendConnected:', backendConnected);

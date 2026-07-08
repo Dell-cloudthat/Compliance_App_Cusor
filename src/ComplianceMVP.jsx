@@ -1,4 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { NIST_800_53_CONTROLS } from './frameworks/nist80053-controls';
+import { ISO_27001_CONTROLS } from './frameworks/iso27001-controls';
+import { CIS_CONTROLS } from './frameworks/cis-controls';
+import { HIPAA_CONTROLS } from './frameworks/hipaa-controls';
+import { PCI_DSS_CONTROLS } from './frameworks/pci-dss-controls';
+import { SOC2_CONTROLS } from './frameworks/soc2-controls';
+import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
+import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
 import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
 import api, { API_BASE_URL } from './services/api';
 // Constants and framework data moved to src/data/constants.js
@@ -8092,10 +8100,242 @@ const closeControlDetail = useCallback(() => {
     return FEATURE_RELATIONSHIPS.filter(rel => rel.strength === integrationMapFilterStrength);
   }, [integrationMapFilterStrength]);
 
+  const generateCostPlan = () => {
+    if (!tcoResults) {
+      calculateTCO();
+      return;
+    }
+    const aiRecommendations = [];
+    if (tcoResults.backendCosts) {
+      const backendMonthly = tcoResults.backendCosts.monthly;
+      const totalBackend = (backendMonthly.auth || 0) +
+        (typeof backendMonthly.storage === 'object' ? backendMonthly.storage.total : backendMonthly.storage || 0) +
+        (backendMonthly.api_requests || 0) +
+        (backendMonthly.compute || 0) +
+        (backendMonthly.database || 0);
+      if (totalBackend > tcoResults.monthly.total * 0.3) {
+        aiRecommendations.push({
+          type: 'cost_optimization', priority: 'high',
+          title: 'Backend Costs High',
+          description: `Backend infrastructure costs ($${totalBackend.toFixed(0)}/month) represent ${((totalBackend / tcoResults.monthly.total) * 100).toFixed(1)}% of total monthly costs.`,
+          recommendation: 'Consider implementing data retention policies, API rate limiting, and storage tiering to reduce costs by 20-30%.',
+          estimatedSavings: totalBackend * 0.25, implementationEffort: 'Medium', timeframe: '30-60 days'
+        });
+      }
+    }
+    const vendorCostEstimate = tcoInputs.numVendorTools * 500;
+    if (vendorCostEstimate > tcoResults.monthly.total * 0.4) {
+      aiRecommendations.push({
+        type: 'vendor_optimization', priority: 'high',
+        title: 'Vendor Tool Consolidation',
+        description: `Estimated vendor tool costs ($${vendorCostEstimate.toFixed(0)}/month) are high.`,
+        recommendation: 'Review overlapping tool capabilities and consolidate to 3-4 core vendors.',
+        estimatedSavings: vendorCostEstimate * 0.15, implementationEffort: 'High', timeframe: '60-90 days'
+      });
+    }
+    if (tcoInputs.numAssets > 500) {
+      aiRecommendations.push({
+        type: 'scaling', priority: 'medium',
+        title: 'Asset Scaling Opportunities',
+        description: `With ${tcoInputs.numAssets} assets, volume discounts may apply.`,
+        recommendation: 'Negotiate enterprise pricing tiers. Consider annual prepayment for 10-15% discount.',
+        estimatedSavings: tcoResults.annual.total * 0.12, implementationEffort: 'Low', timeframe: '15-30 days'
+      });
+    }
+    const gapControls = controls.filter(c => c.status === "Not Implemented" || c.status === "Non-Compliant" || c.status === "Partial");
+    if (gapControls.length > 10) {
+      aiRecommendations.push({
+        type: 'compliance_gaps', priority: 'critical',
+        title: 'Compliance Gap Cost Impact',
+        description: `${gapControls.length} controls are non-compliant, increasing audit risk and potential fines.`,
+        recommendation: 'Prioritize critical controls (AC-*, SI-*, IR-*) to reduce audit findings and potential penalties by 40-60%.',
+        estimatedSavings: gapControls.length * 2000, implementationEffort: 'High', timeframe: '90-180 days'
+      });
+    }
+    if (tcoInputs.retentionYears > 3) {
+      aiRecommendations.push({
+        type: 'retention', priority: 'medium',
+        title: 'Data Retention Optimization',
+        description: `${tcoInputs.retentionYears}-year retention may be excessive for some data types.`,
+        recommendation: 'Implement tiered retention: 7 years for critical data, 3 years for standard, 1 year for non-critical.',
+        estimatedSavings: (tcoResults.backendCosts?.monthly?.storage && typeof tcoResults.backendCosts.monthly.storage === 'object'
+          ? tcoResults.backendCosts.monthly.storage.total
+          : tcoResults.backendCosts?.monthly?.storage || 500) * 0.3 * 12,
+        implementationEffort: 'Medium', timeframe: '45-60 days'
+      });
+    }
+    const costPlanData = {
+      currentState: {
+        monthly: tcoResults.monthly.total, annual: tcoResults.annual.total, threeYear: tcoResults.threeYear.total,
+        breakdown: {
+          platform: tcoResults.monthly.platform || 0,
+          backend: tcoResults.backendCosts ?
+            (tcoResults.backendCosts.monthly.auth || 0) +
+            (typeof tcoResults.backendCosts.monthly.storage === 'object' ? tcoResults.backendCosts.monthly.storage.total : tcoResults.backendCosts.monthly.storage || 0) +
+            (tcoResults.backendCosts.monthly.api_requests || 0) +
+            (tcoResults.backendCosts.monthly.compute || 0) +
+            (tcoResults.backendCosts.monthly.database || 0) : 0,
+          vendors: vendorCostEstimate,
+          audits: (tcoResults.annual.audits || 0) / 12,
+          onboarding: (tcoResults.monthly.onboarding || 0)
+        }
+      },
+      optimizedState: {
+        monthly: tcoResults.monthly.total * 0.85, annual: tcoResults.annual.total * 0.85, threeYear: tcoResults.threeYear.total * 0.85,
+        savings: { monthly: tcoResults.monthly.total * 0.15, annual: tcoResults.annual.total * 0.15, threeYear: tcoResults.threeYear.total * 0.15 }
+      },
+      aiRecommendations: aiRecommendations.sort((a, b) => {
+        const priorityOrder = { 'critical': 3, 'high': 2, 'medium': 1, 'low': 0 };
+        return priorityOrder[b.priority] - priorityOrder[a.priority];
+      }),
+      timeline: {
+        immediate: aiRecommendations.filter(r => r.timeframe.includes('15') || r.timeframe.includes('30')).length,
+        shortTerm: aiRecommendations.filter(r => r.timeframe.includes('60') || r.timeframe.includes('45')).length,
+        longTerm: aiRecommendations.filter(r => r.timeframe.includes('90') || r.timeframe.includes('180')).length
+      },
+      generatedAt: new Date().toISOString()
+    };
+    setCostPlan(costPlanData);
+    setShowCostPlan(true);
+  };
+
+  const renderTCOCalculator = () => (
+    <div className="space-y-6">
+      <div className="bg-card rounded-lg shadow p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-semibold">TCO Calculator Inputs</h3>
+          <button onClick={generateCostPlan} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium transition-colors">
+            <Sparkles className="w-4 h-4" />
+            Generate Cost Plan
+          </button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">Number of Assets/Endpoints</label>
+            <input type="number" value={tcoInputs.numAssets} onChange={(e) => updateTCOInput('numAssets', parseInt(e.target.value))} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">Cloud Accounts (AWS/Azure/GCP)</label>
+            <input type="number" value={tcoInputs.numCloudAccounts} onChange={(e) => updateTCOInput('numCloudAccounts', parseInt(e.target.value))} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-2">Vendor Tools (EDR, SIEM, RMM)</label>
+            <input type="number" value={tcoInputs.numVendorTools} onChange={(e) => updateTCOInput('numVendorTools', parseInt(e.target.value))} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-indigo-500" />
+          </div>
+        </div>
+      </div>
+      {tcoResults && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">Monthly Cost</div>
+              <div className="text-3xl font-bold text-foreground">${tcoResults.monthly.total.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">{tcoResults.platformTier} Tier</div>
+            </div>
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">Annual Cost</div>
+              <div className="text-3xl font-bold text-foreground">${tcoResults.annual.total.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">Including audits</div>
+            </div>
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">3-Year TCO</div>
+              <div className="text-3xl font-bold text-foreground">${tcoResults.threeYear.total.toFixed(0)}</div>
+              <div className="text-xs text-muted-foreground mt-1">${tcoResults.threeYear.perAsset}/asset/mo</div>
+            </div>
+            <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg shadow p-6">
+              <div className="text-sm text-muted-foreground mb-1">ROI</div>
+              <div className="text-3xl font-bold text-foreground">{tcoResults.roi.roiPercent}%</div>
+              <div className="text-xs text-muted-foreground mt-1">{tcoResults.roi.paybackMonths} mo payback</div>
+            </div>
+          </div>
+          {tcoResults.backendCosts && (
+            <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow p-6 mt-6">
+              <h4 className="text-lg font-semibold text-foreground mb-4">Backend Cost Breakdown (API Prediction)</h4>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div><div className="text-xs text-muted-foreground">Auth</div><div className="text-lg font-bold text-foreground">${tcoResults.backendCosts.monthly.auth}</div></div>
+                <div><div className="text-xs text-muted-foreground">Storage</div><div className="text-lg font-bold text-foreground">${typeof tcoResults.backendCosts.monthly.storage === 'object' ? tcoResults.backendCosts.monthly.storage.total : tcoResults.backendCosts.monthly.storage}</div></div>
+                <div><div className="text-xs text-muted-foreground">API Requests</div><div className="text-lg font-bold text-foreground">${tcoResults.backendCosts.monthly.api_requests}</div></div>
+                <div><div className="text-xs text-muted-foreground">Compute</div><div className="text-lg font-bold text-foreground">${tcoResults.backendCosts.monthly.compute}</div></div>
+                <div><div className="text-xs text-muted-foreground">Database</div><div className="text-lg font-bold text-foreground">${tcoResults.backendCosts.monthly.database || 'N/A'}</div></div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-[hsl(var(--border))]">
+                <div className="text-sm text-muted-foreground">Per User: <span className="font-semibold text-foreground">${tcoResults.backendCosts.per_user_monthly}/month</span></div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      {showCostPlan && costPlan && (
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-lg p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-2xl font-bold text-foreground flex items-center gap-2"><Sparkles className="w-6 h-6 text-primary" />AI-Generated Cost Optimization Plan</h3>
+              <p className="text-sm text-muted-foreground mt-1">Generated {new Date(costPlan.generatedAt).toLocaleString()}</p>
+            </div>
+            <button onClick={() => setShowCostPlan(false)} className="p-2 hover:bg-muted rounded-lg transition-colors"><X className="w-5 h-5 text-foreground" /></button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-muted/50 border border-[hsl(var(--border))] rounded-lg p-4">
+              <div className="text-sm text-muted-foreground mb-1">Current Monthly Cost</div>
+              <div className="text-2xl font-bold text-foreground">${costPlan.currentState.monthly.toFixed(0)}</div>
+            </div>
+            <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+              <div className="text-sm text-primary mb-1">Optimized Monthly Cost</div>
+              <div className="text-2xl font-bold text-primary">${costPlan.optimizedState.monthly.toFixed(0)}</div>
+            </div>
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+              <div className="text-sm text-green-500 mb-1">Potential Savings</div>
+              <div className="text-2xl font-bold text-green-500">${costPlan.optimizedState.savings.monthly.toFixed(0)}/mo</div>
+              <div className="text-xs text-muted-foreground mt-1">${costPlan.optimizedState.savings.annual.toFixed(0)}/year</div>
+            </div>
+          </div>
+          <div>
+            <h4 className="text-lg font-semibold text-foreground mb-4">AI Recommendations</h4>
+            <div className="space-y-3">
+              {costPlan.aiRecommendations.map((rec, idx) => (
+                <div key={idx} className={`border rounded-lg p-4 ${rec.priority === 'critical' ? 'border-red-500/30 bg-red-500/5' : rec.priority === 'high' ? 'border-orange-500/30 bg-orange-500/5' : 'border-blue-500/30 bg-blue-500/5'}`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${rec.priority === 'critical' ? 'bg-red-500/20 text-red-500' : rec.priority === 'high' ? 'bg-orange-500/20 text-orange-500' : 'bg-blue-500/20 text-blue-500'}`}>{rec.priority.toUpperCase()}</span>
+                        <span className="text-sm font-medium text-foreground">{rec.title}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">{rec.description}</p>
+                      <p className="text-sm text-foreground font-medium">{rec.recommendation}</p>
+                    </div>
+                    <div className="text-right ml-4"><div className="text-lg font-bold text-green-500">${rec.estimatedSavings.toFixed(0)}</div><div className="text-xs text-muted-foreground">savings</div></div>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-muted-foreground mt-2 pt-2 border-t border-[hsl(var(--border))]">
+                    <span>Effort: {rec.implementationEffort}</span><span>•</span><span>Timeframe: {rec.timeframe}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4 className="text-lg font-semibold text-foreground mb-4">Cost Breakdown</h4>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="bg-muted/30 rounded-lg p-3"><div className="text-xs text-muted-foreground mb-1">Platform</div><div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.platform.toFixed(0)}</div></div>
+              <div className="bg-muted/30 rounded-lg p-3"><div className="text-xs text-muted-foreground mb-1">Backend</div><div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.backend.toFixed(0)}</div></div>
+              <div className="bg-muted/30 rounded-lg p-3"><div className="text-xs text-muted-foreground mb-1">Vendors</div><div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.vendors.toFixed(0)}</div></div>
+              <div className="bg-muted/30 rounded-lg p-3"><div className="text-xs text-muted-foreground mb-1">Audits</div><div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.audits.toFixed(0)}</div></div>
+              <div className="bg-muted/30 rounded-lg p-3"><div className="text-xs text-muted-foreground mb-1">Onboarding</div><div className="text-lg font-bold text-foreground">${costPlan.currentState.breakdown.onboarding.toFixed(0)}</div></div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderDataImport = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Data Import Center</h2><p className="text-muted-foreground mt-2">Connect your security tools and import data seamlessly</p></div>;
+  const renderVendors = () => <div className="bg-card rounded-lg shadow p-6"><h2 className="text-2xl font-bold">Vendor Risk Management</h2><p className="text-muted-foreground mt-2">Track third-party compliance and inherited controls</p></div>;
+
   // Build the shared context value consumed by all extracted view components.
   // This single object gives every view access to all state and handlers
   // without requiring prop drilling.
   const ctx = {
+    // Recovered state/helpers restored from pre-split monolith
+    ALERT_ACTION_ICONS, CONNECTION_TYPES, FRAMEWORK_GLOSSARY, FRAMEWORK_LIBRARY, PRODUCT_LIBRARY, accessByArea, alertDetailError, alertDetailLoading, alertFirstDetectedTs, alertLastUpdatedTs, alertPlaybooksMap, allUsers, apiAttributedCount, apiIntegrations, auditComments, auditIntegrationEvents, auditReadiness, auditWorkflowExecutions, auditorMode, complianceMapping, controlCoverageFilter, controlDataSourceFilter, controlGuidanceError, controlGuidanceLoading, controlOwnerFilter, controlPatternsLoading, controlPlaybooks, controlSharedFilter, controlStatusFilter, coveragePercent, coveragePieStyle, coverageSegments, dashboardSectionsExpanded, evidenceCollectionLoading, evidenceCollectionStatus, evidenceFreshness, expandedArea, expandedFrameworks, expandedSections, exportAutomationPlan, externalCoverageCount, fetchControlSegments, filteredControls, filtersAreDefault, formatRelative, frameworks, generateAutomationPlan, generateProjectTimeline, iamSectionsExpanded, integrationMapSvgRef, loadDemoCSCAData, mappedPermissions, matrixFilterCategory, matrixFilterCoverageType, matrixFilterOwnership, mdrProviders, noApiControlsCount, ownershipPieStyle, ownershipSegments, playbookExecutionProgress, playbooksLoading, preAuditReadiness, priorityGuidance, roles, selectedAlertRef, selectedControl, selectedEvidenceForReview, selectedSecurityEvent, selectedUserForDetails, selectedUserForTracking, setAccessByArea, setAlertDetailError, setAlertDetailLoading, setAlertPlaybooksMap, setAllUsers, setApiIntegrations, setAuditComments, setAuditIntegrationEvents, setAuditReadiness, setAuditWorkflowExecutions, setAuditorMode, setComplianceMapping, setControlCoverageFilter, setControlDataSourceFilter, setControlGuidanceError, setControlGuidanceLoading, setControlOwnerFilter, setControlPatternsLoading, setControlPlaybooks, setControlSharedFilter, setControlStatusFilter, setDashboardSectionsExpanded, setEvidenceCollectionLoading, setEvidenceCollectionStatus, setEvidenceFreshness, setExpandedArea, setExpandedFrameworks, setExpandedSections, setIamSectionsExpanded, setMappedPermissions, setMatrixFilterCategory, setMatrixFilterCoverageType, setMatrixFilterOwnership, setMdrProviders, setPlaybookExecutionProgress, setPlaybooksLoading, setPreAuditReadiness, setRoles, setSelectedControl, setSelectedEvidenceForReview, setSelectedSecurityEvent, setSelectedUserForDetails, setSelectedUserForTracking, setShowControlDetail, setShowSecurityEventModal, setThreadNotification, setVendorAccessProfiles, sharedControlsCount, sharedPercent, showControlDetail, showSecurityEventModal, soloControlsCount, statusColors, threadNotification, totalControls, unassignedControlsCount, vendorAccessProfiles,
     // Navigation
     activeView, setActiveView,
     // Core data

@@ -122,6 +122,7 @@ export default function ControlsView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    ALERT_ACTION_ICONS, FRAMEWORK_LIBRARY, alertDetailError, alertDetailLoading, alertFirstDetectedTs, alertLastUpdatedTs, apiAttributedCount, apiIntegrations, controlCoverageFilter, controlDataSourceFilter, controlGuidanceError, controlGuidanceLoading, controlOwnerFilter, controlPatternsLoading, controlPlaybooks, controlSharedFilter, controlStatusFilter, coveragePercent, coveragePieStyle, coverageSegments, externalCoverageCount, fetchControlSegments, filteredControls, filtersAreDefault, formatRelative, frameworks, mdrProviders, noApiControlsCount, ownershipPieStyle, ownershipSegments, playbookExecutionProgress, playbooksLoading, priorityGuidance, selectedControl, setActiveView, setControlCoverageFilter, setControlDataSourceFilter, setControlOwnerFilter, setControlSharedFilter, setControlStatusFilter, setSelectedControl, setThreadNotification, sharedControlsCount, sharedPercent, showControlDetail, soloControlsCount, statusColors, threadNotification, totalControls, unassignedControlsCount,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,
@@ -188,6 +189,11 @@ export default function ControlsView() {
     playbookExecutionProgress, setPlaybookExecutionProgress,
     alertPlaybooksMap, setAlertPlaybooksMap,
   } = ctx;
+
+  // alertLinkedControls: safe fallback — selectedAlert.linked_controls may not be
+  // populated by the backend, so this prevents a ReferenceError while the section
+  // gracefully renders empty rather than crashing.
+  const alertLinkedControls = selectedAlert?.linked_controls || [];
 
 const renderControls = () => {
   const handleResetFilters = () => {

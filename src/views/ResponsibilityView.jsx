@@ -122,6 +122,7 @@ export default function ResponsibilityView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    FRAMEWORK_LIBRARY, apiIntegrations, expandedFrameworks, expandedSections, matrixFilterCategory, matrixFilterCoverageType, matrixFilterOwnership, mdrProviders, setExpandedFrameworks, setExpandedSections, setMatrixFilterCategory, setMatrixFilterCoverageType, setMatrixFilterOwnership,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,

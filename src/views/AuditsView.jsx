@@ -14,6 +14,7 @@ import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock
   Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network,
   BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap
 } from 'lucide-react';
+import api from '../services/api';
 import { useCompliance } from '../context/ComplianceContext';
 
 export default function AuditsView() {
@@ -122,6 +123,7 @@ export default function AuditsView() {
     getViewName, getViewIcon,
     integrationMapNodePositions, integrationMapFilteredRelationships,
     mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
+    FRAMEWORK_LIBRARY, activeView, auditComments, auditIntegrationEvents, auditReadiness, auditWorkflowExecutions, auditorMode, evidenceCollectionLoading, evidenceCollectionStatus, evidenceFreshness, selectedEvidenceForReview, setActiveView, setAuditComments, setAuditorMode, setControlStatusFilter, setEvidenceCollectionStatus, setPreAuditReadiness, setSelectedEvidenceForReview,
     // Control filters & matrix
     controlOwnerFilter, setControlOwnerFilter,
     controlSharedFilter, setControlSharedFilter,
@@ -188,6 +190,106 @@ export default function AuditsView() {
     playbookExecutionProgress, setPlaybookExecutionProgress,
     alertPlaybooksMap, setAlertPlaybooksMap,
   } = ctx;
+
+  const renderEvidenceUploadModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-xl font-bold text-foreground">Upload Audit Evidence</h3>
+            <button onClick={() => setShowEvidenceUpload(false)} className="p-2 hover:bg-muted rounded-lg transition-colors"><X className="w-5 h-5 text-foreground" /></button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div><label className="block text-sm font-medium text-foreground mb-2">Control ID *</label><input type="text" value={evidenceFormData.control_id} onChange={(e) => setEvidenceFormData({ ...evidenceFormData, control_id: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="e.g., AC-001" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-foreground mb-2">Evidence Type *</label><select value={evidenceFormData.evidence_type} onChange={(e) => setEvidenceFormData({ ...evidenceFormData, evidence_type: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"><option value="document">Document</option><option value="screenshot">Screenshot</option><option value="api_data">API Data</option><option value="log_export">Log Export</option><option value="policy">Policy</option><option value="procedure">Procedure</option></select></div>
+              <div><label className="block text-sm font-medium text-foreground mb-2">Expiration Date</label><input type="date" value={evidenceFormData.expiration_date} onChange={(e) => setEvidenceFormData({ ...evidenceFormData, expiration_date: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" /></div>
+            </div>
+            <div><label className="block text-sm font-medium text-foreground mb-2">Evidence Name *</label><input type="text" value={evidenceFormData.evidence_name} onChange={(e) => setEvidenceFormData({ ...evidenceFormData, evidence_name: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="e.g., Access Control Policy v2.0" /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-2">File URL / Link</label><input type="text" value={evidenceFormData.file_url} onChange={(e) => setEvidenceFormData({ ...evidenceFormData, file_url: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="https://... or /path/to/file" /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-2">Notes</label><textarea value={evidenceFormData.notes} onChange={(e) => setEvidenceFormData({ ...evidenceFormData, notes: e.target.value })} rows={3} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="Additional notes about this evidence..." /></div>
+          </div>
+          <div className="p-6 border-t border-[hsl(var(--border))] flex items-center justify-end gap-3">
+            <button onClick={() => setShowEvidenceUpload(false)} className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-foreground hover:bg-muted transition-colors">Cancel</button>
+            <button onClick={handleSubmitEvidence} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium">Upload Evidence</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAuditCreateModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-xl font-bold text-foreground">Create New Audit Engagement</h3>
+            <button onClick={() => setShowAuditCreate(false)} className="p-2 hover:bg-muted rounded-lg transition-colors"><X className="w-5 h-5 text-foreground" /></button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div><label className="block text-sm font-medium text-foreground mb-2">Audit Name *</label><input type="text" value={auditFormData.audit_name} onChange={(e) => setAuditFormData({ ...auditFormData, audit_name: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="e.g., SOC2 Type II 2024" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-foreground mb-2">Framework *</label><select value={auditFormData.framework} onChange={(e) => setAuditFormData({ ...auditFormData, framework: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary">{Object.entries(FRAMEWORK_LIBRARY).map(([key, value]) => (<option key={key} value={key}>{value.name}</option>))}</select></div>
+              <div><label className="block text-sm font-medium text-foreground mb-2">Audit Type *</label><select value={auditFormData.audit_type} onChange={(e) => setAuditFormData({ ...auditFormData, audit_type: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"><option value="Type I">Type I</option><option value="Type II">Type II</option><option value="Surveillance">Surveillance</option><option value="Recertification">Recertification</option><option value="Initial">Initial</option></select></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-foreground mb-2">Start Date *</label><input type="date" value={auditFormData.start_date} onChange={(e) => setAuditFormData({ ...auditFormData, start_date: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" /></div>
+              <div><label className="block text-sm font-medium text-foreground mb-2">End Date</label><input type="date" value={auditFormData.end_date} onChange={(e) => setAuditFormData({ ...auditFormData, end_date: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-foreground mb-2">Auditor Name</label><input type="text" value={auditFormData.auditor_name} onChange={(e) => setAuditFormData({ ...auditFormData, auditor_name: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="e.g., Big 4 Audit Firm" /></div>
+              <div><label className="block text-sm font-medium text-foreground mb-2">Auditor Contact</label><input type="text" value={auditFormData.auditor_contact} onChange={(e) => setAuditFormData({ ...auditFormData, auditor_contact: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="auditor@firm.com" /></div>
+            </div>
+          </div>
+          <div className="p-6 border-t border-[hsl(var(--border))] flex items-center justify-end gap-3">
+            <button onClick={() => setShowAuditCreate(false)} className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-foreground hover:bg-muted transition-colors">Cancel</button>
+            <button onClick={handleCreateAudit} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium">Create Audit</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderFindingCreateModal = () => {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-card border border-[hsl(var(--border))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+          <div className="p-6 border-b border-[hsl(var(--border))] flex items-center justify-between">
+            <h3 className="text-xl font-bold text-foreground">Create Audit Finding</h3>
+            <button onClick={() => setShowFindingCreate(false)} className="p-2 hover:bg-muted rounded-lg transition-colors"><X className="w-5 h-5 text-foreground" /></button>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2"><Sparkles className="w-4 h-4 text-primary" /><span className="text-sm font-semibold text-foreground">AI Finding Assistant</span></div>
+              <p className="text-xs text-muted-foreground mb-3">Get AI-powered suggestions for finding descriptions and remediation plans</p>
+              <button onClick={() => {
+                if (!findingFormData.control_id) { alert('Please enter a Control ID first'); return; }
+                const control = controls.find(c => c.id === findingFormData.control_id);
+                const desc = control ? (control.status === 'Not Set' || control.status === 'Not Implemented' ? `Control ${findingFormData.control_id} (${control.control_name}) is not implemented. ${control.description || ''}` : `Control ${findingFormData.control_id} (${control.control_name}) requires attention.`) : `Control ${findingFormData.control_id} requires attention.`;
+                setFindingFormData({ ...findingFormData, description: desc, remediation_plan: `1. Review control requirements\n2. Implement necessary controls\n3. Collect appropriate evidence\n4. Document implementation\n5. Validate evidence`, severity: control?.status === 'Not Implemented' ? 'high' : 'medium' });
+                alert('AI suggestions applied!');
+              }} className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors text-xs font-medium flex items-center gap-2"><Sparkles className="w-3 h-3" />Generate AI Suggestions</button>
+            </div>
+            <div><label className="block text-sm font-medium text-foreground mb-2">Control ID *</label><input type="text" value={findingFormData.control_id} onChange={(e) => setFindingFormData({ ...findingFormData, control_id: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="e.g., AC-001" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-foreground mb-2">Finding Type *</label><select value={findingFormData.finding_type} onChange={(e) => setFindingFormData({ ...findingFormData, finding_type: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"><option value="observation">Observation</option><option value="deficiency">Deficiency</option><option value="non-conformity">Non-Conformity</option><option value="major_nonconformity">Major Non-Conformity</option></select></div>
+              <div><label className="block text-sm font-medium text-foreground mb-2">Severity *</label><select value={findingFormData.severity} onChange={(e) => setFindingFormData({ ...findingFormData, severity: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select></div>
+            </div>
+            <div><label className="block text-sm font-medium text-foreground mb-2">Description *</label><textarea value={findingFormData.description} onChange={(e) => setFindingFormData({ ...findingFormData, description: e.target.value })} rows={4} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="Describe the finding..." /></div>
+            <div><label className="block text-sm font-medium text-foreground mb-2">Remediation Plan</label><textarea value={findingFormData.remediation_plan} onChange={(e) => setFindingFormData({ ...findingFormData, remediation_plan: e.target.value })} rows={3} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="Describe the remediation plan..." /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium text-foreground mb-2">Assigned To</label><input type="text" value={findingFormData.assigned_to} onChange={(e) => setFindingFormData({ ...findingFormData, assigned_to: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" placeholder="team@company.com" /></div>
+              <div><label className="block text-sm font-medium text-foreground mb-2">Due Date</label><input type="date" value={findingFormData.due_date} onChange={(e) => setFindingFormData({ ...findingFormData, due_date: e.target.value })} className="w-full px-3 py-2 bg-card border border-[hsl(var(--border))] rounded-lg text-foreground focus:ring-2 focus:ring-primary" /></div>
+            </div>
+          </div>
+          <div className="p-6 border-t border-[hsl(var(--border))] flex items-center justify-end gap-3">
+            <button onClick={() => setShowFindingCreate(false)} className="px-4 py-2 border border-[hsl(var(--border))] rounded-lg text-foreground hover:bg-muted transition-colors">Cancel</button>
+            <button onClick={handleCreateFinding} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium">Create Finding</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
 const renderAudits = () => {
   if (selectedAudit) {
