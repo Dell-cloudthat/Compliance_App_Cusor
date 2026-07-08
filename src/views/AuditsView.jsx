@@ -96,7 +96,7 @@ export default function AuditsView() {
     autoMapToolData, toggleControlSelection, applyBulkEdit,
     generateReport, exportJSON, exportResponsibilityMatrix,
     handleNavigateControl, openControlDetail, closeControlDetail,
-    navigateToFeature, selectedControlDetail, setSelectedControlDetail,
+    navigateToFeature,
     controlGuidance, controlPatterns, triggerEvidenceCollection, triggerAutoLinking,
     loadAudits, loadCertifications, loadAuditDetails,
     handleUploadEvidence, handleSubmitEvidence, handleCreateAudit, handleCreateFinding,

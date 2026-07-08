@@ -33,7 +33,6 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 
-
 const ComplianceMVP = ({ onLogout }) => {
   const [activeView, setActiveView] = useState('dashboard');
   const [controls, setControls] = useState([]);
@@ -2931,7 +2930,6 @@ const closeControlDetail = useCallback(() => {
       setDataFlowEdgeForm((prev) => ({ ...prev, automated: Boolean(checked) }));
     }
   };
-
 
   const upsertActionableAlert = useCallback((incomingAlert) => {
     if (!incomingAlert || !incomingAlert.id) return;
@@ -8223,7 +8221,7 @@ const closeControlDetail = useCallback(() => {
     importAssetData, autoMapToolData, toggleControlSelection, applyBulkEdit,
     generateReport, exportJSON, exportResponsibilityMatrix,
     handleNavigateControl, openControlDetail, closeControlDetail,
-    navigateToFeature, selectedControlDetail, setSelectedControlDetail,
+    navigateToFeature,
     controlGuidance, controlPatterns,
     triggerEvidenceCollection, triggerAutoLinking,
     loadAudits, loadCertifications, loadAuditDetails,
