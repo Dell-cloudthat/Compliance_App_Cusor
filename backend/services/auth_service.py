@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -117,7 +118,7 @@ def _create_access_token(user_id: int) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def register_user(name: str, email: str, password: str, organization: str | None = None) -> dict:
+def register_user(name: str, email: str, password: str, organization: Optional[str] = None) -> dict:
     """Create a new user account and return a JWT access token."""
     conn = _get_db()
     try:
@@ -225,7 +226,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id_str: str | None = payload.get("sub")
+        user_id_str: Optional[str] = payload.get("sub")
         if user_id_str is None:
             raise credentials_exception
     except JWTError:
