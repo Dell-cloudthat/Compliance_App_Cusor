@@ -167,7 +167,6 @@ export default function DashboardView() {
     evidenceCollectionLoading, setEvidenceCollectionLoading,
     evidenceFreshness, setEvidenceFreshness,
     autoLinkingStatus, setAutoLinkingStatus,
-    dashboardSectionsExpanded, setDashboardSectionsExpanded,
     vendorAccessProfiles, setVendorAccessProfiles,
     allUsers, setAllUsers,
     selectedUserForTracking, setSelectedUserForTracking,
@@ -187,8 +186,7 @@ export default function DashboardView() {
     alertDetailError, setAlertDetailError,
     playbooksLoading, setPlaybooksLoading,
     selectedPlaybookForAlert, setSelectedPlaybookForAlert,
-    playbookExecutionProgress, setPlaybookExecutionProgress,
-    alertPlaybooksMap, setAlertPlaybooksMap,
+    playbookExecutionProgress, setPlaybookExecutionProgress, setAlertPlaybooksMap,
   } = ctx;
 
 const renderDashboard = () => {
