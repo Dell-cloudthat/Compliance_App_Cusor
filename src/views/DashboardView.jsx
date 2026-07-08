@@ -16,6 +16,15 @@ import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock
 } from 'lucide-react';
 import api from '../services/api';
 import { useCompliance } from '../context/ComplianceContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuGroup,
+} from '@/components/ui/dropdown-menu';
 
 export default function DashboardView() {
   const ctx = useCompliance();
