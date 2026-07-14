@@ -34,6 +34,7 @@ from routes import (
     intake,
     consulting,
     wizard,
+    trust,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -150,6 +151,7 @@ app.include_router(workflows.router)
 app.include_router(intake.router)
 app.include_router(consulting.router)
 app.include_router(wizard.router)
+app.include_router(trust.router)
 
 
 # ── Dev entrypoint ────────────────────────────────────────────────────────────

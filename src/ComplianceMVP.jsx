@@ -30,6 +30,7 @@ import TimelineView       from './views/TimelineView';
 import IntegrationMapView from './views/IntegrationMapView';
 import IntakeWizardView   from './views/IntakeWizardView';
 import WizardShowcasePage from './views/WizardShowcasePage';
+import TrustPortalView   from './views/TrustPortalView';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
@@ -8757,6 +8758,19 @@ const closeControlDetail = useCallback(() => {
                   <span>Product Library</span>
                 </button>
 
+                {/* Trust Portal */}
+                <button
+                  onClick={() => setActiveView('trust')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all border ${
+                    activeView === 'trust'
+                      ? 'bg-green-600 text-white border-green-600'
+                      : 'bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20'
+                  }`}
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Trust Portal</span>
+                </button>
+
                 {/* AI Assessment Wizard — prominent nav entry */}
                 <button
                   onClick={() => setActiveView('wizard')}
@@ -8948,6 +8962,15 @@ const closeControlDetail = useCallback(() => {
                 <span>Product Library</span>
               </button>
 
+              {/* Mobile: Trust Portal */}
+              <button
+                type="button"
+                onClick={() => { setActiveView('trust'); setMobileMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-semibold bg-green-500/10 text-green-600 border border-green-500/20 transition-colors hover:bg-green-500/20"
+              >
+                <Shield className="w-4 h-4" />
+                <span>🛡️ Tenant Trust Portal</span>
+              </button>
               {/* Mobile: AI Assessment */}
               <button
                 type="button"
@@ -9072,6 +9095,7 @@ const closeControlDetail = useCallback(() => {
                activeView === 'responsibility' ? <ResponsibilityView /> :
                 activeView === 'integration-map' ? <IntegrationMapView /> :
                activeView === 'wizard' ? <WizardShowcasePage /> :
+               activeView === 'trust' ? <TrustPortalView /> :
                <ControlsView />}
             </div>
           </main>
