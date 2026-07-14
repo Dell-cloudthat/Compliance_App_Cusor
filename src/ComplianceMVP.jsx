@@ -31,6 +31,7 @@ import IntegrationMapView from './views/IntegrationMapView';
 import IntakeWizardView   from './views/IntakeWizardView';
 import WizardShowcasePage from './views/WizardShowcasePage';
 import TrustPortalView   from './views/TrustPortalView';
+import TrustShowcasePage from './views/TrustShowcasePage';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
@@ -9095,7 +9096,7 @@ const closeControlDetail = useCallback(() => {
                activeView === 'responsibility' ? <ResponsibilityView /> :
                 activeView === 'integration-map' ? <IntegrationMapView /> :
                activeView === 'wizard' ? <WizardShowcasePage /> :
-               activeView === 'trust' ? <TrustPortalView /> :
+               activeView === 'trust' ? <TrustShowcasePage /> :
                <ControlsView />}
             </div>
           </main>
