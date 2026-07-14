@@ -29,6 +29,7 @@ import ResponsibilityView from './views/ResponsibilityView';
 import TimelineView       from './views/TimelineView';
 import IntegrationMapView from './views/IntegrationMapView';
 import IntakeWizardView   from './views/IntakeWizardView';
+import WizardShowcasePage from './views/WizardShowcasePage';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
@@ -8755,6 +8756,19 @@ const closeControlDetail = useCallback(() => {
                   <ListTree className="w-4 h-4" />
                   <span>Product Library</span>
                 </button>
+
+                {/* AI Assessment Wizard — prominent nav entry */}
+                <button
+                  onClick={() => setActiveView('wizard')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all border ${
+                    activeView === 'wizard'
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>AI Assessment</span>
+                </button>
               </nav>
             </div>
 
@@ -8933,6 +8947,16 @@ const closeControlDetail = useCallback(() => {
                 <ListTree className="w-4 h-4" />
                 <span>Product Library</span>
               </button>
+
+              {/* Mobile: AI Assessment */}
+              <button
+                type="button"
+                onClick={() => { setActiveView('wizard'); setMobileMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm font-semibold bg-primary/10 text-primary border border-primary/20 transition-colors hover:bg-primary/20"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>✨ AI Assessment Wizard</span>
+              </button>
             </div>
           )}
         </header>
@@ -9046,7 +9070,8 @@ const closeControlDetail = useCallback(() => {
                activeView === 'vendors' ? renderVendors() :
                activeView === 'timeline' ? <TimelineView /> :
                activeView === 'responsibility' ? <ResponsibilityView /> :
-               activeView === 'integration-map' ? <IntegrationMapView /> :
+                activeView === 'integration-map' ? <IntegrationMapView /> :
+               activeView === 'wizard' ? <WizardShowcasePage /> :
                <ControlsView />}
             </div>
           </main>
