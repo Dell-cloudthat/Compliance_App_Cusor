@@ -28,6 +28,7 @@ import FrameworkGlossary  from './views/FrameworkGlossary';
 import ResponsibilityView from './views/ResponsibilityView';
 import TimelineView       from './views/TimelineView';
 import IntegrationMapView from './views/IntegrationMapView';
+import IntakeWizardView   from './views/IntakeWizardView';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
@@ -139,6 +140,7 @@ const ComplianceMVP = ({ onLogout }) => {
   const [learningAnalysisRunning, setLearningAnalysisRunning] = useState(false);
   const [selectedPlaybook, setSelectedPlaybook] = useState(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const [commandQuery, setCommandQuery] = useState('');
   const [commandHighlightIndex, setCommandHighlightIndex] = useState(0);
   const commandInputRef = useRef(null);
@@ -8775,6 +8777,16 @@ const closeControlDetail = useCallback(() => {
                 <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
                 <div className="text-xs text-muted-foreground">{currentUser.email}</div>
               </div>
+              {/* AI Assessment Wizard */}
+              <button
+                type="button"
+                onClick={() => setShowWizard(true)}
+                title="AI Intake Assessment Wizard"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-primary hover:bg-primary/10 transition-colors border border-primary/30 bg-primary/5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Framework Wizard</span>
+              </button>
               {/* Logout */}
               {onLogout && (
                 <button
@@ -9359,6 +9371,11 @@ const closeControlDetail = useCallback(() => {
         </div>
       )}
     </div>
+
+    {/* AI Framework Intake Wizard */}
+    {showWizard && (
+      <IntakeWizardView onClose={() => setShowWizard(false)} />
+    )}
     </ComplianceProvider>
   );
 };
