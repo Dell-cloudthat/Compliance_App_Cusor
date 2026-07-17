@@ -160,6 +160,16 @@ export default function TrustShowcasePage() {
   const [showPortal, setShowPortal] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [showQA, setShowQA] = useState(null);
+  // Live data from the authenticated user's own trust score
+  const [liveScore, setLiveScore] = useState(null);
+
+  // Fetch the user's real trust score for the hero section
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/trust/score`, { headers: api.getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setLiveScore(d); })
+      .catch(() => {});
+  }, []);
 
   // Cycle demo tabs
   useEffect(() => {
@@ -236,57 +246,85 @@ export default function TrustShowcasePage() {
             </div>
           </div>
 
-          {/* Live animated mock */}
+          {/* Animated sample preview — clearly labelled */}
           <div className="w-full lg:w-80 shrink-0">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-[hsl(var(--border))] px-2 py-0.5 rounded-full">
+                Sample preview
+              </span>
+              <span className="text-xs text-muted-foreground">— your portal uses live data</span>
+            </div>
             <MockDashboard activeTab={activeTab} />
           </div>
         </div>
       </div>
 
-      {/* ── Four pillars ─────────────────────────────────────────────────── */}
+      {/* ── Four pillars — live data when available, sample label when not ── */}
       <div>
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-foreground mb-2">One score. Four proof pillars.</h2>
           <p className="text-muted-foreground">Every metric is backed by live data from your compliance programme</p>
+          {!liveScore && (
+            <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-muted/40 border border-[hsl(var(--border))] text-xs text-muted-foreground">
+              <Info className="w-3 h-3" />
+              Scores below are sample values — open the Trust Portal to see your live numbers
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {PILLARS.map(p => (
-            <div key={p.key} className={`border rounded-xl p-5 ${p.bg} ${p.border}`}>
-              <div className="flex items-start justify-between mb-3">
-                <div className={`w-10 h-10 rounded-xl ${p.bg} border ${p.border} flex items-center justify-center`}>
-                  <p.icon className={`w-5 h-5 ${p.color}`} />
+          {PILLARS.map(p => {
+            // Merge live score if available, otherwise use sample with label
+            const liveP = liveScore?.pillars?.[p.key];
+            const displayScore = liveP ? liveP.score : p.score;
+            const isSample = !liveP;
+            return (
+              <div key={p.key} className={`border rounded-xl p-5 ${p.bg} ${p.border} relative`}>
+                {isSample && (
+                  <span className="absolute top-2 right-2 text-[10px] font-bold text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+                    sample
+                  </span>
+                )}
+                <div className="flex items-start justify-between mb-3">
+                  <div className={`w-10 h-10 rounded-xl ${p.bg} border ${p.border} flex items-center justify-center`}>
+                    <p.icon className={`w-5 h-5 ${p.color}`} />
+                  </div>
+                  <div className="text-right mr-6">
+                    <div className={`text-2xl font-black ${p.color}`}>{displayScore}</div>
+                    <div className="text-xs text-muted-foreground">{p.weight} weight</div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className={`text-2xl font-black ${p.color}`}>{p.score}</div>
-                  <div className="text-xs text-muted-foreground">{p.weight} weight</div>
+                <h3 className="font-bold text-foreground mb-1 text-sm">{p.title}</h3>
+                <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden mb-3">
+                  <div className={`h-full rounded-full ${p.color.replace('text-','bg-')}`} style={{ width: `${displayScore}%` }} />
                 </div>
+                <ul className="space-y-1">
+                  {p.bullets.map(b => (
+                    <li key={b} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <CheckCircle2 className={`w-3 h-3 ${p.color} shrink-0`} /> {b}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <h3 className="font-bold text-foreground mb-1 text-sm">{p.title}</h3>
-              <div className="h-1.5 bg-muted/30 rounded-full overflow-hidden mb-3">
-                <div className={`h-full rounded-full ${p.color.replace('text-','bg-')}`} style={{ width: `${p.score}%` }} />
-              </div>
-              <ul className="space-y-1">
-                {p.bullets.map(b => (
-                  <li key={b} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <CheckCircle2 className={`w-3 h-3 ${p.color} shrink-0`} /> {b}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* ── Proof points grid ────────────────────────────────────────────── */}
+      {/* ── Proof points — sample, clearly labelled ───────────────────────── */}
       <div className="bg-card border border-[hsl(var(--border))] rounded-2xl p-6 md:p-8">
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-foreground mb-2">Hard numbers tenants can trust</h2>
-          <p className="text-muted-foreground">Live metrics pulled from your compliance database — no manual entry</p>
+          <h2 className="text-2xl font-bold text-foreground mb-2">What tenants see in your portal</h2>
+          <div className="flex items-center justify-center gap-2 mt-1">
+            <p className="text-muted-foreground text-sm">Live metrics pulled from your compliance database</p>
+            <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-[hsl(var(--border))] px-2 py-0.5 rounded-full">
+              Sample values shown
+            </span>
+          </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {PROOF_POINTS.map(pp => (
             <div key={pp.label} className="text-center">
-              <div className={`w-12 h-12 rounded-xl bg-muted/30 flex items-center justify-center mx-auto mb-2`}>
+              <div className="w-12 h-12 rounded-xl bg-muted/30 flex items-center justify-center mx-auto mb-2">
                 <pp.icon className={`w-6 h-6 ${pp.color}`} />
               </div>
               <div className={`text-2xl font-black ${pp.color}`}>{pp.value}</div>
@@ -294,6 +332,9 @@ export default function TrustShowcasePage() {
             </div>
           ))}
         </div>
+        <p className="text-center text-xs text-muted-foreground mt-6 border-t border-[hsl(var(--border))] pt-4">
+          These numbers are illustrative. Open the <button onClick={() => setShowPortal(true)} className="text-primary underline underline-offset-2 hover:no-underline">Trust Portal</button> to see your organisation's actual figures.
+        </p>
       </div>
 
       {/* ── Q&A — what tenants ask ────────────────────────────────────────── */}
