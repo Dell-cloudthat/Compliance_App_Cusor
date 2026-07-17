@@ -9,7 +9,9 @@ Four pillars → one Trust Score (0-100):
   • Data Protection     20%  – PII/PHI controls, evidence freshness
 """
 
+import asyncio
 import json
+import logging
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -19,7 +21,34 @@ from fastapi.responses import HTMLResponse
 from database import get_db, DB_PATH
 from services.auth_service import get_current_user
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ─── IAM MCP helper ──────────────────────────────────────────────────────────
+# Routes trust score calls through the MCP server's tool functions directly
+# (same process, no HTTP round-trip) — one code path for all consumers.
+
+async def _iam_call(user_id: int, tool_fn, **kwargs) -> Any:
+    """
+    Set the MCP user contextvar, invoke an iam_* tool function in-process,
+    then reset.  Returns None if the tenant has no IAM credential.
+    """
+    try:
+        from integrations.servers.iam_server import _request_user_id
+    except ImportError:
+        return None
+    ctx_token = _request_user_id.set(user_id)
+    try:
+        return await tool_fn(**kwargs)
+    except ValueError as exc:
+        logger.debug("IAM call skipped for user %s: %s", user_id, exc)
+        return None
+    except Exception as exc:
+        logger.warning("IAM call failed for user %s: %s", user_id, exc)
+        return None
+    finally:
+        _request_user_id.reset(ctx_token)
 
 # ─── Share token table bootstrap ────────────────────────────────────────────
 # Created lazily on first use so it doesn't require a schema migration.
@@ -154,9 +183,18 @@ def _compliance_score(conn, user_id: int) -> Dict[str, Any]:
     }
 
 
-def _ai_protection_score(conn, user_id: int) -> Dict[str, Any]:
-    """AI & ML Protection pillar (25% weight)."""
-    # AI RMF controls (prefix AIRMF-)
+async def _ai_protection_score_async(conn, user_id: int) -> Dict[str, Any]:
+    """AI & ML Protection pillar (25% weight) — uses real IAM data via MCP when available."""
+    from integrations.servers.iam_server import iam_get_user_count, iam_mfa_adoption
+
+    # ── Pull live IAM data through MCP tools ─────────────────────────────────
+    user_counts, mfa_data = await asyncio.gather(
+        _iam_call(user_id, iam_get_user_count),
+        _iam_call(user_id, iam_mfa_adoption),
+        return_exceptions=False,
+    )
+
+    # ── AI RMF controls (prefix AIRMF-) ─────────────────────────────────────
     ai_rows = conn.execute(
         "SELECT status FROM controls WHERE user_id = ? AND id LIKE 'AIRMF-%'",
         (user_id,),
@@ -165,7 +203,7 @@ def _ai_protection_score(conn, user_id: int) -> Dict[str, Any]:
     ai_impl = sum(1 for r in ai_rows if r["status"] in ("Implemented", "Compliant", "Vendor Managed"))
     ai_pct = _pct(ai_impl, ai_total, default=0.0)
 
-    # ATLAS controls (prefix ATLAS-)
+    # ── ATLAS controls (prefix ATLAS-) ──────────────────────────────────────
     atlas_rows = conn.execute(
         "SELECT status FROM controls WHERE user_id = ? AND id LIKE 'ATLAS-%'",
         (user_id,),
@@ -174,48 +212,104 @@ def _ai_protection_score(conn, user_id: int) -> Dict[str, Any]:
     atlas_impl = sum(1 for r in atlas_rows if r["status"] in ("Implemented", "Compliant", "Vendor Managed"))
     atlas_pct = _pct(atlas_impl, atlas_total, default=0.0)
 
-    # Active detected security patterns (proxy for "learned patterns / playbooks")
+    # ── Playbooks / patterns ─────────────────────────────────────────────────
     playbook_rows = conn.execute(
         "SELECT COUNT(*) as n FROM security_event_patterns WHERE user_id = ? AND status = 'active'",
         (user_id,),
     ).fetchone()
     active_playbooks = playbook_rows["n"] if playbook_rows else 0
-
-    # All learned patterns (any status)
     pattern_rows = conn.execute(
         "SELECT COUNT(*) as n FROM security_event_patterns WHERE user_id = ?",
         (user_id,),
     ).fetchone()
     learned_patterns = pattern_rows["n"] if pattern_rows else 0
 
-    # Score: weighted blend + bonus for automation
+    # ── Real MFA adoption bonus (from Okta via MCP) ──────────────────────────
+    mfa_adoption_pct = 0.0
+    mfa_enrolled = 0
+    total_active_users = 0
+    if mfa_data and isinstance(mfa_data, dict):
+        mfa_adoption_pct = float(mfa_data.get("mfa_adoption_pct", 0))
+        mfa_enrolled     = int(mfa_data.get("mfa_enrolled", 0))
+        total_active_users = int(mfa_data.get("total_active_users", 0))
+
+    active_user_count = 0
+    if user_counts and isinstance(user_counts, dict):
+        active_user_count = int(user_counts.get("active", 0) or 0)
+
+    # ── Score computation ─────────────────────────────────────────────────────
     base = ai_pct * 0.45 + atlas_pct * 0.35
     automation_bonus = min(active_playbooks * 3 + learned_patterns * 2, 20)
 
-    # If no AI controls loaded, give partial credit for general security posture
+    # Real MFA data lifts the score — MFA adoption pct contributes up to 20 pts
+    mfa_bonus = mfa_adoption_pct * 0.20 if mfa_data else 0
+
     if ai_total == 0 and atlas_total == 0:
         ctrl = conn.execute(
-            "SELECT COUNT(*) as n FROM controls WHERE user_id = ? AND (category LIKE '%AI%' OR category LIKE '%Identit%' OR category LIKE '%Access%')",
+            "SELECT COUNT(*) as n FROM controls WHERE user_id = ? "
+            "AND (category LIKE '%AI%' OR category LIKE '%Identit%' OR category LIKE '%Access%')",
             (user_id,),
         ).fetchone()["n"]
         base = min(ctrl * 1.5, 50)
 
-    score = _clamp(base + automation_bonus)
+    score = _clamp(base + automation_bonus + mfa_bonus)
 
     return {
         "score": round(score, 1),
         "label": "AI & ML Protection",
+        "iam_data_source": "live_okta" if mfa_data else "controls_only",
         "metrics": {
-            "ai_rmf_controls_total": ai_total,
-            "ai_rmf_controls_implemented": ai_impl,
-            "ai_rmf_coverage_pct": round(ai_pct, 1),
-            "atlas_tactics_covered": atlas_impl,
-            "atlas_tactics_total": atlas_total,
-            "atlas_coverage_pct": round(atlas_pct, 1),
-            "active_playbooks": active_playbooks,
-            "learned_patterns": learned_patterns,
+            "ai_rmf_controls_total":        ai_total,
+            "ai_rmf_controls_implemented":  ai_impl,
+            "ai_rmf_coverage_pct":          round(ai_pct, 1),
+            "atlas_tactics_covered":        atlas_impl,
+            "atlas_tactics_total":          atlas_total,
+            "atlas_coverage_pct":           round(atlas_pct, 1),
+            "active_playbooks":             active_playbooks,
+            "learned_patterns":             learned_patterns,
+            # Live IAM metrics (None when no Okta credential connected)
+            "mfa_adoption_pct":             round(mfa_adoption_pct, 1) if mfa_data else None,
+            "mfa_enrolled":                 mfa_enrolled if mfa_data else None,
+            "total_active_users":           total_active_users if mfa_data else None,
+            "active_user_count_okta":       active_user_count if user_counts else None,
         },
     }
+
+
+def _ai_protection_score(conn, user_id: int) -> Dict[str, Any]:
+    """Sync wrapper — runs the async implementation in the current event loop."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're inside an async context (FastAPI route) — schedule as task
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, _ai_protection_score_async(conn, user_id))
+                return future.result(timeout=15)
+        else:
+            return loop.run_until_complete(_ai_protection_score_async(conn, user_id))
+    except Exception as exc:
+        logger.warning("Async AI protection score failed, falling back: %s", exc)
+        # Synchronous fallback — no IAM data
+        ai_rows   = conn.execute("SELECT status FROM controls WHERE user_id = ? AND id LIKE 'AIRMF-%'", (user_id,)).fetchall()
+        atlas_rows = conn.execute("SELECT status FROM controls WHERE user_id = ? AND id LIKE 'ATLAS-%'", (user_id,)).fetchall()
+        ai_impl   = sum(1 for r in ai_rows   if r["status"] in ("Implemented","Compliant","Vendor Managed"))
+        atlas_impl = sum(1 for r in atlas_rows if r["status"] in ("Implemented","Compliant","Vendor Managed"))
+        ai_pct    = _pct(ai_impl,   len(ai_rows))
+        atlas_pct = _pct(atlas_impl, len(atlas_rows))
+        score     = _clamp(ai_pct * 0.45 + atlas_pct * 0.35)
+        return {
+            "score": round(score, 1), "label": "AI & ML Protection",
+            "iam_data_source": "controls_only",
+            "metrics": {
+                "ai_rmf_controls_total": len(ai_rows), "ai_rmf_controls_implemented": ai_impl,
+                "ai_rmf_coverage_pct": round(ai_pct, 1), "atlas_tactics_covered": atlas_impl,
+                "atlas_tactics_total": len(atlas_rows), "atlas_coverage_pct": round(atlas_pct, 1),
+                "active_playbooks": 0, "learned_patterns": 0,
+                "mfa_adoption_pct": None, "mfa_enrolled": None, "total_active_users": None,
+                "active_user_count_okta": None,
+            },
+        }
 
 
 def _data_protection_score(conn, user_id: int) -> Dict[str, Any]:

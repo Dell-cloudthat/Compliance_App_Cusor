@@ -157,6 +157,16 @@ app.include_router(trust.router)
 app.include_router(credentials.router)
 app.include_router(violations.router)
 
+# ── MCP servers ───────────────────────────────────────────────────────────────
+# Mounted at /mcp/iam — accessible to MCP clients (Claude, MCP Inspector, etc.)
+# Auth middleware enforces JWT on all /mcp/* paths and resolves user_id
+# from the token server-side (no user_id tool parameter).
+
+from integrations.servers.iam_server import create_iam_app, add_iam_auth_middleware
+
+add_iam_auth_middleware(app)           # must come before mount()
+app.mount("/mcp/iam", create_iam_app())
+
 
 # ── Dev entrypoint ────────────────────────────────────────────────────────────
 

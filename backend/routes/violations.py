@@ -456,7 +456,7 @@ def sync_okta_violations(
             detail="Okta credential must be stored as 'your-domain.okta.com::API_TOKEN'.",
         )
 
-    from mcp.okta_iam import OktaIAMClient, okta_get_violation_sources
+    from integrations.okta_iam import OktaIAMClient, okta_get_violation_sources
     client = OktaIAMClient(domain=domain, token=token)
     raw_violations = okta_get_violation_sources(client, inactive_days=inactive_days)
 
