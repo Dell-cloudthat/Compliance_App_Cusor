@@ -18,7 +18,7 @@ import {
   BarChart3, Zap, Lock, Eye, Activity, RefreshCw,
   ChevronDown, ChevronUp, ExternalLink, Info, Star,
   Users, Globe, Layers, Target, ArrowUp, ArrowRight,
-  CheckCheck, XCircle, AlertCircle, Cpu
+  CheckCheck, XCircle, AlertCircle, Cpu, Share2, Copy, Link2
 } from 'lucide-react';
 import api, { API_BASE_URL } from '../services/api';
 
@@ -178,6 +178,38 @@ export default function TrustPortalView() {
   const [expandedPillar, setExpandedPillar] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [exporting, setExporting] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  const generateShareLink = async () => {
+    setShareLoading(true);
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/trust/share`, {
+        method: 'POST',
+        headers: api.getAuthHeaders(),
+      });
+      if (!resp.ok) throw new Error('Failed to generate share link');
+      const data = await resp.json();
+      const url = `${window.location.origin}${data.share_path}`;
+      setShareUrl(url);
+    } catch (err) {
+      alert('Could not generate share link. Make sure the backend is running.');
+    } finally {
+      setShareLoading(false);
+    }
+  };
+
+  const copyShareUrl = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2500);
+    } catch {
+      prompt('Copy this link:', shareUrl);
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -368,6 +400,20 @@ ${reportData.audits?.length ? `
               Export Report
             </button>
             <button
+              onClick={shareUrl ? copyShareUrl : generateShareLink}
+              disabled={shareLoading}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                shareCopied
+                  ? 'bg-green-600 text-white'
+                  : shareUrl
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'border border-[hsl(var(--border))] bg-card hover:bg-muted text-foreground'
+              }`}
+            >
+              {shareCopied ? <CheckCheck className="w-4 h-4" /> : shareUrl ? <Copy className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+              {shareCopied ? 'Copied!' : shareUrl ? 'Copy Link' : shareLoading ? 'Generating…' : 'Share Portal'}
+            </button>
+            <button
               onClick={load}
               className="flex items-center gap-2 px-4 py-2.5 border border-[hsl(var(--border))] bg-card rounded-xl hover:bg-muted text-sm text-foreground transition-colors"
             >
@@ -375,6 +421,20 @@ ${reportData.audits?.length ? `
               Refresh
             </button>
           </div>
+
+          {/* Share URL display */}
+          {shareUrl && !shareCopied && (
+            <div className="mt-3 col-span-full w-full">
+              <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-2.5">
+                <Link2 className="w-4 h-4 text-blue-500 shrink-0" />
+                <span className="text-xs text-blue-600 font-mono flex-1 truncate">{shareUrl}</span>
+                <button onClick={copyShareUrl} className="text-xs text-blue-600 font-semibold hover:underline shrink-0">Copy</button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 px-1">
+                Share this link with prospects or auditors — no account required to view. Revoke anytime by generating a new link.
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

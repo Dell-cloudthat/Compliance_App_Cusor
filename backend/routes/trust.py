@@ -10,15 +10,36 @@ Four pillars → one Trust Score (0-100):
 """
 
 import json
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException
-from database import get_db
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from database import get_db, DB_PATH
 from services.auth_service import get_current_user
-from services.iam_service import check_permission
 
 router = APIRouter()
+
+# ─── Share token table bootstrap ────────────────────────────────────────────
+# Created lazily on first use so it doesn't require a schema migration.
+
+def _ensure_share_table() -> None:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trust_share_tokens (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id    INTEGER NOT NULL,
+            token      TEXT    NOT NULL UNIQUE,
+            label      TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,
+            is_active  BOOLEAN DEFAULT 1,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    conn.commit()
+    conn.close()
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -365,3 +386,260 @@ def get_trust_report(user_id: int = Depends(get_current_user)) -> Dict[str, Any]
         "evidence_summary": [dict(e) for e in evidence_summary],
         "event_summary": [dict(e) for e in event_summary],
     }
+
+
+# ─── Public share token endpoints ────────────────────────────────────────────
+
+def _build_public_payload(user_id: int, conn) -> Dict[str, Any]:
+    """
+    Narrow public payload: composite score, tier, pillar scores, certs,
+    and framework badge list ONLY.  No event counts, no control itemisation.
+    """
+    from routes.trust import (
+        _security_score, _compliance_score,
+        _ai_protection_score, _data_protection_score, _clamp
+    )
+
+    security   = _security_score(conn, user_id)
+    compliance = _compliance_score(conn, user_id)
+    ai_protect = _ai_protection_score(conn, user_id)
+    data_prot  = _data_protection_score(conn, user_id)
+
+    composite = round(_clamp(
+        security["score"] * 0.25 + compliance["score"] * 0.30
+        + ai_protect["score"] * 0.25 + data_prot["score"] * 0.20
+    ), 1)
+
+    if composite >= 85:   tier = "Excellent"
+    elif composite >= 70: tier = "Strong"
+    elif composite >= 55: tier = "Developing"
+    elif composite >= 40: tier = "Foundational"
+    else:                 tier = "At Risk"
+
+    user = conn.execute(
+        "SELECT name, organization FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    org_name = (user["organization"] or user["name"] or "Organisation") if user else "Organisation"
+
+    certs = conn.execute(
+        "SELECT certification_name, expiration_date FROM certifications "
+        "WHERE user_id = ? AND status = 'active' ORDER BY expiration_date",
+        (user_id,),
+    ).fetchall()
+
+    fw_scores = dict(conn.execute(
+        """SELECT framework, overall_score
+           FROM compliance_score_history
+           WHERE user_id = ?
+             AND calculated_at = (
+               SELECT MAX(calculated_at) FROM compliance_score_history
+               WHERE user_id = ? AND framework = compliance_score_history.framework
+             )""",
+        (user_id, user_id),
+    ).fetchall() or [])
+
+    return {
+        "organization": org_name,
+        "trust_score": composite,
+        "tier": tier,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "pillars": {
+            "security":   {"score": security["score"],   "label": "Security Coverage"},
+            "compliance": {"score": compliance["score"],  "label": "Compliance Alignment"},
+            "ai":         {"score": ai_protect["score"],  "label": "AI & ML Protection"},
+            "data":       {"score": data_prot["score"],   "label": "Data Protection"},
+        },
+        "certifications": [dict(c) for c in certs],
+        "frameworks_tracked": len(fw_scores),
+        "framework_badges": list(fw_scores.keys()),
+    }
+
+
+@router.post("/api/trust/share")
+def create_share_token(
+    label: Optional[str] = None,
+    user_id: int = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Generate (or rotate) a public share token for the authenticated user.
+    Returns the token and the public portal URL.
+    """
+    _ensure_share_table()
+    token = secrets.token_urlsafe(24)
+    conn = get_db()
+    try:
+        conn.execute("UPDATE trust_share_tokens SET is_active = 0 WHERE user_id = ?", (user_id,))
+        conn.execute(
+            "INSERT INTO trust_share_tokens (user_id, token, label) VALUES (?, ?, ?)",
+            (user_id, token, label or "Public trust portal"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"token": token, "share_path": f"/trust-portal?token={token}"}
+
+
+@router.get("/api/trust/public/{token}")
+def get_public_trust_score(token: str) -> Dict[str, Any]:
+    """
+    Unauthenticated public endpoint — returns the narrowed public payload
+    for the tenant whose share token matches.
+    Excludes ALL incident-level or internal metrics.
+    """
+    _ensure_share_table()
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT user_id FROM trust_share_tokens WHERE token = ? AND is_active = 1",
+            (token,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Share link not found or has been revoked.")
+        return _build_public_payload(row["user_id"], conn)
+    finally:
+        conn.close()
+
+
+@router.get("/trust-portal", response_class=HTMLResponse)
+def public_trust_portal_page(request: Request, token: str = "") -> HTMLResponse:
+    """
+    Server-rendered HTML page — no auth required.
+    Designed to be bookmarked by prospects / auditors.
+    """
+    _ensure_share_table()
+
+    if not token:
+        return HTMLResponse(
+            "<html><body style='font-family:system-ui;padding:40px;color:#111'>"
+            "<h1>Trust Portal</h1><p>No share token provided. Ask your vendor for a share link.</p>"
+            "</body></html>",
+            status_code=400,
+        )
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT user_id FROM trust_share_tokens WHERE token = ? AND is_active = 1",
+            (token,),
+        ).fetchone()
+        if not row:
+            return HTMLResponse(
+                "<html><body style='font-family:system-ui;padding:40px;color:#111'>"
+                "<h1>Link not found</h1><p>This share link has expired or been revoked.</p>"
+                "</body></html>",
+                status_code=404,
+            )
+        data = _build_public_payload(row["user_id"], conn)
+    finally:
+        conn.close()
+
+    score   = data["trust_score"]
+    tier    = data["tier"]
+    org     = data["organization"]
+    pillars = data["pillars"]
+    certs   = data["certifications"]
+    badges  = data["framework_badges"]
+    gen     = data["generated_at"][:10]
+
+    TIER_COLOR = {
+        "Excellent":    "#22c55e",
+        "Strong":       "#3b82f6",
+        "Developing":   "#eab308",
+        "Foundational": "#f97316",
+        "At Risk":      "#ef4444",
+    }
+    tc = TIER_COLOR.get(tier, "#6366f1")
+    circ = 2 * 3.14159 * 54
+    dash = (score / 100) * circ
+
+    pillar_cards = "".join(
+        f"""<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;background:#f8fafc">
+              <div style="font-size:11px;font-weight:600;text-transform:uppercase;color:#64748b;margin-bottom:4px">{p['label']}</div>
+              <div style="font-size:28px;font-weight:900;color:#1e293b">{p['score']}<span style="font-size:14px;color:#94a3b8">/100</span></div>
+              <div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;margin-top:8px">
+                <div style="height:100%;width:{p['score']}%;background:{tc};border-radius:3px"></div>
+              </div>
+            </div>"""
+        for p in pillars.values()
+    )
+
+    cert_chips = "".join(
+        f'<span style="background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:20px;padding:4px 12px;font-size:13px;font-weight:600">✓ {c["certification_name"]}</span>'
+        for c in certs
+    ) or '<span style="color:#94a3b8;font-size:13px">No active certifications on record yet</span>'
+
+    badge_chips = "".join(
+        f'<span style="background:#eff6ff;border:1px solid #bfdbfe;color:#1d4ed8;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600">{b}</span>'
+        for b in badges
+    ) or '<span style="color:#94a3b8;font-size:13px">No framework scores recorded yet</span>'
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trust Portal — {org}</title>
+  <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{font-family:system-ui,-apple-system,sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}}
+    .wrap{{max-width:760px;margin:0 auto;padding:32px 16px 64px}}
+    .card{{background:#fff;border-radius:16px;padding:24px;margin-bottom:16px;border:1px solid #e2e8f0}}
+    .hero{{background:linear-gradient(135deg,{tc}22,{tc}08);border-color:{tc}40}}
+    .ring-wrap{{display:flex;align-items:center;gap:28px;flex-wrap:wrap}}
+    .score-label{{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:{tc}}}
+    .org-name{{font-size:24px;font-weight:800;color:#0f172a;margin:4px 0}}
+    .tier-badge{{display:inline-block;background:{tc}22;border:1px solid {tc}55;color:{tc};border-radius:20px;padding:4px 14px;font-size:13px;font-weight:700;margin-top:6px}}
+    .pillar-grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+    .section-title{{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:12px}}
+    .chips{{display:flex;flex-wrap:wrap;gap:8px}}
+    .disclaimer{{font-size:11px;color:#94a3b8;text-align:center;margin-top:24px}}
+    @media(max-width:480px){{.pillar-grid{{grid-template-columns:1fr}}.ring-wrap{{flex-direction:column;align-items:flex-start}}}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card hero">
+    <div class="ring-wrap">
+      <svg width="120" height="120" style="flex-shrink:0">
+        <circle cx="60" cy="60" r="54" fill="none" stroke="#e2e8f0" stroke-width="10"/>
+        <circle cx="60" cy="60" r="54" fill="none" stroke="{tc}" stroke-width="10"
+          stroke-linecap="round" stroke-dasharray="{dash:.1f} {circ-dash:.1f}"
+          transform="rotate(-90 60 60)"/>
+        <text x="60" y="56" text-anchor="middle" font-size="28" font-weight="900" fill="{tc}">{score}</text>
+        <text x="60" y="72" text-anchor="middle" font-size="12" fill="#94a3b8">/100</text>
+      </svg>
+      <div>
+        <div class="score-label">Tenant Trust Score</div>
+        <div class="org-name">{org}</div>
+        <div class="tier-badge">{tier} Security Posture</div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:8px">As of {gen} · Powered by Compliance Platform</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Four-Pillar Breakdown</div>
+    <div class="pillar-grid">{pillar_cards}</div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Active Certifications</div>
+    <div class="chips">{cert_chips}</div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Compliance Frameworks Tracked ({data['frameworks_tracked']})</div>
+    <div class="chips">{badge_chips}</div>
+  </div>
+
+  <div class="disclaimer">
+    This report was automatically generated from the vendor's live compliance programme.
+    Trust Score is a composite indicator across Security, Compliance, AI Protection, and Data controls.
+    It is not a substitute for formal audit or certification.<br><br>
+    Report generated {gen} · Share link is read-only and contains no internal incident data.
+  </div>
+</div>
+</body>
+</html>"""
+
+    return HTMLResponse(content=html)
