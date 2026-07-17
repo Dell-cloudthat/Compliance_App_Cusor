@@ -480,6 +480,10 @@ const closeControlDetail = useCallback(() => {
   });
   const [tcoResults, setTcoResults] = useState(null);
   const [costPlan, setCostPlan] = useState(null);
+  // Controls tab progressive-disclosure toggles
+  const [showControlsFilters, setShowControlsFilters] = useState(false);
+  const [showControlsBreakdown, setShowControlsBreakdown] = useState(false);
+  const [showControlsMoreDetails, setShowControlsMoreDetails] = useState(false);
   const [showCostPlan, setShowCostPlan] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -8509,6 +8513,9 @@ const closeControlDetail = useCallback(() => {
     selectedRole, setSelectedRole,
     // TCO
     costPlan, setCostPlan,
+    showControlsFilters, setShowControlsFilters,
+    showControlsBreakdown, setShowControlsBreakdown,
+    showControlsMoreDetails, setShowControlsMoreDetails,
     showCostPlan, setShowCostPlan,
     // Audit detail
     auditReadiness, setAuditReadiness,
