@@ -36,6 +36,7 @@ from routes import (
     wizard,
     trust,
     credentials,
+    violations,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -154,6 +155,7 @@ app.include_router(consulting.router)
 app.include_router(wizard.router)
 app.include_router(trust.router)
 app.include_router(credentials.router)
+app.include_router(violations.router)
 
 
 # ── Dev entrypoint ────────────────────────────────────────────────────────────

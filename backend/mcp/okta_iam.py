@@ -334,3 +334,98 @@ if __name__ == "__main__":
         except Exception as e:
             print(json.dumps({"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": str(e)}}))
         sys.stdout.flush()
+
+
+# ─── Violation-enriched tools ────────────────────────────────────────────────
+# These return structured records ready for POST /api/violations/ingest,
+# with entity identity (email, display_name) and control mapping.
+
+CONTROL_MAPPINGS = {
+    "inactive_mfa": {
+        "control_id":     "AC-17",   # Remote Access / MFA
+        "violation_type": "inactive_mfa",
+        "entity_type":    "user",
+    },
+    "stale_access": {
+        "control_id":     "AC-2",    # Account Management
+        "violation_type": "stale_access",
+        "entity_type":    "user",
+    },
+    "no_mfa_enrolled": {
+        "control_id":     "IA-3",    # Device Identification
+        "violation_type": "no_mfa_enrolled",
+        "entity_type":    "user",
+    },
+    "privileged_user_no_review": {
+        "control_id":     "AC-6",    # Least Privilege
+        "violation_type": "privileged_user_no_review",
+        "entity_type":    "user",
+    },
+}
+
+
+def okta_get_violation_sources(
+    client: "OktaIAMClient",
+    inactive_days: int = 90,
+) -> list:
+    """
+    readOnlyHint: true.
+
+    Returns a list of violation records ready for /api/violations/ingest,
+    including the specific user email and display name for each finding.
+
+    Violation types detected:
+      • stale_access        — active users inactive for >inactive_days days
+      • no_mfa_enrolled     — active users with no MFA factors enrolled
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    results = []
+
+    # 1. Stale access — active users who haven't logged in for N days
+    try:
+        stale = client.inactive_users(days=inactive_days, limit=200)
+        for u in stale:
+            results.append({
+                "control_id":    CONTROL_MAPPINGS["stale_access"]["control_id"],
+                "violation_type": "stale_access",
+                "source_vendor": "okta",
+                "entity_type":   "user",
+                "source_id":     u.get("id") or u.get("login"),
+                "email":         u.get("login"),
+                "display_name":  f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or u.get("login"),
+                "raw_context": {
+                    "last_login":      u.get("last_login"),
+                    "inactive_days":   inactive_days,
+                    "okta_status":     u.get("status"),
+                },
+            })
+    except Exception as e:
+        log.warning("okta stale_access fetch failed: %s", e)
+
+    # 2. No MFA enrolled — active users without any enrolled factor
+    try:
+        active_users = client.list_users(limit=200, status="ACTIVE")
+        for u in active_users:
+            uid = u.get("id") or u.get("source_id")
+            if not uid:
+                continue
+            try:
+                factors = client._get(f"/users/{uid}/factors")
+                if not factors:  # empty list = no MFA
+                    results.append({
+                        "control_id":     CONTROL_MAPPINGS["no_mfa_enrolled"]["control_id"],
+                        "violation_type": "no_mfa_enrolled",
+                        "source_vendor":  "okta",
+                        "entity_type":    "user",
+                        "source_id":      uid,
+                        "email":          u.get("login"),
+                        "display_name":   u.get("login"),
+                        "raw_context": {"okta_status": "ACTIVE", "factors": []},
+                    })
+            except Exception:
+                pass  # skip individual user fetch errors
+    except Exception as e:
+        log.warning("okta no_mfa_enrolled fetch failed: %s", e)
+
+    return results

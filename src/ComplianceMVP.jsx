@@ -32,8 +32,9 @@ import IntakeWizardView   from './views/IntakeWizardView';
 import WizardShowcasePage from './views/WizardShowcasePage';
 import TrustPortalView   from './views/TrustPortalView';
 import TrustShowcasePage from './views/TrustShowcasePage';
-import HomeView          from './views/HomeView';
-import IntegrationsView  from './views/IntegrationsView';
+import HomeView             from './views/HomeView';
+import IntegrationsView     from './views/IntegrationsView';
+import ViolationSourcesView from './views/ViolationSourcesView';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
@@ -8612,11 +8613,11 @@ const closeControlDetail = useCallback(() => {
                   /* ── Guided nav: ≤5 items for Tier 1-2 users ─────────────── */
                   <>
                     {[
-                      { view: 'home',    label: 'Home',       icon: Home },
-                      { view: 'wizard',  label: 'Assessment', icon: Sparkles },
-                      { view: 'trust',   label: 'Trust Score',icon: Shield },
-                      { view: 'tco',     label: 'Roadmap',    icon: BarChart3 },
-                      { view: 'integrations', label: 'Connect Tools', icon: Zap },
+                      { view: 'home',       label: 'Home',        icon: Home },
+                      { view: 'wizard',     label: 'Assessment',  icon: Sparkles },
+                      { view: 'trust',      label: 'Trust Score', icon: Shield },
+                      { view: 'violations', label: 'Violations',  icon: AlertTriangle },
+                      { view: 'integrations',label:'Connect Tools',icon: Zap },
                     ].map(item => (
                       <button
                         key={item.view}
@@ -9150,6 +9151,7 @@ const closeControlDetail = useCallback(() => {
                activeView === 'wizard' ? <WizardShowcasePage /> :
                activeView === 'trust' ? <TrustShowcasePage /> :
                activeView === 'integrations' ? <IntegrationsView /> :
+               activeView === 'violations'   ? <ViolationSourcesView /> :
                <ControlsView />}
             </div>
           </main>
