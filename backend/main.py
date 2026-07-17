@@ -11,12 +11,26 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import init_db
 from websocket import alert_ws_manager
 from services.auth_service import get_current_user, register_user, authenticate_user
+from integrations.servers.iam_server import mcp as iam_mcp, create_iam_app, add_iam_auth_middleware
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    # FastMCP's streamable-HTTP session manager runs its own background task
+    # group. Mounting it with app.mount() alone does NOT start that task
+    # group — it must run inside the parent app's lifespan, or every request
+    # to /mcp/iam/mcp fails with "Task group is not initialized."
+    async with iam_mcp.session_manager.run():
+        yield
+
 
 # Route modules
 from routes import (
@@ -41,7 +55,7 @@ from routes import (
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Compliance Platform API", version="1.0.0")
+app = FastAPI(title="Compliance Platform API", version="1.0.0", lifespan=lifespan)
 
 # CORS middleware
 # NOTE: allow_origins is a dev-only localhost list. Before deploying anywhere
@@ -62,13 +76,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# ── Startup ───────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    init_db()
 
 
 # ── Health-check ──────────────────────────────────────────────────────────────
@@ -161,8 +168,6 @@ app.include_router(violations.router)
 # Mounted at /mcp/iam — accessible to MCP clients (Claude, MCP Inspector, etc.)
 # Auth middleware enforces JWT on all /mcp/* paths and resolves user_id
 # from the token server-side (no user_id tool parameter).
-
-from integrations.servers.iam_server import create_iam_app, add_iam_auth_middleware
 
 add_iam_auth_middleware(app)           # must come before mount()
 app.mount("/mcp/iam", create_iam_app())
