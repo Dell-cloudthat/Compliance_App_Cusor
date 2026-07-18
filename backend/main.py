@@ -35,11 +35,22 @@ from routes import (
     consulting,
     wizard,
     trust,
+    credentials,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Compliance Platform API", version="1.0.0")
+
+# MCP JWT auth middleware — must be added before the MCP sub-app is mounted
+# so that /mcp/* requests are intercepted regardless of route order.
+try:
+    from integrations.servers.iam_server import add_iam_auth_middleware, create_iam_app
+    _MCP_AVAILABLE = True
+except ImportError as _mcp_err:
+    import logging as _logging
+    _logging.getLogger(__name__).warning("MCP server unavailable: %s", _mcp_err)
+    _MCP_AVAILABLE = False
 
 # CORS middleware
 # NOTE: allow_origins is a dev-only localhost list. Before deploying anywhere
@@ -152,6 +163,14 @@ app.include_router(intake.router)
 app.include_router(consulting.router)
 app.include_router(wizard.router)
 app.include_router(trust.router)
+app.include_router(credentials.router)
+
+# ── MCP sub-app ───────────────────────────────────────────────────────────────
+# Mounted after all routers so FastAPI's own routes take precedence.
+
+if _MCP_AVAILABLE:
+    add_iam_auth_middleware(app)
+    app.mount("/mcp/iam", create_iam_app())
 
 
 # ── Dev entrypoint ────────────────────────────────────────────────────────────
