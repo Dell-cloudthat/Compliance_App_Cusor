@@ -460,10 +460,7 @@ const renderControls = () => {
               <tr className="border-b-2 border-[hsl(var(--border))] bg-muted/30">
                 <th className="text-left py-3 px-4 font-semibold text-foreground">Control</th>
                 <th className="text-left py-3 px-4 font-semibold text-foreground">Frameworks</th>
-                <th className="text-left py-3 px-4 font-semibold text-foreground">Primary Owner</th>
-                <th className="text-left py-3 px-4 font-semibold text-foreground">Shared</th>
-                <th className="text-left py-3 px-4 font-semibold text-foreground">Secondary Owners</th>
-                <th className="text-left py-3 px-4 font-semibold text-foreground">Data Sources</th>
+                <th className="text-left py-3 px-4 font-semibold text-foreground">Owner</th>
                 <th className="text-left py-3 px-4 font-semibold text-foreground">Coverage</th>
                 <th className="text-left py-3 px-4 font-semibold text-foreground">Status</th>
               </tr>
@@ -471,8 +468,11 @@ const renderControls = () => {
             <tbody>
               {filteredControls.map((control) => {
                 const matrix = control.responsibility;
-                const secondaryOwners = matrix.secondary_owners || [];
-                const dataSources = matrix.data_sources || [];
+                const frameworkList = control.frameworks || [];
+                const frameworkNames = frameworkList.map((fw) => {
+                  const frameworkKey = fw.split(":")[0];
+                  return FRAMEWORK_LIBRARY[frameworkKey]?.name || frameworkKey;
+                });
 
                 return (
                   <tr
@@ -483,77 +483,27 @@ const renderControls = () => {
                     <td className="py-3 px-4 align-top">
                       <div className="font-medium text-foreground">{control.id}</div>
                       <div className="text-sm text-foreground mt-1">{control.control_name}</div>
-                      {control.description && (
-                        <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{control.description}</div>
-                      )}
                     </td>
                     <td className="py-3 px-4 align-top">
-                      <div className="flex flex-wrap gap-1">
-                        {(control.frameworks || []).map((fw, idx) => {
-                          const frameworkKey = fw.split(":")[0];
-                          const frameworkName = FRAMEWORK_LIBRARY[frameworkKey]?.name || frameworkKey;
-                          return (
-                            <span key={`${control.id}-framework-${idx}`} className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded font-medium">
-                              {frameworkName}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 align-top">
-                      <input
-                        type="text"
-                        value={control.responsible_party ?? ""}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateControl(control.id, "responsible_party", e.target.value);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        placeholder="Owner name"
-                        className="w-full px-2 py-1 text-sm bg-card border border-[hsl(var(--border))] rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </td>
-                    <td className="py-3 px-4 align-top">
-                      {matrix.shared_responsibility ? (
-                        <span className="px-2 py-1 bg-orange-500/10 text-orange-500 border border-orange-500/20 rounded-full text-xs font-semibold">
-                          Shared
+                      {frameworkNames.length > 0 ? (
+                        <span
+                          className="text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-1 rounded font-medium"
+                          title={frameworkNames.join(", ")}
+                        >
+                          {frameworkNames.length === 1
+                            ? frameworkNames[0]
+                            : `${frameworkNames.length} frameworks`}
                         </span>
-                      ) : (
-                        <span className="px-2 py-1 bg-muted text-muted-foreground border border-[hsl(var(--border))] rounded-full text-xs font-semibold">
-                          Solo
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 align-top">
-                      <div className="flex flex-wrap gap-1">
-                        {secondaryOwners.length > 0 ? (
-                          secondaryOwners.slice(0, 2).map((owner) => (
-                            <span key={`${control.id}-${owner}`} className="text-xs bg-green-500/20 text-green-500 border border-green-500/30 px-2 py-1 rounded">
-                              {owner}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-muted-foreground">None</span>
-                        )}
-                        {secondaryOwners.length > 2 && (
-                          <span className="text-xs text-muted-foreground">+{secondaryOwners.length - 2} more</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 align-top">
-                      {dataSources.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {dataSources.slice(0, 2).map((ds, idx) => (
-                            <span key={`${control.id}-ds-${idx}`} className="text-xs bg-purple-500/15 text-purple-500 border border-purple-500/20 px-2 py-1 rounded">
-                              {ds.integration}
-                            </span>
-                          ))}
-                          {dataSources.length > 2 && (
-                            <span className="text-xs text-muted-foreground">+{dataSources.length - 2} more</span>
-                          )}
-                        </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">None</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 align-top">
+                      <div className="text-sm text-foreground">
+                        {control.responsible_party || "Unassigned"}
+                      </div>
+                      {matrix.shared_responsibility && (
+                        <div className="text-xs text-muted-foreground mt-0.5">Shared responsibility</div>
                       )}
                     </td>
                     <td className="py-3 px-4 align-top">
@@ -570,21 +520,10 @@ const renderControls = () => {
                       </span>
                     </td>
                     <td className="py-3 px-4 align-top">
-                      <select
-                        value={control.status}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          updateControl(control.id, "status", e.target.value);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border ${statusColors[control.status]}`}
-                      >
-                        <option>Partial</option>
-                        <option>Implemented</option>
-                        <option>Compliant</option>
-                        <option>Non-Compliant</option>
-                        <option>Vendor Managed</option>
-                      </select>
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${statusColors[control.status]}`}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                        {control.status}
+                      </span>
                     </td>
                   </tr>
                 );
