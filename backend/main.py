@@ -36,6 +36,7 @@ from routes import (
     wizard,
     trust,
     credentials,
+    tco,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -164,6 +165,7 @@ app.include_router(consulting.router)
 app.include_router(wizard.router)
 app.include_router(trust.router)
 app.include_router(credentials.router)
+app.include_router(tco.router)
 
 # ── MCP sub-app ───────────────────────────────────────────────────────────────
 # Mounted after all routers so FastAPI's own routes take precedence.

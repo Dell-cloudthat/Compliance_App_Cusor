@@ -191,6 +191,14 @@ class ComplianceAPI {
     });
   }
 
+  // Business Value TCO Analysis — 3-tier gap-to-investment mapping
+  async analyzeTCO(payload) {
+    return this.request('/api/tco/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   // Metadata Tags
   async getMetadataTags() {
     return this.request('/api/metadata-tags');

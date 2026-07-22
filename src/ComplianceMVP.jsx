@@ -35,6 +35,7 @@ import TrustShowcasePage from './views/TrustShowcasePage';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
+import TCOView from './views/TCOView';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9088,7 +9089,7 @@ const closeControlDetail = useCallback(() => {
                  />
                ) :
                activeView === 'csca' ? <CscaView /> :
-               activeView === 'tco' ? renderTCOCalculator() :
+               activeView === 'tco' ? <TCOView /> :
                activeView === 'automation' ? <AutomationView /> :
                activeView === 'import' ? renderDataImport() :
                activeView === 'vendors' ? renderVendors() :
