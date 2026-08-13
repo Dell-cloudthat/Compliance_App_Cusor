@@ -6,11 +6,17 @@ tables on startup). Each test registers a unique throwaway user so runs
 never collide with dev data or each other.
 """
 
+import os
 import random
 import sys
 from pathlib import Path
 
 import pytest
+
+# Must be set before `import main` (and transitively services.rate_limit)
+# so the limiter is constructed disabled — the suite registers many
+# throwaway accounts per run and would otherwise trip the register limit.
+os.environ.setdefault("TESTING", "1")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

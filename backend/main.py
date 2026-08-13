@@ -12,10 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from database import init_db
+from services.rate_limit import limiter
 from websocket import alert_ws_manager
 from services.auth_service import get_current_user, register_user, authenticate_user
 from integrations.servers.iam_server import mcp as iam_mcp, create_iam_app, add_iam_auth_middleware
@@ -116,6 +120,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+# Per-IP request limits on the highest-value abuse targets (login/register).
+# Complements the per-account lockout in auth_service.py, which alone does
+# not stop one IP from credential-stuffing many different email addresses.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 
 # ── Health-check ──────────────────────────────────────────────────────────────
 
@@ -142,12 +154,14 @@ class LoginRequest(BaseModel):
 from fastapi import Depends
 
 @app.post("/api/auth/register")
-async def auth_register(payload: RegisterRequest):
+@limiter.limit("10/hour")
+async def auth_register(request: Request, payload: RegisterRequest):
     """Create a new account and return a JWT access token."""
     return register_user(payload.name, payload.email, payload.password, payload.organization)
 
 @app.post("/api/auth/login")
-async def auth_login(payload: LoginRequest):
+@limiter.limit("10/minute")
+async def auth_login(request: Request, payload: LoginRequest):
     """Verify credentials and return a JWT access token."""
     return authenticate_user(payload.email, payload.password)
 
