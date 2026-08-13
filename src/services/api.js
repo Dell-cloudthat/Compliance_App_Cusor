@@ -199,6 +199,18 @@ class ComplianceAPI {
     });
   }
 
+  // AI Controls Assistant
+  async assistantChat(payload) {
+    return this.request('/api/assistant/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async assistantStatus() {
+    return this.request('/api/assistant/status');
+  }
+
   // Metadata Tags
   async getMetadataTags() {
     return this.request('/api/metadata-tags');

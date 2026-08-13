@@ -39,6 +39,7 @@ import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
 import TCOView from './views/TCOView';
+import AssistantPanel from './components/AssistantPanel';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9489,6 +9490,9 @@ const closeControlDetail = useCallback(() => {
     {showWizard && (
       <IntakeWizardView onClose={() => setShowWizard(false)} />
     )}
+
+    {/* AI Controls Assistant — floating chat, grounded in live controls */}
+    <AssistantPanel />
     </ComplianceProvider>
   );
 };

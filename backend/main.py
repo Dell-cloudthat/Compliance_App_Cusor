@@ -52,6 +52,7 @@ from routes import (
     credentials,
     tco,
     violations,
+    assistant,
 )
 
 # ── Production configuration guard ────────────────────────────────────────────
@@ -202,6 +203,7 @@ app.include_router(trust.router)
 app.include_router(credentials.router)
 app.include_router(tco.router)
 app.include_router(violations.router)
+app.include_router(assistant.router)
 
 # ── MCP servers ───────────────────────────────────────────────────────────────
 # Mounted at /mcp/iam — accessible to MCP clients (Claude, MCP Inspector, etc.)
