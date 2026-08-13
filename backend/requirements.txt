@@ -3,8 +3,9 @@ uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 python-multipart>=0.0.6
 python-jose[cryptography]>=3.3.0
+cryptography>=41.0.0
+# mcp 2.x removed mcp.server.fastmcp — pin to the 1.x SDK line
+mcp[cli]>=1.2.0,<2.0.0
 passlib[bcrypt]>=1.7.4
 bcrypt>=3.1.7,<4.0.0
-cryptography>=41.0.0
-mcp>=1.0.0
 requests>=2.31.0

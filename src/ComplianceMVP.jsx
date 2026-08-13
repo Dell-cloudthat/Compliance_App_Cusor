@@ -7,7 +7,7 @@ import { PCI_DSS_CONTROLS } from './frameworks/pci-dss-controls';
 import { SOC2_CONTROLS } from './frameworks/soc2-controls';
 import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronUp, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
 import api, { API_BASE_URL } from './services/api';
 // Constants and framework data moved to src/data/constants.js
 import {
@@ -32,6 +32,9 @@ import IntakeWizardView   from './views/IntakeWizardView';
 import WizardShowcasePage from './views/WizardShowcasePage';
 import TrustPortalView   from './views/TrustPortalView';
 import TrustShowcasePage from './views/TrustShowcasePage';
+import HomeView             from './views/HomeView';
+import IntegrationsView     from './views/IntegrationsView';
+import ViolationSourcesView from './views/ViolationSourcesView';
 import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
@@ -47,7 +50,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const ComplianceMVP = ({ onLogout }) => {
-  const [activeView, setActiveView] = useState('dashboard');
+  const [activeView, setActiveView] = useState('home');
   const [controls, setControls] = useState([]);
   const [assets, setAssets] = useState([]);
   const [users, setUsers] = useState([]);
@@ -145,6 +148,14 @@ const ComplianceMVP = ({ onLogout }) => {
   const [selectedPlaybook, setSelectedPlaybook] = useState(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  // guided = ≤5 nav items (Tier 1-2 / new users); advanced = full nav
+  const [navMode, setNavMode] = useState(
+    () => localStorage.getItem('navMode') || 'guided'
+  );
+  const setNavModeAndPersist = (mode) => {
+    setNavMode(mode);
+    localStorage.setItem('navMode', mode);
+  };
   const [commandQuery, setCommandQuery] = useState('');
   const [commandHighlightIndex, setCommandHighlightIndex] = useState(0);
   const commandInputRef = useRef(null);
@@ -470,6 +481,10 @@ const closeControlDetail = useCallback(() => {
   });
   const [tcoResults, setTcoResults] = useState(null);
   const [costPlan, setCostPlan] = useState(null);
+  // Controls tab progressive-disclosure toggles
+  const [showControlsFilters, setShowControlsFilters] = useState(false);
+  const [showControlsBreakdown, setShowControlsBreakdown] = useState(false);
+  const [showControlsMoreDetails, setShowControlsMoreDetails] = useState(false);
   const [showCostPlan, setShowCostPlan] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -8499,6 +8514,9 @@ const closeControlDetail = useCallback(() => {
     selectedRole, setSelectedRole,
     // TCO
     costPlan, setCostPlan,
+    showControlsFilters, setShowControlsFilters,
+    showControlsBreakdown, setShowControlsBreakdown,
+    showControlsMoreDetails, setShowControlsMoreDetails,
     showCostPlan, setShowCostPlan,
     // Audit detail
     auditReadiness, setAuditReadiness,
@@ -8597,8 +8615,40 @@ const closeControlDetail = useCallback(() => {
                 <Menu className="w-5 h-5 text-foreground" />
               </button>
 
-              {/* Main Navigation - Desktop */}
+              {/* Main Navigation - Desktop (tiered) */}
               <nav className="hidden md:flex items-center gap-1 ml-8">
+                {navMode === 'guided' ? (
+                  /* ── Guided nav: ≤5 items for Tier 1-2 users ─────────────── */
+                  <>
+                    {[
+                      { view: 'home',       label: 'Home',        icon: Home },
+                      { view: 'wizard',     label: 'Assessment',  icon: Sparkles },
+                      { view: 'trust',      label: 'Trust Score', icon: Shield },
+                      { view: 'violations', label: 'Violations',  icon: AlertTriangle },
+                      { view: 'integrations',label:'Connect Tools',icon: Zap },
+                    ].map(item => (
+                      <button
+                        key={item.view}
+                        onClick={() => setActiveView(item.view)}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          activeView === item.view ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                        }`}
+                      >
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                    {/* Advanced toggle */}
+                    <button
+                      onClick={() => setNavModeAndPersist('advanced')}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors border border-dashed border-muted ml-1"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" /> Advanced
+                    </button>
+                  </>
+                ) : (
+                  /* ── Advanced nav: full nav for Tier 3-4 ─────────────────── */
+                  <>
                 {/* Dashboard - Always Visible */}
                 <button
                   onClick={() => setActiveView('dashboard')}
@@ -8785,6 +8835,15 @@ const closeControlDetail = useCallback(() => {
                   <Sparkles className="w-4 h-4" />
                   <span>AI Assessment</span>
                 </button>
+                    {/* Guided mode toggle */}
+                    <button
+                      onClick={() => setNavModeAndPersist('guided')}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors border border-dashed border-muted ml-1"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" /> Guided
+                    </button>
+                  </>
+                )}
               </nav>
             </div>
 
@@ -9096,8 +9155,11 @@ const closeControlDetail = useCallback(() => {
                activeView === 'timeline' ? <TimelineView /> :
                activeView === 'responsibility' ? <ResponsibilityView /> :
                 activeView === 'integration-map' ? <IntegrationMapView /> :
+               activeView === 'home' ? <HomeView currentUser={currentUser} setActiveView={setActiveView} controls={controls} /> :
                activeView === 'wizard' ? <WizardShowcasePage /> :
                activeView === 'trust' ? <TrustShowcasePage /> :
+               activeView === 'integrations' ? <IntegrationsView /> :
+               activeView === 'violations'   ? <ViolationSourcesView /> :
                <ControlsView />}
             </div>
           </main>
