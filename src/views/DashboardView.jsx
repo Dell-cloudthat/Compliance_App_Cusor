@@ -143,7 +143,6 @@ export default function DashboardView() {
     selectedFramework, setSelectedFramework, searchTerm, setSearchTerm,
     recommendations, selectedRecommendationIndex, setSelectedRecommendationIndex,
     automationPlan, setAutomationPlan, showPlanGenerator, setShowPlanGenerator,
-    frameworkGlossarySearch, setFrameworkGlossarySearch,
     showProductLibrary, setShowProductLibrary, productLibrarySection, setProductLibrarySection,
     integrationMapSelectedFeature, setIntegrationMapSelectedFeature,
     integrationMapHighlightedPath, setIntegrationMapHighlightedPath,

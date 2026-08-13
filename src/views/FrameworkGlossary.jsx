@@ -1,196 +1,23 @@
 /**
- * renderFrameworkGlossary
+ * FrameworkGlossary
  *
- * Extracted from ComplianceMVP.jsx.
- * Uses useCompliance() to access all shared state and handlers.
+ * Fully self-contained: a static reference grid over FRAMEWORK_GLOSSARY
+ * with a local search box. Nothing here is shared with any other view, so
+ * it owns its own state directly instead of reading it through the shared
+ * ComplianceContext.
+ *
+ * (This file previously destructured ~450 identifiers from context —
+ * almost all unused. See docs/STATE_ARCHITECTURE.md for the migration
+ * pattern this rewrite follows.)
  */
 
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock,
-  Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu,
-  ChevronDown, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight,
-  ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3,
-  Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare,
-  Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network,
-  BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap
-} from 'lucide-react';
-import { useCompliance } from '../context/ComplianceContext';
+import React, { useState } from 'react';
+import { Search, ExternalLink } from 'lucide-react';
+import { FRAMEWORK_GLOSSARY } from '../data/constants';
 
 export default function FrameworkGlossary() {
-  const ctx = useCompliance();
-  const {
-    controls, setControls, assets, setAssets, users, setUsers,
-    complianceScores, currentUser, setCurrentUser, backendConnected, apiError,
-    selectedFramework, setSelectedFramework, searchTerm, setSearchTerm,
-    recommendations, selectedRecommendationIndex, setSelectedRecommendationIndex,
-    automationPlan, setAutomationPlan, showPlanGenerator, setShowPlanGenerator,
-    frameworkGlossarySearch, setFrameworkGlossarySearch,
-    showProductLibrary, setShowProductLibrary, productLibrarySection, setProductLibrarySection,
-    integrationMapSelectedFeature, setIntegrationMapSelectedFeature,
-    integrationMapHighlightedPath, setIntegrationMapHighlightedPath,
-    integrationMapFilterStrength, setIntegrationMapFilterStrength,
-    integrationMapSelectedConnection, setIntegrationMapSelectedConnection,
-    integrationMapDimensions, setIntegrationMapDimensions,
-    entities, setEntities, currentEntity, setCurrentEntity,
-    vendors, setVendors, userRole, setUserRole,
-    projectTimeline, automationActivityLog, setAutomationActivityLog,
-    showAutomationWalkthrough, setShowAutomationWalkthrough,
-    selectedAutomationControl, setSelectedAutomationControl,
-    automationChecklistState, setAutomationChecklistState,
-    automationEvidenceNotes, setAutomationEvidenceNotes,
-    automationEvidenceLink, setAutomationEvidenceLink,
-    learnedPatterns, setLearnedPatterns, autoPlaybooks, setAutoPlaybooks,
-    dataValueSummary, learningAnalysisRunning, selectedPlaybook, setSelectedPlaybook,
-    showCommandPalette, setShowCommandPalette, commandQuery, setCommandQuery,
-    commandHighlightIndex, setCommandHighlightIndex,
-    selectedVendorFilter, setSelectedVendorFilter,
-    selectedPriorityFilter, setSelectedPriorityFilter,
-    selectedPriceFilter, setSelectedPriceFilter,
-    responsibilityMatrix, bulkEditMode, setBulkEditMode,
-    selectedControls, setSelectedControls, bulkOwner, setBulkOwner, bulkStatus, setBulkStatus,
-    showUpload, setShowUpload, uploadType, setUploadType,
-    audits, setAudits, selectedAudit, setSelectedAudit,
-    certifications, setCertifications, auditFindings, setAuditFindings,
-    auditEvidence, setAuditEvidence, showAuditCreate, setShowAuditCreate,
-    showFindingCreate, setShowFindingCreate, showEvidenceUpload, setShowEvidenceUpload,
-    auditFormData, setAuditFormData,
-    findingFormData, setFindingFormData,
-    evidenceFormData, setEvidenceFormData,
-    userPermissions, setUserPermissions,
-    permissionAuditLog, setPermissionAuditLog,
-    showPermissionGrant, setShowPermissionGrant, showVendorProfile, setShowVendorProfile,
-    permissionFormData, setPermissionFormData,
-    vendorProfileFormData, setVendorProfileFormData,
-    selectedUserForPermissions, setSelectedUserForPermissions,
-    userAccessSummary, setUserAccessSummary,
-    userAccessLogs, setUserAccessLogs,
-    accessTrackingLoading, setAccessTrackingLoading,
-    securityEvents, setSecurityEvents, complianceAlerts, setComplianceAlerts,
-    complianceScoreHistory, setComplianceScoreHistory,
-    securityComplianceCorrelation, setSecurityComplianceCorrelation,
-    detectedPatterns, setDetectedPatterns, patternAlerts, setPatternAlerts,
-    patternTrends, patternDetectionRunning,
-    frameworkGrowth, setFrameworkGrowth, realtimeScores, setRealtimeScores,
-    actionableAlerts, setActionableAlerts, selectedAlert, setSelectedAlert,
-    alertRemediationForm, setAlertRemediationForm,
-    showAlertRemediation, setShowAlertRemediation,
-    alertSaving, setAlertSaving, matchingPlaybooks, setMatchingPlaybooks,
-    dataFlowNodes, setDataFlowNodes, dataFlowEdges, setDataFlowEdges,
-    dataFlowStats, dataFlowFilters, setDataFlowFilters,
-    dataFlowNodeTypes, dataFlowSensitivities, dataFlowOwners,
-    dataFlowError, dataFlowLoading, dataFlowGraphData, dataFlowGraphRef,
-    dataFlowHasZoomedRef, dataFlowNodeMap, dataFlowEdgeMap,
-    dataFlowAudit, dataFlowAccessSummary, showDataFlowNodeModal, showDataFlowEdgeModal,
-    dataFlowNodeForm, setDataFlowNodeForm, dataFlowEdgeForm, setDataFlowEdgeForm,
-    editingDataFlowNode, editingDataFlowEdge,
-    integrationEventsSummary, showIntegrationEvents, setShowIntegrationEvents,
-    dataFlowNodeSignals, dataFlowNodeAlerts, canEditDataFlow, canManageDataFlow,
-    selectedDataFlowItem, setSelectedDataFlowItem,
-    dataFlowLayoutSaving, dataFlowLayoutResetting, dataFlowLayoutLastSaved,
-    tcoInputs, setTcoInputs, tcoResults, partnerGrowthHistory,
-    stats, coverage, matrixEntriesById, controlsWithResponsibility,
-    ownerOptions, dataSourceOptions, statusOptions,
-    alertRiskSnapshot, alertTimeline, alertQuickActions,
-    filteredDataFlowNodes, filteredDataFlowEdges, goldenThreadData,
-    updateControl, handleFileUpload, importFrameworkControls, importAssetData,
-    autoMapToolData, toggleControlSelection, applyBulkEdit,
-    generateReport, exportJSON, exportResponsibilityMatrix,
-    handleNavigateControl, openControlDetail, closeControlDetail,
-    navigateToFeature,
-    controlGuidance, controlPatterns, triggerEvidenceCollection, triggerAutoLinking,
-    loadAudits, loadCertifications, loadAuditDetails,
-    handleUploadEvidence, handleSubmitEvidence, handleCreateAudit, handleCreateFinding,
-    loadIAMData, loadAccessTrackingData, loadUserAccessDetails,
-    loadCSCAData, runPatternDetection, loadFrameworkGrowth,
-    loadActionableAlerts, runDriftCheckCommand,
-    openAlertRemediation, closeAlertRemediation,
-    handleRemediationFieldChange, handleControlUpdateChange,
-    applyControlUpdates, recordRemediationProgress, handleRemediationSubmit,
-    executePlaybook, fetchAlertDetails, fetchMatchingPlaybooks,
-    loadDataFlowGraph, refreshDataFlowGraph, loadDataFlowAudit,
-    openDataFlowNodeModal, openDataFlowEdgeModal,
-    closeDataFlowNodeModal, closeDataFlowEdgeModal,
-    handleSubmitDataFlowNode, handleSubmitDataFlowEdge,
-    handleDeleteDataFlowNode, handleDeleteDataFlowEdge,
-    persistDataFlowNodePosition, resetDataFlowLayout, handleDataFlowCheckboxChange,
-    loadIntegrationEventsSummary, buildAutomationSteps,
-    openAutomationWalkthrough, closeAutomationWalkthrough,
-    toggleAutomationChecklistStep, handleAutomationProgressSave,
-    loadLearningData, runLearningAnalysis, approvePlaybook, generateDemoLearningData,
-    filteredCommands, commandPaletteItems, handleCommandSelect,
-    calculatePartnerGrade, getGradeFromScore, exportQBRReport,
-    getViewName, getViewIcon,
-    integrationMapNodePositions, integrationMapFilteredRelationships,
-    mobileMenuOpen, setMobileMenuOpen, sidebarCollapsed, setSidebarCollapsed,
-    FRAMEWORK_GLOSSARY,
-    // Control filters & matrix
-    controlOwnerFilter, setControlOwnerFilter,
-    controlSharedFilter, setControlSharedFilter,
-    controlDataSourceFilter, setControlDataSourceFilter,
-    controlCoverageFilter, setControlCoverageFilter,
-    controlStatusFilter, setControlStatusFilter,
-    matrixFilterCategory, setMatrixFilterCategory,
-    matrixFilterCoverageType, setMatrixFilterCoverageType,
-    matrixFilterOwnership, setMatrixFilterOwnership,
-    expandedFrameworks, setExpandedFrameworks,
-    expandedSections, setExpandedSections,
-    selectedEntity, setSelectedEntity,
-    apiIntegrations, setApiIntegrations,
-    mdrProviders, setMdrProviders,
-    selectedControl, setSelectedControl,
-    showControlDetail, setShowControlDetail,
-    controlGuidanceLoading, setControlGuidanceLoading,
-    controlGuidanceError, setControlGuidanceError,
-    controlPlaybooks, setControlPlaybooks,
-    controlPatternsLoading, setControlPatternsLoading,
-    threadNotification, setThreadNotification,
-    importHistory, setImportHistory,
-    importProgress, setImportProgress,
-    showImportWizard, setShowImportWizard,
-    importStep, setImportStep,
-    selectedIntegration, setSelectedIntegration,
-    parsedData, setParsedData,
-    roles, setRoles,
-    showRoleEditor, setShowRoleEditor,
-    selectedRole, setSelectedRole,
-    costPlan, setCostPlan,
-    showCostPlan, setShowCostPlan,
-    auditReadiness, setAuditReadiness,
-    auditIntegrationEvents, setAuditIntegrationEvents,
-    auditWorkflowExecutions, setAuditWorkflowExecutions,
-    preAuditReadiness, setPreAuditReadiness,
-    auditorMode, setAuditorMode,
-    selectedEvidenceForReview, setSelectedEvidenceForReview,
-    auditComments, setAuditComments,
-    evidenceCollectionStatus, setEvidenceCollectionStatus,
-    evidenceCollectionLoading, setEvidenceCollectionLoading,
-    evidenceFreshness, setEvidenceFreshness,
-    autoLinkingStatus, setAutoLinkingStatus,
-    dashboardSectionsExpanded, setDashboardSectionsExpanded,
-    vendorAccessProfiles, setVendorAccessProfiles,
-    allUsers, setAllUsers,
-    selectedUserForTracking, setSelectedUserForTracking,
-    mappedPermissions, setMappedPermissions,
-    complianceMapping, setComplianceMapping,
-    sessionToken, setSessionToken,
-    accessByArea, setAccessByArea,
-    selectedAreaForDetails, setSelectedAreaForDetails,
-    selectedUserForDetails, setSelectedUserForDetails,
-    expandedArea, setExpandedArea,
-    iamSectionsExpanded, setIamSectionsExpanded,
-    selectedSecurityEvent, setSelectedSecurityEvent,
-    showSecurityEventModal, setShowSecurityEventModal,
-    alertsSocketConnected,
-    selectedAlertDetail, setSelectedAlertDetail,
-    alertDetailLoading, setAlertDetailLoading,
-    alertDetailError, setAlertDetailError,
-    playbooksLoading, setPlaybooksLoading,
-    selectedPlaybookForAlert, setSelectedPlaybookForAlert,
-    playbookExecutionProgress, setPlaybookExecutionProgress,
-    alertPlaybooksMap, setAlertPlaybooksMap,
-  } = ctx;
+  const [frameworkGlossarySearch, setFrameworkGlossarySearch] = useState('');
 
-const renderFrameworkGlossary = () => {
   const query = frameworkGlossarySearch.trim().toLowerCase();
   const filteredFrameworks = FRAMEWORK_GLOSSARY.filter((framework) => {
     if (!query) return true;
@@ -293,7 +120,4 @@ const renderFrameworkGlossary = () => {
       )}
     </div>
   );
-};
-
-  return renderFrameworkGlossary();
 }

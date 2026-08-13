@@ -71,7 +71,8 @@ const ComplianceMVP = ({ onLogout }) => {
   const [selectedRecommendationIndex, setSelectedRecommendationIndex] = useState(0);
   const [automationPlan, setAutomationPlan] = useState(null);
   const [showPlanGenerator, setShowPlanGenerator] = useState(false);
-  const [frameworkGlossarySearch, setFrameworkGlossarySearch] = useState('');
+  // frameworkGlossarySearch moved to local state inside FrameworkGlossary.jsx —
+  // it was only ever read by that one view (see docs/STATE_ARCHITECTURE.md).
   const [showProductLibrary, setShowProductLibrary] = useState(false);
   const [productLibrarySection, setProductLibrarySection] = useState(PRODUCT_LIBRARY[0]?.key ?? null);
   const selectedProductFeature = useMemo(() => {
@@ -8371,7 +8372,6 @@ const closeControlDetail = useCallback(() => {
     recommendations, selectedRecommendationIndex, setSelectedRecommendationIndex,
     automationPlan, setAutomationPlan,
     showPlanGenerator, setShowPlanGenerator,
-    frameworkGlossarySearch, setFrameworkGlossarySearch,
     showProductLibrary, setShowProductLibrary,
     productLibrarySection, setProductLibrarySection,
     // Integration map
