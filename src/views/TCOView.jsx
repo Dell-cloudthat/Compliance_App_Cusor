@@ -14,7 +14,7 @@ import {
   TrendingUp, TrendingDown, Shield, Zap, Target, DollarSign,
   Clock, AlertTriangle, CheckCircle, ChevronDown, ChevronRight,
   Sparkles, BarChart3, Users, Database, Server, RefreshCw,
-  ArrowUpRight, Award, Loader2, Info, ExternalLink, Check,
+  ArrowUpRight, Award, Loader2, Info, ExternalLink, Check, Download,
 } from 'lucide-react';
 import { useCompliance } from '../context/ComplianceContext';
 import api from '../services/api';
@@ -287,6 +287,137 @@ export default function TCOView() {
   const TIER_ORDER = ['conservative', 'balanced', 'aggressive'];
   const maxRoi = Math.max(...TIER_ORDER.map(k => tiers[k]?.roi?.net_roi_36m || 0), 1);
 
+  // ── Proposal export (standalone HTML, print-to-PDF ready) ────────────────
+  const exportProposal = useCallback(() => {
+    if (!analysis || !activeTier) return;
+    const t = activeTier;
+    const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const money = n => (n === null || n === undefined || isNaN(n)) ? '—'
+      : '$' + Math.round(n).toLocaleString();
+    const tierRows = TIER_ORDER.map(k => {
+      const x = tiers[k];
+      return `<tr${k === selectedTier ? ' class="selected"' : ''}>
+        <td><strong>${x.label}</strong><br/><span class="muted">${x.subtitle}</span></td>
+        <td>${money(x.costs?.monthly_license)}/mo</td>
+        <td>${money(x.costs?.total_year_1)}</td>
+        <td>${x.timeline_months} months</td>
+        <td>${Math.round((x.gap_coverage_pct || 0) * 100)}%</td>
+        <td>${Math.round((x.breach_risk_reduction || 0) * 100)}%</td>
+        <td>${money(x.roi?.net_roi_36m)}</td>
+      </tr>`;
+    }).join('');
+
+    const toolRows = (t.tools || []).map(tool =>
+      `<tr><td><strong>${tool.name}</strong></td><td>${tool.vendor}</td>
+       <td>${tool.category_label}</td><td>${money(tool.monthly_cost)}/mo</td>
+       <td>${money(tool.setup_cost)}</td><td>${tool.controls_count}</td></tr>`
+    ).join('');
+
+    const milestoneBlocks = (t.milestones || []).map(m => `
+      <div class="milestone">
+        <div class="phase-badge">Phase ${m.phase}</div>
+        <div>
+          <strong>${m.name}</strong> <span class="muted">— Months ${m.month_range}</span>
+          <p class="muted">${m.focus}</p>
+          <p class="muted small">Tools: ${(m.tools || []).map(x => x.vendor).join(', ') || '—'}
+             · +${money(m.monthly_cost_added)}/mo · ${m.controls_addressed} controls</p>
+        </div>
+      </div>`).join('');
+
+    const gs = analysis.inputs_summary?.gap_summary || gapSummary;
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Compliance Investment Proposal — ${t.label}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; color: #1a202c; line-height: 1.5; padding: 48px; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  h2 { font-size: 17px; margin: 28px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #6366F1; }
+  .muted { color: #64748b; } .small { font-size: 12px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #6366F1; padding-bottom: 16px; }
+  .badge { display: inline-block; background: #6366F1; color: #fff; padding: 4px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0; }
+  .stat { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
+  .stat .v { font-size: 20px; font-weight: 700; } .stat .l { font-size: 11px; color: #64748b; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+  th { text-align: left; background: #f1f5f9; padding: 8px 10px; border-bottom: 2px solid #cbd5e1; }
+  td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  tr.selected { background: #eef2ff; }
+  .narrative { background: #f8fafc; border-left: 4px solid #6366F1; padding: 14px 16px; border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 14px; }
+  .milestone { display: flex; gap: 14px; margin: 12px 0; }
+  .phase-badge { flex-shrink: 0; background: #eef2ff; color: #6366F1; font-weight: 700; font-size: 12px; padding: 6px 10px; border-radius: 8px; height: fit-content; }
+  .roi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; }
+  @media print { body { padding: 20px; } .no-print { display: none; } }
+</style></head><body>
+  <div class="header">
+    <div>
+      <h1>Compliance Investment Proposal</h1>
+      <p class="muted">Prepared ${today} · Confidential</p>
+    </div>
+    <span class="badge">${t.label} Plan</span>
+  </div>
+
+  <h2>Executive Summary</h2>
+  <div class="narrative">${t.narrative || ''}</div>
+  <div class="stats">
+    <div class="stat"><div class="v">${money(t.costs?.monthly_license)}/mo</div><div class="l">Monthly investment</div></div>
+    <div class="stat"><div class="v">${t.timeline_months} months</div><div class="l">Implementation timeline</div></div>
+    <div class="stat"><div class="v">${Math.round((t.breach_risk_reduction || 0) * 100)}%</div><div class="l">Breach risk reduction</div></div>
+    <div class="stat"><div class="v">${money(t.roi?.net_roi_36m)}</div><div class="l">3-year net ROI</div></div>
+  </div>
+
+  <h2>Current Compliance Posture</h2>
+  <div class="stats">
+    <div class="stat"><div class="v">${gs.total_controls ?? '—'}</div><div class="l">Controls tracked</div></div>
+    <div class="stat"><div class="v">${gs.total ?? '—'}</div><div class="l">Open gaps</div></div>
+    <div class="stat"><div class="v">${gs.critical ?? '—'}</div><div class="l">Critical gaps</div></div>
+    <div class="stat"><div class="v">${Math.round((t.gap_coverage_pct || 0) * 100)}%</div><div class="l">Gaps addressed by this plan</div></div>
+  </div>
+
+  <h2>Recommended Tool Stack</h2>
+  <table><thead><tr><th>Tool</th><th>Vendor</th><th>Category</th><th>Monthly</th><th>Setup</th><th>Controls</th></tr></thead>
+  <tbody>${toolRows}</tbody></table>
+
+  <h2>Implementation Roadmap</h2>
+  ${milestoneBlocks}
+
+  <h2>Return on Investment</h2>
+  <div class="roi-grid">
+    <table><thead><tr><th colspan="2">Annual Benefits</th></tr></thead><tbody>
+      <tr><td>Breach risk reduction</td><td>${money(t.roi?.annual_risk_savings)}</td></tr>
+      <tr><td>Fine &amp; penalty avoidance</td><td>${money(t.roi?.fine_avoidance)}</td></tr>
+      <tr><td>Security labor savings</td><td>${money(t.roi?.labor_savings)}</td></tr>
+      <tr><td>Audit preparation savings</td><td>${money(t.roi?.audit_savings)}</td></tr>
+      <tr><td><strong>Total annual benefit</strong></td><td><strong>${money(t.roi?.total_annual_benefit)}</strong></td></tr>
+    </tbody></table>
+    <table><thead><tr><th colspan="2">Net Position</th></tr></thead><tbody>
+      <tr><td>12-month net ROI</td><td>${money(t.roi?.net_roi_12m)}</td></tr>
+      <tr><td>24-month net ROI</td><td>${money(t.roi?.net_roi_24m)}</td></tr>
+      <tr><td>36-month net ROI</td><td>${money(t.roi?.net_roi_36m)}</td></tr>
+      <tr><td>Payback period</td><td>${t.roi?.payback_months} months</td></tr>
+      <tr><td>Breach probability</td><td>${t.roi?.breach_probability_before}% → ${t.roi?.breach_probability_after}%</td></tr>
+    </tbody></table>
+  </div>
+
+  <h2>All Options Considered</h2>
+  <table><thead><tr><th>Plan</th><th>Monthly</th><th>Year 1</th><th>Timeline</th><th>Coverage</th><th>Risk ↓</th><th>36-mo ROI</th></tr></thead>
+  <tbody>${tierRows}</tbody></table>
+
+  <div class="footer">
+    Pricing reflects market estimates for a 50–250 seat organization; actual quotes vary by contract and negotiation.
+    ROI model: breach cost benchmarks scaled to ARR, regulatory fine exposure by framework, security labor and audit-prep savings.
+    Generated by the Compliance Automation Platform.
+  </div>
+  <script>window.onload = () => setTimeout(() => window.print(), 400);</script>
+</body></html>`;
+
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+    }
+  }, [analysis, activeTier, tiers, selectedTier, gapSummary]);
+
   return (
     <div className="space-y-6">
 
@@ -299,8 +430,18 @@ export default function TCOView() {
           </p>
         </div>
         {analysis && (
-          <div className="shrink-0 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-2 text-sm text-emerald-500 font-medium">
-            Analysis ready
+          <div className="shrink-0 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={exportProposal}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export Proposal
+            </button>
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-2 text-sm text-emerald-500 font-medium">
+              Analysis ready
+            </div>
           </div>
         )}
       </div>
