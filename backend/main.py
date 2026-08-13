@@ -54,25 +54,62 @@ from routes import (
     violations,
 )
 
+# ── Production configuration guard ────────────────────────────────────────────
+# When APP_ENV=production, refuse to boot with dev-fallback secrets. Both keys
+# have local-file fallbacks that are fine for development but must never sign
+# tokens or encrypt customer credentials on a real server.
+
+import os
+
+APP_ENV = os.getenv("APP_ENV", "development").lower()
+
+if APP_ENV == "production":
+    _missing = [
+        var for var in ("JWT_SECRET_KEY", "ENCRYPTION_KEY")
+        if not os.getenv(var, "").strip()
+    ]
+    if _missing:
+        raise RuntimeError(
+            f"APP_ENV=production but required secrets are not set: {', '.join(_missing)}. "
+            "Generate them with:\n"
+            "  JWT_SECRET_KEY:  openssl rand -hex 32\n"
+            "  ENCRYPTION_KEY:  python -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\""
+        )
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Compliance Platform API", version="1.0.0", lifespan=lifespan)
 
-# CORS middleware
-# NOTE: allow_origins is a dev-only localhost list. Before deploying anywhere
-# reachable from the internet, replace this with your real frontend domain(s) —
-# combining allow_credentials=True with a wildcard/broad origin list is unsafe.
+# CORS: origins come from the CORS_ORIGINS env var (comma-separated) so a
+# deployment can restrict to its real frontend domain without a code change.
+# The localhost list remains the development default. Wildcard entries are
+# rejected because allow_credentials=True + "*" is an unsafe combination.
+_DEV_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://localhost:5176",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5176",
+]
+
+_env_origins = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",")
+    if o.strip() and o.strip() != "*"
+]
+_cors_origins = _env_origins or _DEV_ORIGINS
+
+if APP_ENV == "production" and not _env_origins:
+    raise RuntimeError(
+        "APP_ENV=production but CORS_ORIGINS is not set. "
+        "Set it to your frontend domain(s), e.g. CORS_ORIGINS=https://app.example.com"
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-        "http://localhost:5176",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5176",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

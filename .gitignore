@@ -51,4 +51,6 @@ backend/*.pyc
 backend/.pytest_cache/
 # Auto-generated JWT signing key — never commit this
 backend/.jwt_secret_key
+# Auto-generated Fernet credential-encryption key — never commit this
+backend/.encryption_key
 
