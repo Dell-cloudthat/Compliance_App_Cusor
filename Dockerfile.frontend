@@ -1,0 +1,26 @@
+# Compliance Platform frontend — static Vite build served by nginx
+#
+# Build:  docker build -f Dockerfile.frontend --build-arg VITE_API_URL=https://api.example.com -t compliance-frontend .
+# Run:    docker run -p 80:80 compliance-frontend
+#
+# In most deployments you won't need this file — static hosts like Vercel
+# or Netlify build and serve the Vite output directly (see
+# docs/DEPLOYMENT.md). This Dockerfile exists for platforms that only
+# accept containers (e.g. a single VM running both images via
+# docker-compose, or Render/Railway/Fly for the frontend too).
+
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+# Baked in at build time — Vite inlines VITE_* vars into the JS bundle,
+# so this must be set correctly before building, not at container run time.
+ARG VITE_API_URL=http://localhost:8000
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
