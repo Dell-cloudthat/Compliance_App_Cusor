@@ -7,7 +7,7 @@ import { PCI_DSS_CONTROLS } from './frameworks/pci-dss-controls';
 import { SOC2_CONTROLS } from './frameworks/soc2-controls';
 import { FEDRAMP_CONTROLS } from './frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS } from './frameworks/nist800171-controls';
-import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronUp, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
+import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock, Server, Shield, ShieldCheck, Edit2, Save, X, Users, TrendingUp, Database, Award, Menu, ChevronDown, ChevronUp, ChevronRight, LayoutDashboard, ArrowUpRight, ArrowDownRight, ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3, Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare, Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network, BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap } from 'lucide-react';
 import api, { API_BASE_URL } from './services/api';
 // Constants and framework data moved to src/data/constants.js
 import {
@@ -39,6 +39,7 @@ import DataFlowArchitectureView from './views/DataFlowArchitectureView';
 import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
 import TCOView from './views/TCOView';
+import AdminView from './views/AdminView';
 import AssistantPanel from './components/AssistantPanel';
 import {
   DropdownMenu,
@@ -4816,13 +4817,14 @@ const closeControlDetail = useCallback(() => {
 
         // Resolve the authenticated user from the JWT stored by api.js
         try {
-          const me = await api.request('/api/auth/me');
+          const me = await api.getCurrentUser();
           setCurrentUser({
             id: me.id,
             email: me.email || currentUser.email,
             name: me.name || currentUser.email.split('@')[0],
             organization: me.organization || currentUser.organization,
             role: me.role || currentUser.role,
+            isPlatformAdmin: !!me.is_platform_admin,
           });
 
           // Bootstrap: grant admin role to first user (no-op if admins already exist)
@@ -8086,7 +8088,8 @@ const closeControlDetail = useCallback(() => {
       'automation': 'Automation Plan', 'import': 'Data Import', 'vendors': 'Vendors',
       'timeline': 'Timeline', 'responsibility': 'Responsibility Matrix',
       'audits': 'Audits & Certifications', 'iam': 'IAM & Permissions',
-      'framework_glossary': 'Framework Glossary', 'integration-map': 'Feature Integration Map'
+      'framework_glossary': 'Framework Glossary', 'integration-map': 'Feature Integration Map',
+      'admin': 'Waitlist & Assistant Analytics',
     };
     return viewNames[view] || 'Controls';
   };
@@ -8096,7 +8099,7 @@ const closeControlDetail = useCallback(() => {
       'dashboard': LayoutDashboard, 'controls': Shield, 'tco': TrendingUp,
       'automation': Award, 'import': Upload, 'vendors': Users, 'timeline': TrendingUp,
       'responsibility': Database, 'audits': ClipboardList, 'iam': UserCheck,
-      'framework_glossary': BookOpen, 'integration-map': Network
+      'framework_glossary': BookOpen, 'integration-map': Network, 'admin': ShieldCheck,
     };
     const IconComponent = icons[view] || Shield;
     return <IconComponent className="w-4 h-4" />;
@@ -8867,6 +8870,22 @@ const closeControlDetail = useCallback(() => {
                 <div className="text-sm font-medium text-foreground">{currentUser.organization}</div>
                 <div className="text-xs text-muted-foreground">{currentUser.email}</div>
               </div>
+              {/* Platform admin panel — only visible to configured operator accounts */}
+              {currentUser.isPlatformAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setActiveView('admin')}
+                  title="Waitlist & Assistant Analytics"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                    activeView === 'admin'
+                      ? 'text-amber-500 bg-amber-500/10 border-amber-500/30'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground border-[hsl(var(--border))]'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Admin</span>
+                </button>
+              )}
               {/* AI Assessment Wizard */}
               <button
                 type="button"
@@ -9159,6 +9178,7 @@ const closeControlDetail = useCallback(() => {
                activeView === 'home' ? <HomeView currentUser={currentUser} setActiveView={setActiveView} controls={controls} /> :
                activeView === 'wizard' ? <WizardShowcasePage /> :
                activeView === 'trust' ? <TrustShowcasePage /> :
+               activeView === 'admin' ? <AdminView /> :
                activeView === 'integrations' ? <IntegrationsView /> :
                activeView === 'violations'   ? <ViolationSourcesView /> :
                <ControlsView />}

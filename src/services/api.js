@@ -195,6 +195,7 @@ class ComplianceAPI {
   async analyzeTCO(payload) {
     return this.request('/api/tco/analyze', {
       method: 'POST',
+      headers: { ...this.getAuthHeaders() },
       body: JSON.stringify(payload),
     });
   }
@@ -203,12 +204,66 @@ class ComplianceAPI {
   async assistantChat(payload) {
     return this.request('/api/assistant/chat', {
       method: 'POST',
+      headers: { ...this.getAuthHeaders() },
       body: JSON.stringify(payload),
     });
   }
 
   async assistantStatus() {
-    return this.request('/api/assistant/status');
+    return this.request('/api/assistant/status', {
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  async assistantAnalytics() {
+    return this.request('/api/assistant/analytics', {
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  // Early-access waitlist — signup/redeem are public (no auth); the rest
+  // require a platform-admin account (see PLATFORM_ADMIN_EMAILS on the backend).
+  async waitlistSignup(payload) {
+    return this.request('/api/waitlist/signup', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async waitlistRedeem(token, password) {
+    const data = await this.request('/api/waitlist/redeem', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+    this.setToken(data.access_token);
+    return data;
+  }
+
+  async waitlistList(statusFilter) {
+    const qs = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : '';
+    return this.request(`/api/waitlist${qs}`, {
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  async waitlistStats() {
+    return this.request('/api/waitlist/stats', {
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  async waitlistInvite(id) {
+    return this.request(`/api/waitlist/${id}/invite`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  async waitlistDecline(id) {
+    return this.request(`/api/waitlist/${id}/decline`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+    });
   }
 
   // Metadata Tags
@@ -582,6 +637,12 @@ class ComplianceAPI {
       headers: {
         ...this.getAuthHeaders(),
       },
+    });
+  }
+
+  async getCurrentUser() {
+    return this.request('/api/auth/me', {
+      headers: { ...this.getAuthHeaders() },
     });
   }
 
