@@ -21,9 +21,7 @@ SMTP configured, the admin just copies the returned invite_link.
 import logging
 import os
 import secrets
-import smtplib
 import sqlite3
-from email.message import EmailMessage
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -31,6 +29,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from database import DB_PATH
 from services.auth_service import register_user, require_platform_admin
+from services.email_service import send_email
 from services.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
@@ -98,37 +97,19 @@ class RedeemInvite(BaseModel):
 # ─── Email (optional) ──────────────────────────────────────────────────────────
 
 def _send_invite_email(to_email: str, to_name: str, invite_link: str) -> bool:
-    """Best-effort SMTP send. Returns False (never raises) if unconfigured/failed —
-    the caller always gets the invite_link back regardless, so this is purely
-    a convenience layer."""
-    host = os.getenv("SMTP_HOST", "").strip()
-    if not host:
-        return False
-    try:
-        port = int(os.getenv("SMTP_PORT", "587"))
-        user = os.getenv("SMTP_USER", "")
-        password = os.getenv("SMTP_PASSWORD", "")
-        from_addr = os.getenv("SMTP_FROM", user or "no-reply@example.com")
-
-        msg = EmailMessage()
-        msg["Subject"] = "You're invited — early access to the platform"
-        msg["From"] = from_addr
-        msg["To"] = to_email
-        msg.set_content(
+    """Returns False (never raises) if unconfigured/failed — the caller
+    always gets the invite_link back regardless, so this is purely a
+    convenience layer."""
+    return send_email(
+        to_email=to_email,
+        to_name=to_name,
+        subject="You're invited — early access to the platform",
+        body_text=(
             f"Hi {to_name},\n\n"
             f"You're in! Set up your account here:\n{invite_link}\n\n"
             f"This link is single-use and doesn't expire, but please don't share it.\n"
-        )
-
-        with smtplib.SMTP(host, port, timeout=10) as server:
-            server.starttls()
-            if user:
-                server.login(user, password)
-            server.send_message(msg)
-        return True
-    except Exception as exc:
-        logger.warning("Invite email send failed for %s: %s", to_email, exc)
-        return False
+        ),
+    )
 
 
 def _frontend_invite_url(token: str) -> str:

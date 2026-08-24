@@ -40,6 +40,7 @@ import ClientIntakePortalView from './views/ClientIntakePortalView';
 import ConsultingPortalView from './views/ConsultingPortalView';
 import TCOView from './views/TCOView';
 import AdminView from './views/AdminView';
+import ActionItemsView from './views/ActionItemsView';
 import AssistantPanel from './components/AssistantPanel';
 import {
   DropdownMenu,
@@ -8089,7 +8090,7 @@ const closeControlDetail = useCallback(() => {
       'timeline': 'Timeline', 'responsibility': 'Responsibility Matrix',
       'audits': 'Audits & Certifications', 'iam': 'IAM & Permissions',
       'framework_glossary': 'Framework Glossary', 'integration-map': 'Feature Integration Map',
-      'admin': 'Waitlist & Assistant Analytics',
+      'admin': 'Waitlist & Assistant Analytics', 'action-items': 'Action Items',
     };
     return viewNames[view] || 'Controls';
   };
@@ -8100,6 +8101,7 @@ const closeControlDetail = useCallback(() => {
       'automation': Award, 'import': Upload, 'vendors': Users, 'timeline': TrendingUp,
       'responsibility': Database, 'audits': ClipboardList, 'iam': UserCheck,
       'framework_glossary': BookOpen, 'integration-map': Network, 'admin': ShieldCheck,
+      'action-items': FileCheck,
     };
     const IconComponent = icons[view] || Shield;
     return <IconComponent className="w-4 h-4" />;
@@ -8688,6 +8690,10 @@ const closeControlDetail = useCallback(() => {
                       <Database className="w-4 h-4 mr-2" />
                       <span>Responsibility Matrix</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setActiveView('action-items')}>
+                      <FileCheck className="w-4 h-4 mr-2" />
+                      <span>Action Items</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setActiveView('framework_glossary')}>
                       <BookOpen className="w-4 h-4 mr-2" />
                       <span>Framework Glossary</span>
@@ -8943,6 +8949,10 @@ const closeControlDetail = useCallback(() => {
                     <Database className="w-4 h-4 mr-2" />
                     <span>Responsibility Matrix</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { setActiveView('action-items'); setMobileMenuOpen(false); }}>
+                    <FileCheck className="w-4 h-4 mr-2" />
+                    <span>Action Items</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => { setActiveView('framework_glossary'); setMobileMenuOpen(false); }}>
                     <BookOpen className="w-4 h-4 mr-2" />
                     <span>Framework Glossary</span>
@@ -9179,6 +9189,7 @@ const closeControlDetail = useCallback(() => {
                activeView === 'wizard' ? <WizardShowcasePage /> :
                activeView === 'trust' ? <TrustShowcasePage /> :
                activeView === 'admin' ? <AdminView /> :
+               activeView === 'action-items' ? <ActionItemsView /> :
                activeView === 'integrations' ? <IntegrationsView /> :
                activeView === 'violations'   ? <ViolationSourcesView /> :
                <ControlsView />}

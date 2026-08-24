@@ -12,9 +12,10 @@ import { Download, Upload, Plus, Search, Filter, CheckCircle, AlertCircle, Clock
   ArrowRight, Activity, Target, ExternalLink, Info, Home, FileText, BarChart3,
   Settings, Sparkles, Gauge, FileCheck, ClipboardList, AlertTriangle, CheckSquare,
   Calendar, UserCheck, Link2, TrendingDown, XCircle, ActivitySquare, Network,
-  BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap
+  BookOpen, ListTree, HelpCircle, Loader2, Check, RefreshCw, Zap, Ticket
 } from 'lucide-react';
 import { useCompliance } from '../context/ComplianceContext';
+import AssignActionItemModal from '../components/AssignActionItemModal';
 
 export default function ResponsibilityView() {
   const ctx = useCompliance();
@@ -181,6 +182,11 @@ export default function ResponsibilityView() {
     playbookExecutionProgress, setPlaybookExecutionProgress,
     alertPlaybooksMap, setAlertPlaybooksMap,
   } = ctx;
+
+  // Action item assignment modal — private UI state, not shared with any
+  // other view, so it stays local rather than going into ctx (see
+  // docs/STATE_ARCHITECTURE.md).
+  const [assignModalMatrix, setAssignModalMatrix] = useState(null);
 
 const renderResponsibilityMatrix = () => {
   const filteredMatrix = responsibilityMatrix.filter(m => {
@@ -453,6 +459,7 @@ const renderResponsibilityMatrix = () => {
                                       <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Data Sources</th>
                                       <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Coverage Type</th>
                                       <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Evidence</th>
+                                      <th className="text-left py-2 px-4 text-xs font-semibold text-foreground">Actions</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -538,6 +545,17 @@ const renderResponsibilityMatrix = () => {
                                               <span>None</span>
                                             )}
                                           </div>
+                                        </td>
+                                        <td className="py-2 px-4">
+                                          <button
+                                            type="button"
+                                            onClick={() => setAssignModalMatrix(matrix)}
+                                            className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors"
+                                            title="Assign an action item to a team for this control"
+                                          >
+                                            <Ticket className="w-3.5 h-3.5" />
+                                            Assign
+                                          </button>
                                         </td>
                                       </tr>
                                     ))}
@@ -684,6 +702,18 @@ const renderResponsibilityMatrix = () => {
             <div>✓ Suitable for MSSP/MDR providers managing multiple customers</div>
           </div>
         </div>
+      )}
+
+      {assignModalMatrix && (
+        <AssignActionItemModal
+          control={{
+            id: assignModalMatrix.control_id,
+            control_name: assignModalMatrix.control_name,
+            responsible_party: assignModalMatrix.ownership,
+          }}
+          teamOptions={uniqueOwners}
+          onClose={() => setAssignModalMatrix(null)}
+        />
       )}
     </div>
   );
