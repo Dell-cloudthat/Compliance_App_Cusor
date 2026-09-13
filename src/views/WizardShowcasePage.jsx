@@ -29,6 +29,7 @@ const FRAMEWORK_PREVIEW = [
   { id: 'CIS',          name: 'CIS Controls v8',    icon: '⚙️', color: 'text-cyan-500',   bg: 'bg-cyan-500/10',   border: 'border-cyan-500/20',   use: 'Foundation' },
   { id: 'NIST_AI_RMF',  name: 'NIST AI RMF 1.0',   icon: '🤖', color: 'text-pink-500',   bg: 'bg-pink-500/10',   border: 'border-pink-500/20',   use: 'AI Products' },
   { id: 'MITRE_ATLAS',  name: 'MITRE ATLAS',        icon: '🎯', color: 'text-amber-500',  bg: 'bg-amber-500/10',  border: 'border-amber-500/20',  use: 'AI Red Team' },
+  { id: 'ISO_42001',    name: 'ISO/IEC 42001:2023', icon: '🧠', color: 'text-fuchsia-500',bg: 'bg-fuchsia-500/10',border: 'border-fuchsia-500/20',use: 'AI Governance' },
 ];
 
 const HOW_IT_WORKS = [
@@ -49,7 +50,7 @@ const HOW_IT_WORKS = [
   {
     step: '03',
     icon: Sparkles,
-    title: 'AI scores 10 frameworks for you',
+    title: 'AI scores 11 frameworks for you',
     body: 'Our scoring engine runs every framework against your profile and ranks them Critical / High / Medium / Optional.',
     color: 'text-primary', bg: 'bg-primary/10', border: 'border-primary/20',
   },
@@ -267,7 +268,7 @@ export default function WizardShowcasePage() {
         {/* ── Supported frameworks ─────────────────────────────────────────── */}
         <div>
           <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-foreground mb-2">All 10 frameworks scored</h2>
+            <h2 className="text-2xl font-bold text-foreground mb-2">All 11 frameworks scored</h2>
             <p className="text-muted-foreground">Every assessment checks your profile against all of these simultaneously</p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">

@@ -13,6 +13,7 @@ import { FEDRAMP_CONTROLS }        from '../frameworks/fedramp-controls';
 import { NIST_800_171_CONTROLS }   from '../frameworks/nist800171-controls';
 import { NIST_AI_RMF_CONTROLS }    from '../frameworks/nist-ai-rmf-controls';
 import { MITRE_ATLAS_CONTROLS }    from '../frameworks/mitre-atlas-controls';
+import { ISO42001_CONTROLS, ISO42001_OBJECTIVES } from '../frameworks/iso42001-controls';
 
 const PRODUCT_LIBRARY = [
   {
@@ -345,7 +346,8 @@ const FRAMEWORK_LIBRARY = {
   "PCI_DSS": { name: "PCI DSS", version: "v4.0" },
   "FedRAMP": { name: "FedRAMP", version: "High Baseline" },
   "NIST_AI_RMF": { name: "NIST AI RMF", version: "1.0" },
-  "MITRE_ATLAS": { name: "MITRE ATLAS", version: "v5.6.0" }
+  "MITRE_ATLAS": { name: "MITRE ATLAS", version: "v5.6.0" },
+  "ISO42001": { name: "ISO/IEC 42001", version: "2023" }
 };
 
 const FRAMEWORK_GLOSSARY = [
@@ -497,6 +499,21 @@ const FRAMEWORK_GLOSSARY = [
       controlFamilies: 16,
       totalControls: 101,
       assuranceLevel: 'Living knowledge base (not a compliance standard)',
+    },
+  },
+  {
+    id: 'iso42001',
+    name: 'ISO/IEC 42001:2023',
+    shortName: 'ISO 42001',
+    category: 'AI Management System (AIMS)',
+    description: 'First international standard specifying requirements for establishing, implementing, maintaining, and continually improving a management system for the responsible development, provision, and use of AI throughout its lifecycle.',
+    focusAreas: ['AI Policy & Governance', 'AI System Impact Assessment', 'AI Data & Lifecycle Management', 'Third-Party AI Supply Chain'],
+    idealFor: ['Organizations building or deploying AI products', 'Enterprises facing AI-specific regulatory scrutiny (EU AI Act, etc.)', 'Vendors needing to prove responsible-AI governance to customers'],
+    docLink: 'https://www.iso.org/standard/42001',
+    quickFacts: {
+      controlFamilies: 9,
+      totalControls: 38,
+      assuranceLevel: 'Certifiable',
     },
   },
 ];
@@ -926,4 +943,6 @@ export {
   segmentApiData,
   NIST_AI_RMF_CONTROLS,
   MITRE_ATLAS_CONTROLS,
+  ISO42001_CONTROLS,
+  ISO42001_OBJECTIVES,
 };

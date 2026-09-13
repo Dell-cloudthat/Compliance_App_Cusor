@@ -364,7 +364,7 @@ function StepAnalysis({ loading, result, error }) {
         </div>
         <div className="text-center">
           <p className="text-lg font-semibold text-foreground">Analysing your compliance profile…</p>
-          <p className="text-sm text-muted-foreground mt-1">Scoring 10 frameworks against your answers</p>
+          <p className="text-sm text-muted-foreground mt-1">Scoring 11 frameworks against your answers</p>
         </div>
       </div>
     );

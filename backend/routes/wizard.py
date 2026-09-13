@@ -67,6 +67,7 @@ FRAMEWORKS = {
     "CIS":         {"name": "CIS Controls",            "version": "v8",               "typical_months": 6,  "cost_low": 15000,  "cost_high": 60000},
     "NIST_AI_RMF": {"name": "NIST AI RMF",             "version": "1.0",              "typical_months": 6,  "cost_low": 20000,  "cost_high": 80000},
     "MITRE_ATLAS": {"name": "MITRE ATLAS",             "version": "v5.6",             "typical_months": 4,  "cost_low": 10000,  "cost_high": 50000},
+    "ISO_42001":   {"name": "ISO/IEC 42001",           "version": "2023",             "typical_months": 9,  "cost_low": 35000,  "cost_high": 140000},
 }
 
 
@@ -123,6 +124,7 @@ def _score(answers: WizardAnswers) -> Dict[str, int]:
     if "AI/ML" in answers.data_types:
         s["NIST_AI_RMF"] +=  60
         s["MITRE_ATLAS"] +=  40
+        s["ISO_42001"]   +=  55
 
     # ── Regulatory signals ───────────────────────────────────────────────────
     if answers.government_contractor:
@@ -146,6 +148,12 @@ def _score(answers: WizardAnswers) -> Dict[str, int]:
     if answers.ai_products:
         s["NIST_AI_RMF"] +=  50
         s["MITRE_ATLAS"] +=  35
+        s["ISO_42001"]   +=  45
+    if answers.ai_products and answers.eu_customers:
+        # EU AI Act compliance leans heavily on a certifiable AI management
+        # system -- ISO 42001 is the closest fit, so weight it further when
+        # both signals are present.
+        s["ISO_42001"]   +=  25
 
     # ── Goal / timeline pressure ─────────────────────────────────────────────
     urgency = max(0, 18 - answers.timeline_months)  # 0-17
@@ -211,6 +219,9 @@ def _rationale(fw: str, answers: WizardAnswers, score: int) -> str:
         if answers.ai_products:             reasons.append("voluntary but fast-becoming an expected baseline for AI products")
     elif fw == "MITRE_ATLAS":
         if answers.ai_products:             reasons.append("adversarial threat modelling specifically for AI/ML systems")
+    elif fw == "ISO_42001":
+        if answers.ai_products:             reasons.append("certifiable AI management system -- covers AI policy, impact assessment, and lifecycle governance")
+        if answers.eu_customers:            reasons.append("closest certifiable framework to demonstrate EU AI Act readiness")
     return "; ".join(reasons) if reasons else f"relevant to your industry and risk profile (score {score}/100)"
 
 
