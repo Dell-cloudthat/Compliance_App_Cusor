@@ -266,6 +266,49 @@ class ComplianceAPI {
     });
   }
 
+  // Action items — assign remediation work from the Responsibility Matrix
+  // to a team, with a ticket reference, optional email notification, and
+  // a full audit trail of who changed what and when.
+  async createActionItem(payload) {
+    return this.request('/api/action-items', {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async listActionItems(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.controlId) params.set('control_id', filters.controlId);
+    if (filters.status) params.set('status_filter', filters.status);
+    if (filters.assignedTeam) params.set('assigned_team', filters.assignedTeam);
+    const qs = params.toString();
+    return this.request(`/api/action-items${qs ? `?${qs}` : ''}`, {
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  async getActionItem(id) {
+    return this.request(`/api/action-items/${id}`, {
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
+  async updateActionItem(id, payload) {
+    return this.request(`/api/action-items/${id}`, {
+      method: 'PATCH',
+      headers: { ...this.getAuthHeaders() },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async resendActionItemEmail(id) {
+    return this.request(`/api/action-items/${id}/resend-email`, {
+      method: 'POST',
+      headers: { ...this.getAuthHeaders() },
+    });
+  }
+
   // Metadata Tags
   async getMetadataTags() {
     return this.request('/api/metadata-tags');
