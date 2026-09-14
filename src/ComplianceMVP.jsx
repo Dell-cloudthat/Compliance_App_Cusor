@@ -14,7 +14,7 @@ import {
   PRODUCT_LIBRARY, CONNECTION_TYPES, FEATURE_RELATIONSHIPS,
   FRAMEWORK_LIBRARY, FRAMEWORK_GLOSSARY, CORE_CONTROLS,
   generateMappedFields, getDefaultOwner, getControlFamily, segmentApiData,
-  NIST_AI_RMF_CONTROLS, MITRE_ATLAS_CONTROLS,
+  NIST_AI_RMF_CONTROLS, MITRE_ATLAS_CONTROLS, ISO42001_CONTROLS,
 } from './data/constants';
 // Extracted view components
 import { ComplianceProvider } from './context/ComplianceContext';
@@ -5101,6 +5101,20 @@ const closeControlDetail = useCallback(() => {
       source_text: ctrl.description,
     }));
 
+    const iso42001Controls = ISO42001_CONTROLS.map(ctrl => ({
+      id: `ISO42001-${ctrl.id.replace(/\./g, '-')}`,
+      control_name: ctrl.name,
+      description: `ISO/IEC 42001:2023 ${ctrl.id} (${ctrl.objective}): ${ctrl.description}`,
+      frameworks: [`ISO42001:${ctrl.id}`],
+      category: ctrl.objective,
+      priority: ctrl.priority,
+      mapped_fields: generateMappedFields(ctrl.objective, ctrl.id),
+      default_owner: getDefaultOwner(ctrl.objective),
+      iso42001_id: ctrl.id,
+      iso42001_objective: ctrl.objective,
+      source_text: ctrl.description,
+    }));
+
     // Merge all controls: existing core + all framework controls (avoid duplicates by checking id)
     const existingIds = new Set(CORE_CONTROLS.map(c => c.id));
     const allControls = [
@@ -5114,7 +5128,8 @@ const closeControlDetail = useCallback(() => {
       ...fedrampControls.filter(c => !existingIds.has(c.id)),
       ...nist171Controls.filter(c => !existingIds.has(c.id)),
       ...aiRmfControls.filter(c => !existingIds.has(c.id)),
-      ...mitreAtlasControls.filter(c => !existingIds.has(c.id))
+      ...mitreAtlasControls.filter(c => !existingIds.has(c.id)),
+      ...iso42001Controls.filter(c => !existingIds.has(c.id))
     ];
     
     // Initialize with all controls
