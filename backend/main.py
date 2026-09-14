@@ -57,6 +57,7 @@ from routes import (
     tco,
     violations,
     assistant,
+    waitlist,
 )
 
 # ── Production configuration guard ────────────────────────────────────────────
@@ -170,6 +171,7 @@ async def auth_me(user_id: int = Depends(get_current_user)):
     """Return the authenticated user's full profile."""
     from database import get_db
     from fastapi import HTTPException
+    from services.auth_service import is_platform_admin
     conn = get_db()
     row  = conn.execute(
         "SELECT id, name, email, organization, role, plan FROM users WHERE id = ?",
@@ -178,7 +180,9 @@ async def auth_me(user_id: int = Depends(get_current_user)):
     conn.close()
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
-    return dict(row)
+    profile = dict(row)
+    profile["is_platform_admin"] = is_platform_admin(user_id)
+    return profile
 
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
@@ -218,6 +222,7 @@ app.include_router(credentials.router)
 app.include_router(tco.router)
 app.include_router(violations.router)
 app.include_router(assistant.router)
+app.include_router(waitlist.router)
 
 # ── MCP servers ───────────────────────────────────────────────────────────────
 # Mounted at /mcp/iam — accessible to MCP clients (Claude, MCP Inspector, etc.)

@@ -1,0 +1,42 @@
+# Local "production-like" testing — NOT what you deploy to the internet
+# as-is (see docs/DEPLOYMENT.md for real hosting steps). This is for
+# verifying the built containers work together before pushing to a
+# real host.
+#
+# Usage:
+#   cp backend/.env.example backend/.env   # fill in real values
+#   docker compose up --build
+#   open http://localhost:8080
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    environment:
+      - CORS_ORIGINS=http://localhost:8080
+      - FRONTEND_URL=http://localhost:8080
+    volumes:
+      - compliance_data:/app/database
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  compliance_data:

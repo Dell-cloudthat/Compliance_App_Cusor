@@ -15,7 +15,21 @@ Architecture (retrieval first, LLM second):
   4. Without an API key the route degrades gracefully to a structured
      retrieval-only answer, so the feature works out of the box.
 
-No customer data is stored by this route; the exchange is stateless.
+Question logging (product-improvement feedback loop)
+------------------------------------------------------
+Each question is logged to `assistant_conversations` — the raw question
+text, which control IDs matched, and whether the LLM or retrieval-only
+path answered it. This is intentionally narrow: the user's full controls
+array and gap_summary (their live compliance posture) are NEVER stored,
+only referenced in-memory for the duration of the request. The log exists
+so the platform operator can review real customer questions via
+GET /api/assistant/analytics — especially the ones that got zero matches,
+which are the clearest signal for where to expand control descriptions,
+add domain synonyms, or improve MCP tool coverage.
+
+Set ASSISTANT_LOGGING=0 to disable this (e.g. for a customer who opts out).
+Disclose this logging in your privacy policy before enabling it for real
+customer traffic.
 """
 
 import json
@@ -23,6 +37,7 @@ import logging
 import math
 import os
 import re
+import sqlite3
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
@@ -30,10 +45,13 @@ import requests as http_requests
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from services.auth_service import get_current_user
+from database import DB_PATH
+from services.auth_service import get_current_user, require_platform_admin
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_LOGGING_ENABLED = os.getenv("ASSISTANT_LOGGING", "1").strip().lower() not in ("0", "false", "no")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL_DEFAULT = "llama-3.1-8b-instant"
@@ -237,6 +255,42 @@ CONTROLS RETRIEVED FOR THIS QUESTION (the only controls you may cite):
 """
 
 
+def _ensure_log_table() -> None:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS assistant_conversations (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id              INTEGER,
+            question             TEXT NOT NULL,
+            answer_mode          TEXT,
+            matched_control_ids  TEXT,
+            match_count          INTEGER DEFAULT 0,
+            created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def _log_question(user_id: int, question: str, mode: str, matched_ids: List[str]) -> None:
+    if not _LOGGING_ENABLED:
+        return
+    try:
+        _ensure_log_table()
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.execute(
+            """INSERT INTO assistant_conversations
+               (user_id, question, answer_mode, matched_control_ids, match_count)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, question[:2000], mode, json.dumps(matched_ids), len(matched_ids)),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        # Logging must never break the chat response.
+        logger.warning("Failed to log assistant question: %s", exc)
+
+
 @router.post("/api/assistant/chat")
 async def assistant_chat(
     payload: AssistantChatRequest,
@@ -250,10 +304,13 @@ async def assistant_chat(
         llm_answer = _call_groq(system_prompt, payload.history, payload.message)
 
     answer = llm_answer or _retrieval_only_answer(matches, payload.gap_summary)
+    mode = "llm" if llm_answer else "retrieval"
+
+    _log_question(user_id, payload.message, mode, [m["id"] for m in matches])
 
     return {
         "answer": answer,
-        "mode": "llm" if llm_answer else "retrieval",
+        "mode": mode,
         "matched_controls": [
             {
                 "id": m["id"],
@@ -263,6 +320,58 @@ async def assistant_chat(
             }
             for m in matches
         ],
+    }
+
+
+@router.get("/api/assistant/analytics")
+async def assistant_analytics(
+    limit: int = 200,
+    _admin: int = Depends(require_platform_admin),
+) -> Dict[str, Any]:
+    """
+    Platform-operator view into what customers are actually asking.
+    Prioritizes 'no_match_questions' — these are the clearest signal for
+    where to expand control descriptions, add domain synonyms in
+    _SYNONYMS, or improve MCP tool coverage.
+    """
+    _ensure_log_table()
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    try:
+        total = conn.execute("SELECT COUNT(*) AS n FROM assistant_conversations").fetchone()["n"]
+        mode_split = {
+            r["answer_mode"]: r["n"]
+            for r in conn.execute(
+                "SELECT answer_mode, COUNT(*) AS n FROM assistant_conversations GROUP BY answer_mode"
+            ).fetchall()
+        }
+        no_match = conn.execute(
+            """SELECT question, created_at FROM assistant_conversations
+               WHERE match_count = 0 ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        recent = conn.execute(
+            """SELECT question, answer_mode, match_count, created_at
+               FROM assistant_conversations ORDER BY created_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+        # Simple frequency count on normalized question text — surfaces
+        # exact/near-duplicate FAQs without needing NLP clustering.
+        freq_rows = conn.execute(
+            """SELECT LOWER(TRIM(question)) AS q, COUNT(*) AS n
+               FROM assistant_conversations GROUP BY q ORDER BY n DESC LIMIT 20"""
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        "total_questions": total,
+        "mode_split": mode_split,
+        "no_match_rate": round(len(no_match) / total, 3) if total else 0,
+        "no_match_questions": [dict(r) for r in no_match],
+        "most_frequent_questions": [dict(r) for r in freq_rows],
+        "recent_questions": [dict(r) for r in recent],
     }
 
 

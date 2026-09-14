@@ -118,8 +118,18 @@ def _create_access_token(user_id: int) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def register_user(name: str, email: str, password: str, organization: Optional[str] = None) -> dict:
-    """Create a new user account and return a JWT access token."""
+def register_user(
+    name: str,
+    email: str,
+    password: str,
+    organization: Optional[str] = None,
+    plan: str = "free",
+) -> dict:
+    """Create a new user account and return a JWT access token.
+
+    plan — 'free' for self-serve signups, 'trial' for early-access invites
+    redeemed via routes/waitlist.py.
+    """
     conn = _get_db()
     try:
         existing = conn.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
@@ -134,9 +144,9 @@ def register_user(name: str, email: str, password: str, organization: Optional[s
             """
             INSERT INTO users (name, email, password_hash, organization, is_active,
                                failed_login_attempts, plan, role)
-            VALUES (?, ?, ?, ?, 1, 0, 'free', 'viewer')
+            VALUES (?, ?, ?, ?, 1, 0, ?, 'viewer')
             """,
-            (name, email, password_hash, organization),
+            (name, email, password_hash, organization, plan),
         )
         conn.commit()
         user_id = cursor.lastrowid
@@ -233,3 +243,34 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
         raise credentials_exception
 
     return int(user_id_str)
+
+
+def is_platform_admin(user_id: int) -> bool:
+    """
+    Platform-operator check (distinct from the per-tenant 'Admin' role in
+    user_roles, which governs permissions *within* one customer's account).
+
+    Configure via the PLATFORM_ADMIN_EMAILS env var (comma-separated). No
+    entries means nobody can reach the waitlist/analytics admin endpoints —
+    fail closed rather than defaulting to open.
+    """
+    admin_emails = {
+        e.strip().lower()
+        for e in os.getenv("PLATFORM_ADMIN_EMAILS", "").split(",")
+        if e.strip()
+    }
+    if not admin_emails:
+        return False
+    conn = _get_db()
+    try:
+        row = conn.execute("SELECT email FROM users WHERE id = ?", (user_id,)).fetchone()
+    finally:
+        conn.close()
+    return bool(row) and row["email"].strip().lower() in admin_emails
+
+
+def require_platform_admin(user_id: int = Depends(get_current_user)) -> int:
+    """FastAPI dependency: 403s unless the caller is a configured platform admin."""
+    if not is_platform_admin(user_id):
+        raise HTTPException(status_code=403, detail="Platform admin access required.")
+    return user_id

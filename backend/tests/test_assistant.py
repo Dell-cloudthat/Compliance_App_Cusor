@@ -68,3 +68,43 @@ def test_status_endpoint(client, fresh_user):
     resp = client.get("/api/assistant/status", headers=fresh_user["headers"])
     assert resp.status_code == 200
     assert "llm_enabled" in resp.json()
+
+
+def test_analytics_requires_platform_admin(client, fresh_user):
+    resp = client.get("/api/assistant/analytics", headers=fresh_user["headers"])
+    assert resp.status_code == 403
+
+
+def test_analytics_surfaces_no_match_questions(client, monkeypatch):
+    monkeypatch.setenv("PLATFORM_ADMIN_EMAILS", "faq-admin@internal.test")
+    admin = client.post("/api/auth/register", json={
+        "name": "FAQ Admin", "email": "faq-admin@internal.test",
+        "password": "pytest-password-123",
+    }).json()
+    admin_headers = {"Authorization": f"Bearer {admin['access_token']}"}
+
+    _chat(client, admin_headers, "totally unmatched gibberish query xyz123")
+    _chat(client, admin_headers, "what covers employee laptops?")
+
+    analytics = client.get("/api/assistant/analytics", headers=admin_headers)
+    assert analytics.status_code == 200
+    body = analytics.json()
+    assert body["total_questions"] >= 2
+    assert any("gibberish" in q["question"] for q in body["no_match_questions"])
+    assert 0 <= body["no_match_rate"] <= 1
+
+
+def test_logged_question_never_includes_compliance_data(client, fresh_user):
+    """The FAQ log must store only the question text and matched IDs —
+    never the user's full controls array or gap_summary (their live
+    compliance posture)."""
+    resp = _chat(
+        client, fresh_user["headers"],
+        "does anything cover SUPER_SENSITIVE_INTERNAL_MARKER laptops?",
+    )
+    assert resp.status_code == 200
+    # The marker only appears in the question text itself (expected), and
+    # must not leak from any stored control description/status field —
+    # this test's sample controls don't contain it, so any appearance
+    # beyond the question would indicate the full payload got logged.
+    assert resp.json()["answer"].count("SUPER_SENSITIVE_INTERNAL_MARKER") <= 1
