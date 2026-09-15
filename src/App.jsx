@@ -3,6 +3,7 @@ import ComplianceMVP from './ComplianceMVP';
 import LoginPage from './components/LoginPage';
 import LandingPage from './pages/LandingPage';
 import InviteRedeemPage from './pages/InviteRedeemPage';
+import ErrorBoundary from './components/ErrorBoundary';
 import api from './services/api';
 
 function App() {
@@ -44,23 +45,35 @@ function App() {
     };
   }, []);
 
+  let screen;
+  let resetKey;
   if (!isAuthenticated) {
     if (publicScreen === 'invite' && inviteToken) {
-      return (
+      screen = (
         <InviteRedeemPage
           token={inviteToken}
           onAuth={handleAuth}
           onBackToLanding={() => setPublicScreen('landing')}
         />
       );
+      resetKey = 'invite';
+    } else if (publicScreen === 'login') {
+      screen = <LoginPage onAuth={handleAuth} />;
+      resetKey = 'login';
+    } else {
+      screen = <LandingPage onRequestLogin={() => setPublicScreen('login')} />;
+      resetKey = 'landing';
     }
-    if (publicScreen === 'login') {
-      return <LoginPage onAuth={handleAuth} />;
-    }
-    return <LandingPage onRequestLogin={() => setPublicScreen('login')} />;
+  } else {
+    screen = <ComplianceMVP onLogout={handleLogout} />;
+    resetKey = 'app';
   }
 
-  return <ComplianceMVP onLogout={handleLogout} />;
+  return (
+    <ErrorBoundary resetKey={resetKey} fallbackLabel="the app">
+      {screen}
+    </ErrorBoundary>
+  );
 }
 
 export default App;
