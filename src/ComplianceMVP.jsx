@@ -42,6 +42,7 @@ import TCOView from './views/TCOView';
 import AdminView from './views/AdminView';
 import ActionItemsView from './views/ActionItemsView';
 import AssistantPanel from './components/AssistantPanel';
+import ErrorBoundary from './components/ErrorBoundary';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9130,6 +9131,7 @@ const closeControlDetail = useCallback(() => {
         </div>
         )}
 
+              <ErrorBoundary resetKey={activeView} fallbackLabel={getViewName(activeView)}>
               {activeView === 'dashboard' ? <DashboardView /> :
                activeView === 'audits' ? <AuditsView /> :
                activeView === 'framework_glossary' ? <FrameworkGlossary /> :
@@ -9208,6 +9210,7 @@ const closeControlDetail = useCallback(() => {
                activeView === 'integrations' ? <IntegrationsView /> :
                activeView === 'violations'   ? <ViolationSourcesView /> :
                <ControlsView />}
+              </ErrorBoundary>
             </div>
           </main>
         </div>
