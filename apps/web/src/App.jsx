@@ -1,7 +1,5 @@
 import SecurityOSApp from './SecurityOSApp'
 
-function App() {
+export default function App() {
   return <SecurityOSApp />
 }
-
-export default App
