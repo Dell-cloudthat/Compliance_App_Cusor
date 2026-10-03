@@ -8,8 +8,16 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .controls_catalog import CONTROLS, CONTROLS_BY_ID, Category, ControlStatus
-from .scoring_engine import calculate_score
+import json
+from pathlib import Path
+
+# Load catalog from the single source of truth
+_CATALOG_PATH = Path(__file__).parent.parent.parent / "compliance" / "controls" / "catalog.json"
+with open(_CATALOG_PATH) as _f:
+    CONTROLS = json.load(_f)
+CONTROLS_BY_ID = {c["id"]: c for c in CONTROLS}
+
+from backend.scoring.engine import calculate_score, ControlStatus
 
 router = APIRouter(prefix="/api/v1/securityos", tags=["SecurityOS"])
 
@@ -52,16 +60,16 @@ _control_statuses: Dict[str, Dict[str, Dict]] = {}
 
 # ─── Controls Catalog ─────────────────────────────────────────────────────────
 
+VALID_CATEGORIES = {"identity", "devices", "data", "network", "organization"}
+
 @router.get("/controls")
 def list_controls(category: Optional[str] = None):
     """Return the full controls catalog, optionally filtered by category."""
     controls = CONTROLS
     if category:
-        try:
-            cat = Category(category)
-            controls = [c for c in CONTROLS if c["category"] == cat]
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Unknown category: {category}")
+        if category not in VALID_CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Unknown category: {category}. Valid: {sorted(VALID_CATEGORIES)}")
+        controls = [c for c in CONTROLS if c["category"] == category]
     return {"controls": controls, "total": len(controls)}
 
 
@@ -144,8 +152,40 @@ def bulk_update_control_statuses(org_id: str, payload: BulkControlStatusUpdate):
 def get_score(org_id: str):
     """Calculate and return the Security Readiness Score."""
     statuses = _control_statuses.get(org_id, {})
-    result = calculate_score(statuses)
-    return result
+    profile = _profiles.get(org_id)
+    result = calculate_score(statuses, business_profile=profile)
+    return {
+        "total_score": result.total_score,
+        "max_score": result.max_score,
+        "grade": result.grade,
+        "color": result.color,
+        "verified_pct": result.verified_pct,
+        "confidence_note": result.confidence_note,
+        "summary": result.summary,
+        "categories": {
+            cat_id: {
+                "id": cat.id,
+                "label": cat.label,
+                "score": cat.score,
+                "max_score": cat.max_score,
+                "passing": cat.passing_count,
+                "failing": cat.failing_count,
+                "unknown": cat.unknown_count,
+            }
+            for cat_id, cat in result.categories.items()
+        },
+        "top_issues": [
+            {
+                "control_id": c.control_id,
+                "name": c.name,
+                "short_name": c.short_name,
+                "severity": c.severity,
+                "status": c.status,
+                "customer_message": c.customer_message,
+            }
+            for c in result.top_issues
+        ],
+    }
 
 
 # ─── Trust Passport ───────────────────────────────────────────────────────────
@@ -155,9 +195,9 @@ def get_trust_passport(org_id: str):
     """Generate a Trust Passport for an organization."""
     profile = _profiles.get(org_id, {})
     statuses = _control_statuses.get(org_id, {})
-    score_data = calculate_score(statuses)
+    score_data = calculate_score(statuses, business_profile=profile)
 
-    key_controls = [
+    KEY_PASSPORT_CONTROLS = [
         ("CTRL-ID-001", "Multi-Factor Authentication"),
         ("CTRL-DEV-001", "Device Encryption"),
         ("CTRL-DATA-003", "Data Backups"),
@@ -169,7 +209,7 @@ def get_trust_passport(org_id: str):
     ]
 
     control_summary = []
-    for ctrl_id, label in key_controls:
+    for ctrl_id, label in KEY_PASSPORT_CONTROLS:
         entry = statuses.get(ctrl_id, {})
         control_summary.append({
             "control_id": ctrl_id,
@@ -182,16 +222,16 @@ def get_trust_passport(org_id: str):
         "org_id": org_id,
         "business_name": profile.get("business_name", ""),
         "industry": profile.get("industry", ""),
-        "total_score": score_data["total_score"],
-        "grade": score_data["grade"],
-        "color": score_data["color"],
+        "total_score": score_data.total_score,
+        "grade": score_data.grade,
+        "color": score_data.color,
         "category_scores": {
-            cat_id: {"label": v["label"], "score": v["score"], "max_score": v["max_score"]}
-            for cat_id, v in score_data["categories"].items()
+            cat_id: {"label": cat.label, "score": cat.score, "max_score": cat.max_score}
+            for cat_id, cat in score_data.categories.items()
         },
         "key_controls": control_summary,
         "verified_at": datetime.utcnow().isoformat(),
-        "summary": score_data["summary"],
+        "summary": score_data.summary,
     }
 
 
@@ -206,20 +246,22 @@ def copilot_query(payload: CopilotMessage):
     """
     statuses = payload.control_statuses or {}
     profile = payload.profile or {}
-    score_data = calculate_score(statuses)
-
-    failing = [
-        c for c in score_data.get("top_issues", [])
-        if c["status"] in (ControlStatus.FAIL, ControlStatus.UNKNOWN)
-    ]
+    score_data = calculate_score(statuses, business_profile=profile)
 
     return {
         "context": {
-            "score": score_data["total_score"],
-            "grade": score_data["grade"],
+            "score": score_data.total_score,
+            "grade": score_data.grade,
             "open_issues": [
-                {"id": c["id"], "title": c["short_title"], "severity": c["severity"]}
-                for c in failing
+                {
+                    "control_id": c.control_id,
+                    "name": c.name,
+                    "short_name": c.short_name,
+                    "severity": c.severity,
+                    "status": c.status,
+                    "customer_message": c.customer_message,
+                }
+                for c in score_data.top_issues
             ],
             "profile_summary": {
                 "industry": profile.get("industry", ""),

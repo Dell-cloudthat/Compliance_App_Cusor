@@ -1,7 +1,7 @@
 {
-  "name": "compliance-app",
-  "version": "1.0.0",
-  "description": "Compliance Automation Platform - Multi-framework control mapping with auto-assignment",
+  "name": "securityos-web",
+  "version": "0.2.0",
+  "description": "SecurityOS — Security Readiness Platform for Small Businesses",
   "private": true,
   "type": "module",
   "scripts": {
