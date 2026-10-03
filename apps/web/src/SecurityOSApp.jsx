@@ -3,6 +3,7 @@ import OnboardingView from './views/securityos/OnboardingView';
 import AnalysisView from './views/securityos/AnalysisView';
 import HomeView from './views/securityos/HomeView';
 import FixView from './views/securityos/FixView';
+import RiskView from './views/securityos/RiskView';
 import CopilotView from './views/securityos/CopilotView';
 import PassportView from './views/securityos/PassportView';
 import SettingsView from './views/securityos/SettingsView';
@@ -49,6 +50,7 @@ export default function SecurityOSApp() {
   const [view, setView] = useState('home');           // home | copilot | passport | settings
   const [fixControlId, setFixControlId] = useState(null); // when non-null, show FixView
   const [phase, setPhase] = useState(saved ? 'app' : 'onboarding'); // onboarding | analysis | app
+  const [riskOpen, setRiskOpen] = useState(false);
 
   const scoring = calculateScore(statuses, profile, catalog);
 
@@ -79,7 +81,15 @@ export default function SecurityOSApp() {
     setFixControlId(null);
   }
 
-  const ctx = { profile, setProfile, statuses, updateStatus, scoring, catalog, openFix };
+  function openRisk() {
+    setRiskOpen(true);
+  }
+
+  function closeRisk() {
+    setRiskOpen(false);
+  }
+
+  const ctx = { profile, setProfile, statuses, updateStatus, scoring, catalog, openFix, openRisk };
 
   // ── Render phases ──────────────────────────────────────────────────────────
   if (phase === 'onboarding') {
@@ -104,6 +114,8 @@ export default function SecurityOSApp() {
         <main className="flex-1 overflow-y-auto">
           {fixControlId ? (
             <FixView controlId={fixControlId} onBack={closeFix} />
+          ) : riskOpen ? (
+            <RiskView onBack={closeRisk} />
           ) : (
             <>
               {view === 'home'     && <HomeView />}
@@ -115,7 +127,7 @@ export default function SecurityOSApp() {
         </main>
 
         {/* Bottom nav — always visible */}
-        {!fixControlId && (
+        {!fixControlId && !riskOpen && (
           <nav className="flex border-t border-slate-800 bg-slate-900 shrink-0">
             {NAV.map(({ id, label, icon: Icon }) => {
               const active = view === id;

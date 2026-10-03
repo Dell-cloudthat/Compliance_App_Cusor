@@ -1,7 +1,8 @@
 import { useApp, ScoreRing } from '../../SecurityOSApp';
 import { STATUS, SEVERITY_DOT } from '../../data/controls';
 import { toGrade, toColor } from '../../data/scoring';
-import { CheckCircle2, ChevronRight, Clock, Info } from 'lucide-react';
+import { calculateTCO, riskLevel, fmtUSD } from '../../data/risk';
+import { CheckCircle2, ChevronRight, Clock, Info, TrendingDown, ShieldAlert } from 'lucide-react';
 
 const COLOR_TEXT = {
   green:  'text-green-400',
@@ -62,8 +63,19 @@ function PassingRow({ control, onReview }) {
 }
 
 export default function HomeView() {
-  const { scoring, profile, openFix } = useApp();
+  const { scoring, profile, statuses, catalog, openFix, openRisk } = useApp();
   const { totalScore, grade, color, issues, passing, summary, verifiedPct, confidenceNote } = scoring;
+
+  const tco = calculateTCO(profile, statuses, issues, catalog);
+  const rl  = riskLevel(tco);
+
+  const RISK_BANNER = {
+    red:    { bg: 'bg-red-500/10',    border: 'border-red-500/25',    text: 'text-red-400',    label: 'Critical Exposure' },
+    orange: { bg: 'bg-orange-500/10', border: 'border-orange-500/25', text: 'text-orange-400', label: 'High Exposure' },
+    yellow: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/25', text: 'text-yellow-400', label: 'Moderate Exposure' },
+    green:  { bg: 'bg-green-500/8',   border: 'border-green-500/20',  text: 'text-green-400',  label: 'Low Exposure' },
+  };
+  const rb = RISK_BANNER[rl.color] || RISK_BANNER.yellow;
 
   const colorText = COLOR_TEXT[color] || COLOR_TEXT.blue;
   const colorBg   = COLOR_BG[color]   || COLOR_BG.blue;
@@ -145,6 +157,56 @@ export default function HomeView() {
             </p>
           </div>
         )}
+      </div>
+
+      {/* Cost of Risk teaser card */}
+      <div className="px-4 pb-2 pt-4">
+        <button
+          onClick={openRisk}
+          className={`w-full ${rb.bg} ${rb.border} border rounded-2xl p-4 text-left hover:opacity-90 transition-opacity`}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <TrendingDown size={14} className={rb.text} />
+              <span className={`text-xs font-semibold uppercase tracking-wider ${rb.text}`}>
+                Cost of Risk
+              </span>
+            </div>
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              Full analysis <ChevronRight size={12} />
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <p className="text-[10px] text-slate-500 mb-0.5">Annual risk</p>
+              <p className={`text-base font-bold ${rb.text} tabular-nums`}>
+                {fmtUSD(tco.annual_risk_cost)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 mb-0.5">Fix cost</p>
+              <p className="text-base font-bold text-white tabular-nums">
+                {tco.fix_cost_pro > 0 ? fmtUSD(tco.fix_cost_pro) : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-500 mb-0.5">Breach risk</p>
+              <p className="text-base font-bold text-white tabular-nums">
+                {fmtUSD(tco.breach.median)}
+              </p>
+            </div>
+          </div>
+
+          {tco.insur.denial_risks.length > 0 && (
+            <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-slate-700/40">
+              <ShieldAlert size={11} className="text-red-400 shrink-0" />
+              <p className="text-[10px] text-red-400">
+                {tco.insur.denial_risks.length} insurance claim denial risk{tco.insur.denial_risks.length !== 1 ? 's' : ''} detected
+              </p>
+            </div>
+          )}
+        </button>
       </div>
 
       {/* Bottom padding for nav */}
