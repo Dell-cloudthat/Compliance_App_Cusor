@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, useCallback } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
 import OnboardingView from './views/securityos/OnboardingView';
 import AnalysisView from './views/securityos/AnalysisView';
 import HomeView from './views/securityos/HomeView';
@@ -7,25 +7,46 @@ import RiskView from './views/securityos/RiskView';
 import CopilotView from './views/securityos/CopilotView';
 import PassportView from './views/securityos/PassportView';
 import SettingsView from './views/securityos/SettingsView';
+import GlobalView from './views/securityos/GlobalView';
 import { calculateScore, buildDemoStatuses } from './data/scoring';
 import { loadCatalog } from './data/controls';
-import { Home, Bot, BadgeCheck, Settings } from 'lucide-react';
+import { Home, Bot, BadgeCheck, Settings, Globe } from 'lucide-react';
 
 // ── App Context ───────────────────────────────────────────────────────────────
 export const AppContext = createContext(null);
 export const useApp = () => useContext(AppContext);
 
-const STORAGE_KEY = 'securityos_v2';
+const STORAGE_KEY_V2 = 'securityos_v2';
+const STORAGE_KEY_V3 = 'securityos_v3';
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const rawV3 = localStorage.getItem(STORAGE_KEY_V3);
+    if (rawV3) return JSON.parse(rawV3);
+
+    const rawV2 = localStorage.getItem(STORAGE_KEY_V2);
+    if (!rawV2) return null;
+    const v2 = JSON.parse(rawV2);
+    if (!v2) return null;
+
+    // v2 → v3 migration (single-tenant → multi-tenant)
+    const tenantId = 'tenant-1';
+    const migrated = {
+      activeTenantId: tenantId,
+      tenants: [{
+        id: tenantId,
+        name: v2?.profile?.businessName || 'Tenant 1',
+        profile: v2?.profile ?? null,
+        statuses: v2?.statuses ?? null,
+      }],
+    };
+    try { localStorage.setItem(STORAGE_KEY_V3, JSON.stringify(migrated)); } catch {}
+    return migrated;
   } catch { return null; }
 }
 
 function saveState(state) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+  try { localStorage.setItem(STORAGE_KEY_V3, JSON.stringify(state)); } catch {}
 }
 
 const DEFAULT_PROFILE = {
@@ -33,9 +54,25 @@ const DEFAULT_PROFILE = {
   emailProvider: '', cloudProviders: [], sensitiveData: [],
 };
 
+function makeId(prefix = 'tenant') {
+  try {
+    // eslint-disable-next-line no-undef
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+  } catch {}
+  return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now().toString(16)}`;
+}
+
+function normalizeTenant(t) {
+  const profile = t?.profile ?? DEFAULT_PROFILE;
+  const statuses = t?.statuses ?? buildDemoStatuses();
+  const name = t?.name ?? profile.businessName ?? 'Tenant';
+  return { id: t?.id ?? makeId('tenant'), name, profile, statuses };
+}
+
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
 const NAV = [
   { id: 'home', label: 'Home', icon: Home },
+  { id: 'global', label: 'Global', icon: Globe },
   { id: 'copilot', label: 'Copilot', icon: Bot },
   { id: 'passport', label: 'Passport', icon: BadgeCheck },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -45,25 +82,61 @@ export default function SecurityOSApp() {
   const saved = loadState();
   const catalog = loadCatalog();
 
-  const [profile, setProfile] = useState(saved?.profile ?? DEFAULT_PROFILE);
-  const [statuses, setStatuses] = useState(saved?.statuses ?? buildDemoStatuses());
-  const [view, setView] = useState('home');           // home | copilot | passport | settings
+  const [tenants, setTenants] = useState(() => {
+    const initial = saved?.tenants?.length ? saved.tenants.map(normalizeTenant) : null;
+    if (initial) return initial;
+    return [{
+      id: 'tenant-1',
+      name: 'Tenant 1',
+      profile: DEFAULT_PROFILE,
+      statuses: buildDemoStatuses(),
+    }];
+  });
+  const [activeTenantId, setActiveTenantId] = useState(() => saved?.activeTenantId ?? tenants?.[0]?.id ?? 'tenant-1');
+  const [view, setView] = useState('home');           // home | global | copilot | passport | settings
   const [fixControlId, setFixControlId] = useState(null); // when non-null, show FixView
   const [phase, setPhase] = useState(saved ? 'app' : 'onboarding'); // onboarding | analysis | app
   const [riskOpen, setRiskOpen] = useState(false);
 
+  // Ensure active tenant id always points to an existing tenant.
+  useEffect(() => {
+    if (!tenants.length) return;
+    if (tenants.some(t => t.id === activeTenantId)) return;
+    setActiveTenantId(tenants[0].id);
+  }, [tenants, activeTenantId]);
+
+  const activeTenant = useMemo(() => {
+    if (!tenants.length) return null;
+    return tenants.find(t => t.id === activeTenantId) ?? tenants[0];
+  }, [tenants, activeTenantId]);
+
+  const profile = activeTenant?.profile ?? DEFAULT_PROFILE;
+  const statuses = activeTenant?.statuses ?? {};
+
   const scoring = calculateScore(statuses, profile, catalog);
 
   useEffect(() => {
-    saveState({ profile, statuses });
-  }, [profile, statuses]);
+    saveState({ tenants, activeTenantId });
+  }, [tenants, activeTenantId]);
 
   const updateStatus = useCallback((controlId, status, notes = null, evidenceSource = 'manual') => {
-    setStatuses(prev => ({
-      ...prev,
-      [controlId]: { status, notes, evidence_source: evidenceSource, last_checked: new Date().toISOString() },
+    setTenants(prev => prev.map(t => {
+      if (t.id !== activeTenantId) return t;
+      const nextStatuses = {
+        ...(t.statuses ?? {}),
+        [controlId]: { status, notes, evidence_source: evidenceSource, last_checked: new Date().toISOString() },
+      };
+      return { ...t, statuses: nextStatuses };
     }));
-  }, []);
+  }, [activeTenantId]);
+
+  const setProfile = useCallback((updater) => {
+    setTenants(prev => prev.map(t => {
+      if (t.id !== activeTenantId) return t;
+      const nextProfile = typeof updater === 'function' ? updater(t.profile ?? DEFAULT_PROFILE) : updater;
+      return { ...t, profile: nextProfile ?? DEFAULT_PROFILE, name: nextProfile?.businessName || t.name };
+    }));
+  }, [activeTenantId]);
 
   function completeOnboarding() {
     setPhase('analysis');
@@ -74,6 +147,11 @@ export default function SecurityOSApp() {
   }
 
   function openFix(controlId) {
+    setFixControlId(controlId);
+  }
+
+  function openFixForTenant(tenantId, controlId) {
+    setActiveTenantId(tenantId);
     setFixControlId(controlId);
   }
 
@@ -89,7 +167,54 @@ export default function SecurityOSApp() {
     setRiskOpen(false);
   }
 
-  const ctx = { profile, setProfile, statuses, updateStatus, scoring, catalog, openFix, openRisk };
+  const addTenant = useCallback((name = 'New Tenant', seed = 'demo') => {
+    const id = makeId('tenant');
+    const profile = { ...DEFAULT_PROFILE, businessName: name };
+    const statuses = seed === 'empty' ? {} : buildDemoStatuses();
+    setTenants(prev => [...prev, { id, name, profile, statuses }]);
+    setActiveTenantId(id);
+    setView('global');
+  }, []);
+
+  const removeTenant = useCallback((tenantId) => {
+    setTenants(prev => {
+      if (prev.length <= 1) return prev; // always keep at least one tenant
+      const next = prev.filter(t => t.id !== tenantId);
+      if (tenantId === activeTenantId) setActiveTenantId(next[0]?.id ?? prev[0]?.id);
+      return next.length ? next : prev;
+    });
+  }, [activeTenantId]);
+
+  const renameTenant = useCallback((tenantId, name) => {
+    setTenants(prev => prev.map(t => (t.id === tenantId ? { ...t, name, profile: { ...(t.profile ?? DEFAULT_PROFILE), businessName: name } } : t)));
+  }, []);
+
+  const switchTenant = useCallback((tenantId) => {
+    setActiveTenantId(tenantId);
+  }, []);
+
+  const ctx = {
+    // Active tenant data (backwards-compatible with existing views)
+    profile,
+    setProfile,
+    statuses,
+    updateStatus,
+    scoring,
+    catalog,
+    openFix,
+    openFixForTenant,
+    openRisk,
+
+    // Multi-tenant APIs
+    tenants,
+    activeTenantId,
+    switchTenant,
+    addTenant,
+    removeTenant,
+    renameTenant,
+    setView,
+    view,
+  };
 
   // ── Render phases ──────────────────────────────────────────────────────────
   if (phase === 'onboarding') {
@@ -119,6 +244,7 @@ export default function SecurityOSApp() {
           ) : (
             <>
               {view === 'home'     && <HomeView />}
+              {view === 'global'   && <GlobalView />}
               {view === 'copilot'  && <CopilotView />}
               {view === 'passport' && <PassportView />}
               {view === 'settings' && <SettingsView />}

@@ -195,6 +195,15 @@ npm run dev
 # Open http://localhost:5173
 ```
 
+### Deploy (Vercel)
+
+- **Recommended Vercel Project Root**: `apps/web`
+- **Install Command**: `npm ci`
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+
+This repo includes `apps/web/vercel.json` so Vercel can auto-detect the correct Vite settings when the project root is set to `apps/web`.
+
 ### Backend
 
 ```bash
