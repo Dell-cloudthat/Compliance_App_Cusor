@@ -35,6 +35,7 @@ import {
   ShieldQuestion,
   Users,
   BarChart3,
+  Edit,
 } from 'lucide-react';
 
 /**
@@ -64,6 +65,24 @@ const api = {
         'X-Tenant-ID': 'demo-tenant'
       },
       body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+  async put(endpoint, data) {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tenant-ID': 'demo-tenant'
+      },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+  async delete(endpoint) {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'DELETE',
+      headers: { 'X-Tenant-ID': 'demo-tenant' }
     });
     return res.json();
   }
@@ -140,6 +159,142 @@ export default function App() {
   );
 }
 
+// ============== Vendor Form (shared by Add and Edit) ==============
+
+function VendorForm({ initial, onSave, onCancel, title }) {
+  const [form, setForm] = useState(initial);
+  const vendorTypes = ['ad_platform', 'analytics', 'cdp', 'dsp', 'crm', 'other'];
+  const dataClasses = ['behavioral', 'device', 'identity', 'transaction', 'location', 'demographic'];
+
+  const toggle = (field, val) =>
+    setForm(prev => ({
+      ...prev,
+      [field]: prev[field].includes(val)
+        ? prev[field].filter(d => d !== val)
+        : [...prev[field], val],
+    }));
+
+  return (
+    <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200 mb-4">
+      <h4 className="font-medium text-indigo-900 mb-3">{title}</h4>
+      <div className="grid grid-cols-2 gap-4">
+        {!initial.id && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Vendor ID</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm(prev => ({ ...prev, name: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+              placeholder="e.g., meta, google"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+          </div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+          <input
+            type="text"
+            value={form.display_name}
+            onChange={(e) => setForm(prev => ({ ...prev, display_name: e.target.value }))}
+            placeholder="e.g., Meta (Facebook)"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Type</label>
+          <select
+            value={form.vendor_type}
+            onChange={(e) => setForm(prev => ({ ...prev, vendor_type: e.target.value }))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          >
+            {vendorTypes.map(type => (
+              <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+        </div>
+        <div className={initial.id ? '' : 'col-span-2'}>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Allowed Data Classes</label>
+          <div className="flex flex-wrap gap-1">
+            {dataClasses.map(dc => (
+              <button
+                key={dc}
+                type="button"
+                onClick={() => toggle('allowed_data_classes', dc)}
+                className={`text-xs px-2 py-1 rounded ${
+                  form.allowed_data_classes.includes(dc) ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {dc}
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Platform credentials */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">API Key / Access Token</label>
+          <input
+            type="password"
+            value={form.api_key || ''}
+            onChange={(e) => setForm(prev => ({ ...prev, api_key: e.target.value }))}
+            placeholder="Leave blank to keep existing"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Pixel / Dataset ID</label>
+          <input
+            type="text"
+            value={form.pixel_id || ''}
+            onChange={(e) => setForm(prev => ({ ...prev, pixel_id: e.target.value }))}
+            placeholder="e.g., Meta Pixel ID or GA4 stream ID"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL (optional)</label>
+          <input
+            type="url"
+            value={form.endpoint_url || ''}
+            onChange={(e) => setForm(prev => ({ ...prev, endpoint_url: e.target.value }))}
+            placeholder="https://graph.facebook.com/... (leave blank for default)"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          />
+        </div>
+        {initial.id && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select
+              value={form.status || 'active'}
+              onChange={(e) => setForm(prev => ({ ...prev, status: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end gap-2 mt-4">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave(form)}
+          disabled={!form.display_name || (!initial.id && !form.name)}
+          className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 disabled:opacity-50"
+        >
+          {initial.id ? 'Save Changes' : 'Create Vendor'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ============== Screen 1: Consent Policies ==============
 
 function PoliciesView() {
@@ -147,13 +302,8 @@ function PoliciesView() {
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddVendor, setShowAddVendor] = useState(false);
-  const [newVendor, setNewVendor] = useState({
-    name: '',
-    display_name: '',
-    vendor_type: 'ad_platform',
-    allowed_data_classes: ['behavioral']
-  });
-  
+  const [editingVendor, setEditingVendor] = useState(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -171,21 +321,44 @@ function PoliciesView() {
   
   useEffect(() => { load(); }, [load]);
 
-  const createVendor = async () => {
-    if (!newVendor.name || !newVendor.display_name) return;
+  const createVendor = async (form) => {
     try {
-      await api.post('/vendors', newVendor);
+      const payload = { ...form };
+      if (!payload.api_key) delete payload.api_key;
+      if (!payload.pixel_id) delete payload.pixel_id;
+      if (!payload.endpoint_url) delete payload.endpoint_url;
+      await api.post('/vendors', payload);
       setShowAddVendor(false);
-      setNewVendor({ name: '', display_name: '', vendor_type: 'ad_platform', allowed_data_classes: ['behavioral'] });
       load();
     } catch (e) {
       console.error(e);
     }
   };
 
-  const vendorTypes = ['ad_platform', 'analytics', 'cdp', 'dsp', 'crm', 'other'];
-  const dataClasses = ['behavioral', 'device', 'identity', 'transaction', 'location', 'demographic'];
-  
+  const saveVendor = async (form) => {
+    try {
+      const payload = { ...form };
+      if (!payload.api_key) delete payload.api_key;
+      if (!payload.pixel_id) delete payload.pixel_id;
+      if (!payload.endpoint_url) delete payload.endpoint_url;
+      await api.put(`/vendors/${form.id}`, payload);
+      setEditingVendor(null);
+      load();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deleteVendor = async (vendorId) => {
+    if (!window.confirm('Delete this vendor? This cannot be undone.')) return;
+    try {
+      await api.delete(`/vendors/${vendorId}`);
+      load();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Purposes (hardcoded for MVP)
   const purposes = [
     { id: 'retargeting', name: 'Retargeting', description: 'Show personalized ads based on browsing', defaultTtl: 14 },
@@ -227,7 +400,7 @@ function PoliciesView() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Vendors</h3>
           <button 
-            onClick={() => setShowAddVendor(true)}
+            onClick={() => { setShowAddVendor(true); setEditingVendor(null); }}
             className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center gap-1 text-sm"
           >
             <Plus size={16} />
@@ -237,82 +410,24 @@ function PoliciesView() {
 
         {/* Add Vendor Form */}
         {showAddVendor && (
-          <div className="mb-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
-            <h4 className="font-medium text-indigo-900 mb-3">Add New Vendor</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Vendor ID</label>
-                <input
-                  type="text"
-                  value={newVendor.name}
-                  onChange={(e) => setNewVendor(prev => ({ ...prev, name: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
-                  placeholder="e.g., meta, google"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
-                <input
-                  type="text"
-                  value={newVendor.display_name}
-                  onChange={(e) => setNewVendor(prev => ({ ...prev, display_name: e.target.value }))}
-                  placeholder="e.g., Meta (Facebook)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Type</label>
-                <select
-                  value={newVendor.vendor_type}
-                  onChange={(e) => setNewVendor(prev => ({ ...prev, vendor_type: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                >
-                  {vendorTypes.map(type => (
-                    <option key={type} value={type}>{type.replace('_', ' ')}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Allowed Data Classes</label>
-                <div className="flex flex-wrap gap-1">
-                  {dataClasses.map(dc => (
-                    <button
-                      key={dc}
-                      onClick={() => setNewVendor(prev => ({
-                        ...prev,
-                        allowed_data_classes: prev.allowed_data_classes.includes(dc)
-                          ? prev.allowed_data_classes.filter(d => d !== dc)
-                          : [...prev.allowed_data_classes, dc]
-                      }))}
-                      className={`text-xs px-2 py-1 rounded ${
-                        newVendor.allowed_data_classes.includes(dc)
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {dc}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => setShowAddVendor(false)}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={createVendor}
-                disabled={!newVendor.name || !newVendor.display_name}
-                className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-sm hover:bg-indigo-600 disabled:opacity-50"
-              >
-                Create Vendor
-              </button>
-            </div>
-          </div>
+          <VendorForm
+            title="Add New Vendor"
+            initial={{ name: '', display_name: '', vendor_type: 'ad_platform', allowed_data_classes: ['behavioral'], api_key: '', pixel_id: '', endpoint_url: '' }}
+            onSave={(form) => { createVendor(form); }}
+            onCancel={() => setShowAddVendor(false)}
+          />
         )}
+
+        {/* Edit Vendor Form */}
+        {editingVendor && (
+          <VendorForm
+            title={`Edit ${editingVendor.display_name}`}
+            initial={{ ...editingVendor, api_key: '', pixel_id: editingVendor.pixel_id || '' }}
+            onSave={saveVendor}
+            onCancel={() => setEditingVendor(null)}
+          />
+        )}
+
         {vendors.length === 0 ? (
           <p className="text-gray-500">No vendors configured</p>
         ) : (
@@ -323,12 +438,14 @@ function PoliciesView() {
                   <th className="px-4 py-3">Vendor</th>
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Data Classes</th>
+                  <th className="px-4 py-3">Credentials</th>
                   <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {vendors.map(vendor => (
-                  <tr key={vendor.id}>
+                  <tr key={vendor.id} className={editingVendor?.id === vendor.id ? 'bg-indigo-50' : ''}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <Building2 size={16} className="text-gray-400" />
@@ -338,7 +455,7 @@ function PoliciesView() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm">{vendor.vendor_type}</td>
+                    <td className="px-4 py-3 text-sm">{vendor.vendor_type?.replace(/_/g, ' ')}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {vendor.allowed_data_classes?.map(dc => (
@@ -348,12 +465,35 @@ function PoliciesView() {
                         ))}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {vendor.api_key_encrypted
+                        ? <span className="flex items-center gap-1 text-green-700"><Shield size={12} /> Configured</span>
+                        : <span className="text-gray-400">Not set</span>}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${
                         vendor.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                       }`}>
                         {vendor.status}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => { setEditingVendor(vendor); setShowAddVendor(false); }}
+                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"
+                          title="Edit vendor"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => deleteVendor(vendor.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          title="Delete vendor"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

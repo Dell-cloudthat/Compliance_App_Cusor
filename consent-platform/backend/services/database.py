@@ -392,7 +392,59 @@ class Database:
                 r["allowed_data_classes"] = json.loads(r["allowed_data_classes"])
                 results.append(r)
             return results
-    
+
+    async def get_vendor_by_id(self, tenant_id: str, vendor_id: str) -> Optional[Dict[str, Any]]:
+        """Get a vendor by its UUID"""
+        async with self.get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM vendors WHERE tenant_id = ? AND id = ?",
+                (tenant_id, vendor_id)
+            )
+            row = await cursor.fetchone()
+            if row:
+                result = dict(row)
+                result["allowed_data_classes"] = json.loads(result["allowed_data_classes"])
+                return result
+            return None
+
+    async def update_vendor(self, tenant_id: str, vendor_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update a vendor's mutable fields"""
+        async with self.get_connection() as conn:
+            allowed_fields = {
+                "display_name", "vendor_type", "endpoint_url",
+                "api_key_encrypted", "allowed_data_classes", "status"
+            }
+            set_clauses = []
+            params = []
+            for field, value in updates.items():
+                if field not in allowed_fields:
+                    continue
+                if field == "allowed_data_classes":
+                    value = json.dumps(value)
+                set_clauses.append(f"{field} = ?")
+                params.append(value)
+
+            if not set_clauses:
+                return await self.get_vendor_by_id(tenant_id, vendor_id)
+
+            params.extend([tenant_id, vendor_id])
+            await conn.execute(
+                f"UPDATE vendors SET {', '.join(set_clauses)} WHERE tenant_id = ? AND id = ?",
+                params
+            )
+            await conn.commit()
+        return await self.get_vendor_by_id(tenant_id, vendor_id)
+
+    async def delete_vendor(self, tenant_id: str, vendor_id: str) -> bool:
+        """Delete a vendor; returns True if a row was deleted"""
+        async with self.get_connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM vendors WHERE tenant_id = ? AND id = ?",
+                (tenant_id, vendor_id)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
     # ==================== Webhooks ====================
     
     async def create_webhook(self, webhook: Dict[str, Any]) -> Dict[str, Any]:

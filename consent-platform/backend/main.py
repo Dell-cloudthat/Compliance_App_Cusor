@@ -942,6 +942,49 @@ async def create_vendor(
     return {"vendor": vendor.model_dump()}
 
 
+class VendorUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    vendor_type: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    api_key: Optional[str] = None
+    pixel_id: Optional[str] = None
+    allowed_data_classes: Optional[List[str]] = None
+    status: Optional[str] = None
+
+
+@app.put("/vendors/{vendor_id}", tags=["Vendors"])
+async def update_vendor(
+    vendor_id: str,
+    request: VendorUpdateRequest,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Update an existing vendor's configuration"""
+    auth.require_scope(Scope.ADMIN_WRITE)
+
+    updates = request.model_dump(exclude_none=True)
+    if "api_key" in updates:
+        updates["api_key_encrypted"] = updates.pop("api_key")
+
+    updated = await db.update_vendor(auth.tenant_id, vendor_id, updates)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return {"vendor": updated}
+
+
+@app.delete("/vendors/{vendor_id}", tags=["Vendors"])
+async def delete_vendor(
+    vendor_id: str,
+    auth: AuthContext = Depends(require_auth)
+):
+    """Delete a vendor"""
+    auth.require_scope(Scope.ADMIN_WRITE)
+
+    deleted = await db.delete_vendor(auth.tenant_id, vendor_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return {"deleted": True, "vendor_id": vendor_id}
+
+
 # ============== Webhook Endpoints ==============
 
 @app.get("/webhooks", tags=["Webhooks"])
