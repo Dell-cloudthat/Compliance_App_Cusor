@@ -1,8 +1,7 @@
-import ComplianceMVP from './ComplianceMVP'
+import SecurityOSApp from './SecurityOSApp'
 
 function App() {
-  return <ComplianceMVP />
+  return <SecurityOSApp />
 }
 
 export default App
-
