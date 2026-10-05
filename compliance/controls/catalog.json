@@ -880,5 +880,223 @@
       "unknown": "Annual review not verified",
       "detail_template": "Last review over {months} months ago"
     }
+  },
+
+  {
+    "id": "CTRL-AI-001",
+    "category": "ai_rmf",
+    "name": "AI Tool Inventory",
+    "short_name": "AI Inventory",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Maintain a current inventory of all AI tools and systems used in your business — including ChatGPT, Microsoft Copilot, AI accounting tools, AI scheduling, and any AI-powered features in your existing software.",
+    "customer_impact": "You can't manage risk you don't know about. Employees may be using AI tools that expose client data without your knowledge. A documented inventory is the foundation of AI risk management.",
+    "remediation_steps": [
+      "Survey employees on what AI tools they currently use for work tasks.",
+      "List each tool: name, purpose, who uses it, and what data is entered into it.",
+      "Identify which tools have access to sensitive client or business data.",
+      "Review the list monthly — AI tool adoption is fast-moving.",
+      "Document in a simple spreadsheet or your policy system."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_inventory_exists", "description": "Current inventory of AI tools used by the organization"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a documented list of all AI tools your team uses for work?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["GOVERN-1.1", "MAP-1.1"],
+      "nist_csf_2": ["ID.AM-02"],
+      "cis_v8": ["2.1"]
+    },
+    "customer_message": {
+      "fail": "No AI tool inventory exists",
+      "unknown": "AI tool usage not inventoried",
+      "detail_template": "AI tools in use are not tracked"
+    }
+  },
+  {
+    "id": "CTRL-AI-002",
+    "category": "ai_rmf",
+    "name": "AI Acceptable Use Policy",
+    "short_name": "AI Use Policy",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "A written policy that tells employees what AI tools are approved, how they may be used, and what data must never be entered into AI systems — especially client PII, PHI, financial data, or confidential business information.",
+    "customer_impact": "Without a policy, employees may unknowingly input patient records, legal documents, or financial data into public AI tools — creating breach liability. One employee pasting client data into ChatGPT can trigger regulatory reporting requirements.",
+    "remediation_steps": [
+      "Draft an AI Acceptable Use Policy (1-2 pages is sufficient).",
+      "Specify: approved tools, prohibited data types (PHI, PII, payment data), and prohibited use cases.",
+      "Require employee acknowledgment — have each employee sign or confirm they've read it.",
+      "Include consequences for policy violations.",
+      "Review and update the policy annually or when major new AI tools are adopted."
+    ],
+    "estimated_minutes": 90,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_use_policy_exists", "description": "Written AI acceptable use policy acknowledged by employees"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a written AI use policy that employees have acknowledged?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["GOVERN-1.2", "GOVERN-1.4"],
+      "nist_csf_2": ["GV.PO-01"],
+      "hipaa": ["164.308(a)(1)"],
+      "ftc_safeguards": ["314.4(a)"]
+    },
+    "customer_message": {
+      "fail": "No AI acceptable use policy in place",
+      "unknown": "AI use policy not verified",
+      "detail_template": "Employees have no guidance on AI use"
+    }
+  },
+  {
+    "id": "CTRL-AI-003",
+    "category": "ai_rmf",
+    "name": "AI Data Privacy Controls",
+    "short_name": "AI Data Privacy",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Ensure sensitive client data — medical records, legal documents, financial data, personal information — is never entered into public AI tools without appropriate data processing agreements and privacy controls.",
+    "customer_impact": "Public AI tools like ChatGPT may use your inputs for model training. Entering a patient's medical history or a client's financial details creates HIPAA, attorney-client privilege, or GLBA violations — even if you're just trying to write a summary.",
+    "remediation_steps": [
+      "Identify which AI tools your team uses with sensitive data.",
+      "For each tool, review the vendor's data processing/privacy terms.",
+      "Enable enterprise/privacy mode where available (e.g., ChatGPT Enterprise, Microsoft Copilot with data protection).",
+      "Sign a Business Associate Agreement (BAA) with any AI tool that processes PHI.",
+      "Prohibit entry of client PII/PHI into consumer-grade AI tools without enterprise agreements.",
+      "Train employees on what data is safe to enter into AI tools."
+    ],
+    "estimated_minutes": 120,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_data_privacy_controls", "description": "AI tools reviewed for data privacy; enterprise agreements in place where required"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you reviewed whether your AI tools share input data for training, and have you enabled appropriate privacy protections?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["MAP-2.2", "GOVERN-6.1"],
+      "nist_csf_2": ["PR.DS-01"],
+      "hipaa": ["164.312(a)(2)(iv)", "164.308(b)"],
+      "ftc_safeguards": ["314.4(c)"],
+      "pci_dss": ["3.1"],
+      "cyber_insurance": ["data_handling"]
+    },
+    "customer_message": {
+      "fail": "Sensitive data may be exposed through AI tools",
+      "unknown": "AI data privacy not verified",
+      "detail_template": "AI tool data practices not reviewed"
+    }
+  },
+  {
+    "id": "CTRL-AI-004",
+    "category": "ai_rmf",
+    "name": "AI Output Validation",
+    "short_name": "AI Output Review",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Ensure AI-generated content — advice, calculations, summaries, diagnoses, legal language, financial projections — is reviewed by a qualified human before being acted upon or shared with clients.",
+    "customer_impact": "AI models hallucinate. An AI-generated medical summary, legal clause, or financial calculation that goes unchecked can cause direct client harm and professional liability. Human review is your control against AI errors.",
+    "remediation_steps": [
+      "Establish a rule: no AI-generated output goes directly to clients without human review.",
+      "For high-stakes decisions (medical advice, legal documents, financial projections), require review by a licensed professional.",
+      "Document your review process — who reviews what, and when.",
+      "Add a standard disclosure when AI tools assisted in creating client-facing content.",
+      "Train employees to treat AI output as a first draft, not a final product."
+    ],
+    "estimated_minutes": 45,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_output_review_process", "description": "Documented process for human review of AI-generated content before use"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a process requiring human review of AI-generated outputs before they reach clients or affect decisions?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["MEASURE-2.5", "MANAGE-1.3"],
+      "nist_csf_2": ["PR.PS-04"]
+    },
+    "customer_message": {
+      "fail": "No AI output review process in place",
+      "unknown": "AI output validation not verified",
+      "detail_template": "AI outputs may go unchecked to clients"
+    }
+  },
+  {
+    "id": "CTRL-AI-005",
+    "category": "ai_rmf",
+    "name": "AI Vendor Risk Assessment",
+    "short_name": "AI Vendor Risk",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Evaluate the trustworthiness, data practices, and reliability of AI vendors and tools before adopting them — and annually thereafter. Covers both AI-specific tools and AI features embedded in existing software.",
+    "customer_impact": "AI vendors differ widely in how they handle your data, how reliable their models are, and whether they meet regulatory standards. Using an AI tool without vendor assessment exposes you to data breaches, compliance violations, and unexpected model changes.",
+    "remediation_steps": [
+      "For each AI tool in your inventory, review the vendor's privacy policy and terms of service.",
+      "Ask key questions: Does the vendor train on my data? Where is data stored? What happens in a breach?",
+      "Check whether the vendor has SOC 2 Type II, ISO 27001, or similar certifications.",
+      "For Microsoft/Google AI tools: verify your enterprise agreement covers AI features.",
+      "Document your assessment and re-evaluate annually or when terms change."
+    ],
+    "estimated_minutes": 90,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_vendor_assessed", "description": "AI vendors reviewed for data practices, security posture, and compliance"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you reviewed the data handling and security practices of your AI tool vendors?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["GOVERN-6.1", "GOVERN-6.2", "MAP-5.1"],
+      "nist_csf_2": ["GV.SC-06"],
+      "hipaa": ["164.308(b)"],
+      "ftc_safeguards": ["314.4(f)"]
+    },
+    "customer_message": {
+      "fail": "AI vendors not assessed for risk",
+      "unknown": "AI vendor risk not evaluated",
+      "detail_template": "AI tool vendors not reviewed"
+    }
+  },
+  {
+    "id": "CTRL-AI-006",
+    "category": "ai_rmf",
+    "name": "AI Incident Response",
+    "short_name": "AI Incident Plan",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Have a documented plan for how to respond when an AI system produces harmful, biased, or incorrect output that affects clients — or when an AI tool you use suffers a data breach or service failure.",
+    "customer_impact": "AI incidents are a new category of business risk. If an AI tool exposes client data, generates discriminatory advice, or makes a costly error in your business process, you need a clear response plan — including who to notify, how to remediate, and how to prevent recurrence.",
+    "remediation_steps": [
+      "Add an 'AI Incidents' section to your existing Incident Response Plan.",
+      "Define what constitutes an AI incident: data exposure, harmful output, bias, service failure.",
+      "Identify who is responsible for AI incident response in your organization.",
+      "Document client notification procedures if AI causes data exposure or harm.",
+      "Test your AI incident response annually — run a tabletop exercise with your team.",
+      "Report significant AI-related data incidents per your standard breach notification obligations."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_incident_response_plan", "description": "AI incident scenarios covered in incident response plan"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Does your incident response plan cover AI-specific incidents such as harmful AI output or AI vendor data breaches?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["MANAGE-3.1", "MANAGE-3.2", "MANAGE-4.1"],
+      "nist_csf_2": ["RS.MA-01"],
+      "hipaa": ["164.308(a)(6)"],
+      "ftc_safeguards": ["314.4(h)"]
+    },
+    "customer_message": {
+      "fail": "No AI incident response plan",
+      "unknown": "AI incident response not verified",
+      "detail_template": "No plan for AI failures or AI data breaches"
+    }
   }
 ]

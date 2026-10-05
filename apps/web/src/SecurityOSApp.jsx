@@ -93,10 +93,12 @@ export default function SecurityOSApp() {
     }];
   });
   const [activeTenantId, setActiveTenantId] = useState(() => saved?.activeTenantId ?? tenants?.[0]?.id ?? 'tenant-1');
-  const [view, setView] = useState('home');           // home | global | copilot | passport | settings
-  const [fixControlId, setFixControlId] = useState(null); // when non-null, show FixView
-  const [phase, setPhase] = useState(saved ? 'app' : 'onboarding'); // onboarding | analysis | app
+  const [view, setView] = useState('home');
+  const [fixControlId, setFixControlId] = useState(null);
+  const [phase, setPhase] = useState(saved ? 'app' : 'onboarding');
   const [riskOpen, setRiskOpen] = useState(false);
+  const [activeFramework, setActiveFramework] = useState('all');
+  const [copilotInitialPrompt, setCopilotInitialPrompt] = useState(null);
 
   // Ensure active tenant id always points to an existing tenant.
   useEffect(() => {
@@ -148,6 +150,16 @@ export default function SecurityOSApp() {
 
   function openFix(controlId) {
     setFixControlId(controlId);
+  }
+
+  function openCopilotWithPrompt(prompt) {
+    setCopilotInitialPrompt(prompt);
+    setView('copilot');
+    setFixControlId(null);
+  }
+
+  function clearCopilotPrompt() {
+    setCopilotInitialPrompt(null);
   }
 
   function openFixForTenant(tenantId, controlId) {
@@ -204,6 +216,15 @@ export default function SecurityOSApp() {
     openFix,
     openFixForTenant,
     openRisk,
+    openCopilotWithPrompt,
+    clearCopilotPrompt,
+
+    // Framework filtering
+    activeFramework,
+    setFramework: setActiveFramework,
+
+    // Copilot deep-link
+    copilotInitialPrompt,
 
     // Multi-tenant APIs
     tenants,

@@ -1,8 +1,9 @@
+import { useRef } from 'react';
 import { useApp, ScoreRing } from '../../SecurityOSApp';
-import { STATUS, SEVERITY_DOT } from '../../data/controls';
+import { STATUS, FRAMEWORK_OPTIONS, filterControlsByFramework } from '../../data/controls';
 import { toGrade, toColor } from '../../data/scoring';
 import { calculateTCO, riskLevel, fmtUSD } from '../../data/risk';
-import { CheckCircle2, ChevronRight, Clock, Info, TrendingDown, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Clock, TrendingDown, ShieldAlert } from 'lucide-react';
 
 const COLOR_TEXT = {
   green:  'text-green-400',
@@ -62,9 +63,45 @@ function PassingRow({ control, onReview }) {
   );
 }
 
+function FrameworkSelector({ activeFramework, onSelect }) {
+  const scrollRef = useRef(null);
+  return (
+    <div className="px-4 pt-3 pb-1">
+      <div
+        ref={scrollRef}
+        className="flex gap-2 overflow-x-auto scrollbar-none pb-1"
+        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+      >
+        {FRAMEWORK_OPTIONS.map(fw => {
+          const active = activeFramework === fw.id;
+          return (
+            <button
+              key={fw.id}
+              onClick={() => onSelect(fw.id)}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                active
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+              }`}
+            >
+              <span>{fw.icon}</span>
+              <span>{fw.short}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function HomeView() {
-  const { scoring, profile, statuses, catalog, openFix, openRisk } = useApp();
+  const { scoring, profile, statuses, catalog, openFix, openRisk, activeFramework, setFramework } = useApp();
   const { totalScore, grade, color, issues, passing, summary, verifiedPct, confidenceNote } = scoring;
+
+  const filteredIssues  = filterControlsByFramework(issues, activeFramework);
+  const filteredPassing = filterControlsByFramework(passing, activeFramework);
+  const isFiltered = activeFramework !== 'all';
+  const fwLabel = FRAMEWORK_OPTIONS.find(f => f.id === activeFramework)?.label || 'All Controls';
 
   const tco = calculateTCO(profile, statuses, issues, catalog);
   const rl  = riskLevel(tco);
@@ -83,13 +120,11 @@ export default function HomeView() {
   return (
     <div className="flex flex-col min-h-full">
       {/* Header / Score */}
-      <div className="px-5 pt-10 pb-6 text-center border-b border-slate-800">
-        {/* Business name */}
+      <div className="px-5 pt-10 pb-4 text-center border-b border-slate-800">
         <p className="text-xs text-slate-500 uppercase tracking-widest mb-4 font-medium">
           {profile.businessName || 'Your Business'}
         </p>
 
-        {/* Score ring */}
         <div className="relative inline-flex items-center justify-center mb-3">
           <ScoreRing score={totalScore} size={140} strokeWidth={9} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -98,62 +133,85 @@ export default function HomeView() {
           </div>
         </div>
 
-        {/* Grade badge */}
         <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold mb-3 ${colorBg} ${colorText}`}>
           Security Readiness: {grade}
         </div>
 
-        {/* Confidence note */}
         <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
           <Clock size={11} />
           <span>{confidenceNote}</span>
         </div>
       </div>
 
+      {/* Framework selector */}
+      <FrameworkSelector activeFramework={activeFramework} onSelect={setFramework} />
+
+      {/* Framework filter banner */}
+      {isFiltered && (
+        <div className="mx-4 mt-2 mb-1 px-3 py-2 rounded-xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-between">
+          <p className="text-xs text-indigo-400 font-medium">
+            Showing {fwLabel} controls only
+          </p>
+          <button onClick={() => setFramework('all')} className="text-xs text-indigo-400/60 hover:text-indigo-400 transition-colors">
+            Clear filter ×
+          </button>
+        </div>
+      )}
+
       {/* Issues section */}
       <div className="flex-1">
-        {issues.length > 0 ? (
+        {filteredIssues.length > 0 || filteredPassing.length > 0 ? (
           <>
-            <div className="px-5 pt-5 pb-2">
-              <p className="text-white font-bold text-lg">
-                {issues.length === 1
-                  ? 'You have 1 thing to fix.'
-                  : `You have ${issues.length} things to fix.`}
-              </p>
-            </div>
+            {filteredIssues.length > 0 && (
+              <>
+                <div className="px-5 pt-4 pb-2">
+                  <p className="text-white font-bold text-lg">
+                    {filteredIssues.length === 1
+                      ? 'You have 1 thing to fix.'
+                      : `You have ${filteredIssues.length} things to fix.`}
+                  </p>
+                </div>
+                <div className="mt-1">
+                  {filteredIssues.map(control => (
+                    <IssueRow key={control.id} control={control} onFix={openFix} />
+                  ))}
+                </div>
+              </>
+            )}
 
-            {/* Issue list */}
-            <div className="mt-1">
-              {issues.map(control => (
-                <IssueRow key={control.id} control={control} onFix={openFix} />
-              ))}
-            </div>
-
-            {/* Passing controls (collapsed section) */}
-            {passing.length > 0 && (
+            {filteredPassing.length > 0 && (
               <div className="mt-4">
                 <p className="px-5 text-xs text-slate-500 uppercase tracking-widest font-medium mb-1">
-                  {passing.length} control{passing.length !== 1 ? 's' : ''} passing
+                  {filteredPassing.length} control{filteredPassing.length !== 1 ? 's' : ''} passing
                 </p>
-                {passing.slice(0, 6).map(control => (
+                {filteredPassing.slice(0, 6).map(control => (
                   <PassingRow key={control.id} control={control} onReview={openFix} />
                 ))}
-                {passing.length > 6 && (
+                {filteredPassing.length > 6 && (
                   <p className="px-5 py-3 text-xs text-slate-600">
-                    +{passing.length - 6} more passing
+                    +{filteredPassing.length - 6} more passing
                   </p>
                 )}
               </div>
             )}
           </>
+        ) : isFiltered ? (
+          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+            <div className="text-4xl mb-4">🎉</div>
+            <p className="text-white text-lg font-bold mb-2">All {fwLabel} controls passing!</p>
+            <p className="text-slate-400 text-sm">
+              No open issues for this framework.
+            </p>
+            <button onClick={() => setFramework('all')} className="mt-4 text-indigo-400 text-sm">
+              View all controls →
+            </button>
+          </div>
         ) : (
-          /* All passing */
           <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
             <div className="text-5xl mb-4">🎉</div>
             <p className="text-white text-xl font-bold mb-2">All clear!</p>
             <p className="text-slate-400 text-sm leading-relaxed">
               All {summary.total} controls are passing. Your business is well-protected.
-              Connect integrations to automatically verify your status.
             </p>
           </div>
         )}

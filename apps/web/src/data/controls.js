@@ -38,12 +38,42 @@ export const EVIDENCE_CONFIDENCE = {
 };
 
 export const CATEGORIES = {
-  identity:     { id: 'identity',     label: 'Identity',        maxScore: 20 },
-  devices:      { id: 'devices',      label: 'Devices',         maxScore: 20 },
-  data:         { id: 'data',         label: 'Data',            maxScore: 20 },
-  network:      { id: 'network',      label: 'Cloud & Network', maxScore: 20 },
-  organization: { id: 'organization', label: 'Organization',    maxScore: 20 },
+  identity:     { id: 'identity',     label: 'Identity',           maxScore: 20 },
+  devices:      { id: 'devices',      label: 'Devices',            maxScore: 20 },
+  data:         { id: 'data',         label: 'Data',               maxScore: 20 },
+  network:      { id: 'network',      label: 'Cloud & Network',    maxScore: 20 },
+  organization: { id: 'organization', label: 'Organization',       maxScore: 20 },
+  ai_rmf:       { id: 'ai_rmf',       label: 'AI Risk (AI RMF)',   maxScore: 0 },
 };
+
+export const CATEGORY_LABEL = {
+  identity:     'Identity & Access',
+  devices:      'Device Security',
+  data:         'Data Protection',
+  network:      'Cloud & Network',
+  organization: 'Organization',
+  ai_rmf:       'AI Risk Management',
+};
+
+// ── Framework selector options ─────────────────────────────────────────────
+export const FRAMEWORK_OPTIONS = [
+  { id: 'all',             label: 'All Controls',    short: 'All',     icon: '🛡️' },
+  { id: 'nist_ai_rmf',    label: 'NIST AI RMF',     short: 'AI RMF',  icon: '🤖' },
+  { id: 'nist_csf_2',     label: 'NIST CSF 2.0',    short: 'CSF 2.0', icon: '📋' },
+  { id: 'hipaa',           label: 'HIPAA',            short: 'HIPAA',   icon: '🏥' },
+  { id: 'pci_dss',         label: 'PCI DSS',          short: 'PCI DSS', icon: '💳' },
+  { id: 'ftc_safeguards',  label: 'FTC Safeguards',   short: 'FTC',     icon: '🏦' },
+  { id: 'cyber_insurance', label: 'Cyber Insurance',  short: 'Insurance', icon: '🔐' },
+];
+
+export function filterControlsByFramework(controls, frameworkId) {
+  if (!frameworkId || frameworkId === 'all') return controls;
+  return controls.filter(c =>
+    c.framework_mappings &&
+    Array.isArray(c.framework_mappings[frameworkId]) &&
+    c.framework_mappings[frameworkId].length > 0
+  );
+}
 
 export const SEVERITY_DOT = {
   critical: '🔴',
