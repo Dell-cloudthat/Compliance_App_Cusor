@@ -104,11 +104,14 @@ class ScoreResult:
 
 
 CATEGORY_META = {
-    "identity":     {"label": "Identity",        "max_score": 20},
-    "devices":      {"label": "Devices",         "max_score": 20},
-    "data":         {"label": "Data",            "max_score": 20},
-    "network":      {"label": "Cloud & Network", "max_score": 20},
-    "organization": {"label": "Organization",    "max_score": 20},
+    "identity":     {"label": "Identity",           "max_score": 20},
+    "devices":      {"label": "Devices",            "max_score": 20},
+    "data":         {"label": "Data",               "max_score": 20},
+    "network":      {"label": "Cloud & Network",    "max_score": 20},
+    "organization": {"label": "Organization",       "max_score": 20},
+    # AI RMF controls are bonus / supplemental — they don't dilute the 100-point scale
+    # but appear in category breakdowns and issue lists
+    "ai_rmf":       {"label": "AI Risk (NIST AI RMF)", "max_score": 0},
 }
 
 
@@ -192,6 +195,7 @@ def calculate_score(
         catalog = load_catalog()
 
     category_buckets: Dict[str, List[ControlResult]] = {cat: [] for cat in CATEGORY_META}
+    # Also accept any category not in CATEGORY_META (future-proofing)
     all_results: List[ControlResult] = []
 
     total_earned = 0.0
@@ -245,8 +249,10 @@ def calculate_score(
             customer_message=build_customer_message(control, status, entry.get("notes")),
         )
         all_results.append(result)
-        if control["category"] in category_buckets:
-            category_buckets[control["category"]].append(result)
+        cat_key = control["category"]
+        if cat_key not in category_buckets:
+            category_buckets[cat_key] = []
+        category_buckets[cat_key].append(result)
 
     # Normalize to 100
     normalized_score = int(round((total_earned / total_max * 100) if total_max > 0 else 0))\

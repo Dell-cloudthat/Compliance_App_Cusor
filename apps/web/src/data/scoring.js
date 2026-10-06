@@ -157,30 +157,42 @@ export function toColor(score) {
 export function buildDemoStatuses() {
   const now = new Date().toISOString();
   return {
+    // Identity
     'CTRL-ID-001': { status: 'fail',    evidence_source: 'automatic', notes: '3 users not protected',       last_checked: now },
     'CTRL-ID-002': { status: 'pass',    evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-ID-003': { status: 'pass',    evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-ID-004': { status: 'pass',    evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-ID-005': { status: 'pass',    evidence_source: 'manual',    notes: null,                          last_checked: now },
+    // Devices
     'CTRL-DEV-001': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DEV-002': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DEV-003': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DEV-004': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DEV-005': { status: 'unknown', evidence_source: 'none',     notes: null,                          last_checked: null },
+    // Data
     'CTRL-DATA-001': { status: 'pass',  evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DATA-002': { status: 'pass',  evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DATA-003': { status: 'pass',  evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-DATA-004': { status: 'fail',  evidence_source: 'manual',    notes: 'Last verified 52 days ago',   last_checked: now },
     'CTRL-DATA-005': { status: 'pass',  evidence_source: 'manual',    notes: null,                          last_checked: now },
+    // Network
     'CTRL-NET-001': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-NET-002': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-NET-003': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-NET-004': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-NET-005': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
+    // Organization
     'CTRL-ORG-001': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-ORG-002': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-ORG-003': { status: 'unknown', evidence_source: 'none',     notes: null,                          last_checked: null },
     'CTRL-ORG-004': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
     'CTRL-ORG-005': { status: 'pass',   evidence_source: 'manual',    notes: null,                          last_checked: now },
+    // AI RMF — most SMBs start with these as fail/unknown (they're new requirements)
+    'CTRL-AI-001': { status: 'fail',    evidence_source: 'manual',    notes: 'No AI tool inventory exists',               last_checked: now },
+    'CTRL-AI-002': { status: 'fail',    evidence_source: 'manual',    notes: 'No AI acceptable use policy',               last_checked: now },
+    'CTRL-AI-003': { status: 'unknown', evidence_source: 'none',      notes: null,                                        last_checked: null },
+    'CTRL-AI-004': { status: 'unknown', evidence_source: 'none',      notes: null,                                        last_checked: null },
+    'CTRL-AI-005': { status: 'fail',    evidence_source: 'manual',    notes: 'AI vendors not assessed',                   last_checked: now },
+    'CTRL-AI-006': { status: 'unknown', evidence_source: 'none',      notes: null,                                        last_checked: null },
   };
 }

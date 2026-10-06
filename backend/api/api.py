@@ -60,16 +60,18 @@ _control_statuses: Dict[str, Dict[str, Dict]] = {}
 
 # ─── Controls Catalog ─────────────────────────────────────────────────────────
 
-VALID_CATEGORIES = {"identity", "devices", "data", "network", "organization"}
+VALID_CATEGORIES = {"identity", "devices", "data", "network", "organization", "ai_rmf"}
 
 @router.get("/controls")
-def list_controls(category: Optional[str] = None):
-    """Return the full controls catalog, optionally filtered by category."""
+def list_controls(category: Optional[str] = None, framework: Optional[str] = None):
+    """Return the full controls catalog, optionally filtered by category or framework."""
     controls = CONTROLS
     if category:
         if category not in VALID_CATEGORIES:
             raise HTTPException(status_code=400, detail=f"Unknown category: {category}. Valid: {sorted(VALID_CATEGORIES)}")
-        controls = [c for c in CONTROLS if c["category"] == category]
+        controls = [c for c in controls if c["category"] == category]
+    if framework:
+        controls = [c for c in controls if framework in (c.get("framework_mappings") or {})]
     return {"controls": controls, "total": len(controls)}
 
 

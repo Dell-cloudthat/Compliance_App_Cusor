@@ -19,6 +19,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.api import router as securityos_router
+from backend.api.tiers import router as tiers_router
+from backend.api.msp import router as msp_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("securityos")
@@ -57,6 +59,8 @@ app.add_middleware(
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 app.include_router(securityos_router)
+app.include_router(tiers_router)
+app.include_router(msp_router)
 
 
 @app.get("/health", tags=["Health"])
@@ -82,17 +86,18 @@ def root():
 
 @app.on_event("startup")
 async def startup():
-    logger.info("SecurityOS API starting on /api/v1/securityos")
+    logger.info("SecurityOS API v0.2.0 starting")
+    logger.info("  Routes: /api/v1/securityos (core) · /api/v1/securityos/tiers · /api/v1/securityos/msp")
     db_url = os.environ.get("DATABASE_URL")
     if db_url:
-        logger.info("Database: PostgreSQL (persistent)")
+        logger.info("  Database: PostgreSQL (persistent)")
     else:
         logger.warning(
-            "DATABASE_URL not set — using in-memory storage. "
-            "All data will be lost on restart. Set DATABASE_URL for production."
+            "  DATABASE_URL not set — using in-memory storage. "
+            "All data lost on restart. See backend/database/securityos_schema.sql to provision PostgreSQL."
         )
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
-        logger.info("OpenAI: configured — real LLM copilot enabled")
+        logger.info("  OpenAI: configured — real LLM copilot enabled")
     else:
-        logger.info("OpenAI: not configured — copilot uses rule-based responses")
+        logger.info("  OpenAI: not configured — copilot uses rule-based responses")

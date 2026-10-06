@@ -233,9 +233,17 @@ CONTROL_EVIDENCE_MAP: Dict[str, List[EvidenceCheck]] = {
 
 # Controls that require manual attestation only (no automation available for MVP)
 MANUAL_ONLY_CONTROLS = {
+    # Identity (policy/process controls)
     "CTRL-ID-004", "CTRL-ID-005",
+    # Devices (policy controls)
     "CTRL-DEV-005",
+    # Data (policy controls)
     "CTRL-DATA-001", "CTRL-DATA-002", "CTRL-DATA-005",
+    # Network (policy controls)
     "CTRL-NET-003", "CTRL-NET-005",
+    # Organization (all policy/process)
     "CTRL-ORG-001", "CTRL-ORG-002", "CTRL-ORG-003", "CTRL-ORG-004", "CTRL-ORG-005",
+    # AI RMF — all require human policy review; no API can verify these automatically
+    "CTRL-AI-001", "CTRL-AI-002", "CTRL-AI-003",
+    "CTRL-AI-004", "CTRL-AI-005", "CTRL-AI-006",
 }
