@@ -1,0 +1,1102 @@
+[
+  {
+    "id": "CTRL-ID-001",
+    "category": "identity",
+    "name": "Multi-Factor Authentication",
+    "short_name": "MFA",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Require a second form of verification for all user accounts, especially admin and privileged accounts.",
+    "customer_impact": "MFA blocks over 99% of automated account attacks. A stolen password alone is not enough to access your systems.",
+    "remediation_steps": [
+      "Sign in to your Microsoft 365 or Google Workspace admin console.",
+      "Navigate to Security → Multi-Factor Authentication.",
+      "Require MFA for all users, starting with admins.",
+      "Notify employees and give them 48 hours to enroll."
+    ],
+    "estimated_minutes": 30,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "identity_provider", "check": "mfa_enabled_all_users", "description": "All user accounts have MFA enforced"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "users/mfa_status", "description": "Automatically check MFA status via Microsoft Graph API"},
+      {"method": "api", "integration": "google_workspace", "endpoint": "users/2sv_status", "description": "Automatically check 2SV status via Google Admin SDK"},
+      {"method": "manual", "prompt": "Is MFA required for ALL user accounts in your email and cloud systems?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-02"],
+      "cis_v8": ["5.2"],
+      "hipaa": ["164.312(d)"],
+      "pci_dss": ["8.4"],
+      "ftc_safeguards": ["314.4(e)"],
+      "cyber_insurance": ["mfa_required"]
+    },
+    "customer_message": {
+      "fail": "MFA is not enabled for all users",
+      "unknown": "MFA status not verified",
+      "detail_template": "{count} {unit} not protected"
+    }
+  },
+  {
+    "id": "CTRL-ID-002",
+    "category": "identity",
+    "name": "Privileged Account Protection",
+    "short_name": "Admin Accounts",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Admin and privileged accounts must be separate from daily-use accounts and protected with strong authentication.",
+    "customer_impact": "Attackers target admin accounts because they control everything. A compromised admin account means total system access.",
+    "remediation_steps": [
+      "Create dedicated admin accounts separate from regular email accounts.",
+      "Never use admin accounts for email or web browsing.",
+      "Enable MFA on all admin accounts.",
+      "Audit admin accounts quarterly."
+    ],
+    "estimated_minutes": 45,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "identity_provider", "check": "privileged_accounts_mfa", "description": "All privileged accounts have MFA enforced"},
+      {"type": "identity_provider", "check": "admin_accounts_dedicated", "description": "Admin accounts are separate from regular user accounts"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "users/admins/mfa_status"},
+      {"method": "manual", "prompt": "Do admin accounts have MFA enabled and are they separate from daily-use accounts?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-05"],
+      "cis_v8": ["5.4"],
+      "cyber_insurance": ["privileged_access"]
+    },
+    "customer_message": {
+      "fail": "Admin account security has gaps",
+      "unknown": "Admin account status not verified",
+      "detail_template": "Admin accounts need review"
+    }
+  },
+  {
+    "id": "CTRL-ID-003",
+    "category": "identity",
+    "name": "User Access Review",
+    "short_name": "Access Review",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Regularly review who has access to your systems and remove unnecessary or outdated permissions.",
+    "customer_impact": "Former employees, outdated vendors, and over-privileged accounts are common attack vectors.",
+    "remediation_steps": [
+      "List all active user accounts in each system.",
+      "Remove accounts for employees who have left.",
+      "Review and reduce permissions to the minimum needed.",
+      "Schedule this review quarterly."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "identity_provider", "check": "no_inactive_accounts", "description": "No inactive accounts active for more than 30 days"},
+      {"type": "policy", "check": "access_review_documented", "description": "Access review completed within 90 days"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "users/inactive"},
+      {"method": "api", "integration": "google_workspace", "endpoint": "users/suspended"},
+      {"method": "manual", "prompt": "Have you reviewed and cleaned up user access in the last 90 days?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-01"],
+      "cis_v8": ["5.1"],
+      "hipaa": ["164.308(a)(3)"]
+    },
+    "customer_message": {
+      "fail": "User access review is overdue",
+      "unknown": "Last access review date unknown",
+      "detail_template": "Review overdue by {days} days"
+    }
+  },
+  {
+    "id": "CTRL-ID-004",
+    "category": "identity",
+    "name": "Password Policy",
+    "short_name": "Passwords",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Enforce strong, unique passwords across all accounts. Use a password manager.",
+    "customer_impact": "Weak or reused passwords are responsible for a significant portion of breaches. A password manager eliminates the problem.",
+    "remediation_steps": [
+      "Require passwords of at least 12 characters.",
+      "Ban commonly-used passwords.",
+      "Recommend or require a business password manager (1Password, Bitwarden).",
+      "Do not require frequent mandatory rotations — it leads to weaker passwords."
+    ],
+    "estimated_minutes": 20,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "identity_provider", "check": "password_policy_enforced", "description": "Password policy meets minimum requirements"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "policies/password"},
+      {"method": "api", "integration": "google_workspace", "endpoint": "domains/password_policy"},
+      {"method": "manual", "prompt": "Is a minimum 12-character password required and are common passwords banned?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-02"],
+      "cis_v8": ["5.2"],
+      "ftc_safeguards": ["314.4(e)"]
+    },
+    "customer_message": {
+      "fail": "Password policy does not meet requirements",
+      "unknown": "Password policy not verified",
+      "detail_template": "Password policy needs strengthening"
+    }
+  },
+  {
+    "id": "CTRL-ID-005",
+    "category": "identity",
+    "name": "Account Termination Process",
+    "short_name": "Offboarding",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Immediately disable or remove access for employees who leave the company.",
+    "customer_impact": "Terminated employees retaining access is a top insider threat risk. This should be an automated or same-day process.",
+    "remediation_steps": [
+      "Create a written offboarding checklist that includes account termination.",
+      "Disable accounts on the day employment ends.",
+      "Revoke access to cloud services, email, and any shared accounts.",
+      "Transfer data and reassign permissions before disabling."
+    ],
+    "estimated_minutes": 15,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "offboarding_policy_exists", "description": "Written offboarding procedure exists"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a written process for immediately disabling access when an employee leaves?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-01"],
+      "cis_v8": ["5.3"],
+      "hipaa": ["164.308(a)(3)"]
+    },
+    "customer_message": {
+      "fail": "No documented offboarding process",
+      "unknown": "Offboarding process not verified",
+      "detail_template": "Offboarding procedure needs documentation"
+    }
+  },
+  {
+    "id": "CTRL-DEV-001",
+    "category": "devices",
+    "name": "Device Encryption",
+    "short_name": "Encryption",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Enable full-disk encryption on all computers and laptops used for business.",
+    "customer_impact": "If a laptop is lost or stolen, encryption makes the data unreadable without the password. It's the most important physical security control.",
+    "remediation_steps": [
+      "On Windows: Enable BitLocker via Settings → System → BitLocker.",
+      "On Mac: Enable FileVault via System Settings → Privacy & Security → FileVault.",
+      "Save recovery keys to a secure location (not the encrypted device).",
+      "Verify encryption is active on all business devices."
+    ],
+    "estimated_minutes": 15,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "endpoint", "check": "encryption_enabled_all_devices", "description": "All managed devices have full-disk encryption enabled"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_intune", "endpoint": "devices/encryption_status"},
+      {"method": "api", "integration": "microsoft_365", "endpoint": "deviceManagement/managedDevices"},
+      {"method": "manual", "prompt": "Is BitLocker (Windows) or FileVault (Mac) enabled on ALL business computers?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.DS-01"],
+      "cis_v8": ["3.6"],
+      "hipaa": ["164.312(a)(2)(iv)"],
+      "pci_dss": ["3.5"]
+    },
+    "customer_message": {
+      "fail": "Not all devices are encrypted",
+      "unknown": "Device encryption status not verified",
+      "detail_template": "{count} {unit} not encrypted"
+    }
+  },
+  {
+    "id": "CTRL-DEV-002",
+    "category": "devices",
+    "name": "Software Updates & Patching",
+    "short_name": "Updates",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Keep operating systems and applications up to date with security patches.",
+    "customer_impact": "The majority of successful attacks exploit known vulnerabilities that already have patches available. Updates are free security.",
+    "remediation_steps": [
+      "Enable automatic updates on Windows and macOS.",
+      "Set updates to install outside business hours.",
+      "Verify critical patches within 30 days of release.",
+      "Include all business-critical applications, not just the OS."
+    ],
+    "estimated_minutes": 20,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "endpoint", "check": "os_patching_current", "description": "All devices have OS patches applied within 30 days of release"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_intune", "endpoint": "devices/compliance"},
+      {"method": "manual", "prompt": "Is automatic OS update enabled on all business computers?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.PS-02"],
+      "cis_v8": ["7.3"],
+      "ftc_safeguards": ["314.4(f)"]
+    },
+    "customer_message": {
+      "fail": "Devices are missing security updates",
+      "unknown": "Update status not verified",
+      "detail_template": "{count} {unit} with missing patches"
+    }
+  },
+  {
+    "id": "CTRL-DEV-003",
+    "category": "devices",
+    "name": "Endpoint Protection",
+    "short_name": "Antivirus / EDR",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Install and maintain endpoint protection software (antivirus/EDR) on all business devices.",
+    "customer_impact": "Modern endpoint protection detects and blocks malware, ransomware, and phishing attempts before they cause damage.",
+    "remediation_steps": [
+      "Select a business-grade endpoint protection solution (Microsoft Defender, SentinelOne, CrowdStrike).",
+      "Deploy to all business computers, including remote employees.",
+      "Ensure real-time protection is enabled.",
+      "Review alerts weekly."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "endpoint", "check": "edr_installed_all_devices", "description": "Endpoint protection installed and active on all devices"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_defender", "endpoint": "devices/onboarding_status"},
+      {"method": "manual", "prompt": "Is business-grade antivirus or endpoint protection installed on ALL computers?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["DE.CM-09"],
+      "cis_v8": ["10.1"],
+      "cyber_insurance": ["edr_required"]
+    },
+    "customer_message": {
+      "fail": "Endpoint protection not deployed to all devices",
+      "unknown": "Endpoint protection status not verified",
+      "detail_template": "{count} {unit} not protected"
+    }
+  },
+  {
+    "id": "CTRL-DEV-004",
+    "category": "devices",
+    "name": "Screen Lock Policy",
+    "short_name": "Screen Lock",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "All devices must automatically lock after a short period of inactivity.",
+    "customer_impact": "An unlocked workstation in a public space is an open door. Auto-lock is a simple physical security control.",
+    "remediation_steps": [
+      "Set screen lock timeout to 5–10 minutes on all devices.",
+      "Require a password or biometric to unlock.",
+      "On Windows: Settings → Accounts → Sign-in options.",
+      "On Mac: System Settings → Lock Screen."
+    ],
+    "estimated_minutes": 10,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "endpoint", "check": "screen_lock_enforced", "description": "Screen auto-lock policy enforced on all devices"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_intune", "endpoint": "deviceConfigurations/screenLock"},
+      {"method": "manual", "prompt": "Is screen auto-lock set to 10 minutes or less on all business computers?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-03"],
+      "cis_v8": ["4.3"],
+      "hipaa": ["164.310(b)"]
+    },
+    "customer_message": {
+      "fail": "Screen lock policy not enforced",
+      "unknown": "Screen lock status not verified",
+      "detail_template": "Auto-lock policy needs enforcement"
+    }
+  },
+  {
+    "id": "CTRL-DEV-005",
+    "category": "devices",
+    "name": "Device Inventory",
+    "short_name": "Asset Inventory",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Maintain an accurate list of all devices used for business purposes.",
+    "customer_impact": "You cannot protect what you don't know exists. An inventory is the foundation of device security management.",
+    "remediation_steps": [
+      "Create a spreadsheet or use a tool to list all business devices.",
+      "Include: device name, type, owner, OS version, encryption status.",
+      "Update the inventory when devices are added or removed.",
+      "Review quarterly."
+    ],
+    "estimated_minutes": 30,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "device_inventory_current", "description": "Device inventory updated within 90 days"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_intune", "endpoint": "devices/managed"},
+      {"method": "manual", "prompt": "Do you maintain an up-to-date list of all business computers and mobile devices?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["ID.AM-01"],
+      "cis_v8": ["1.1"]
+    },
+    "customer_message": {
+      "fail": "No current device inventory maintained",
+      "unknown": "Device inventory not verified",
+      "detail_template": "Device inventory needs updating"
+    }
+  },
+  {
+    "id": "CTRL-DATA-001",
+    "category": "data",
+    "name": "Data Inventory",
+    "short_name": "Data Inventory",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Know what sensitive data your business holds and where it lives.",
+    "customer_impact": "Regulatory requirements, breach notifications, and incident response all require knowing what data you have.",
+    "remediation_steps": [
+      "List the types of sensitive data you hold (customer records, payment info, health records, etc.).",
+      "Document where each type is stored (cloud drive, email, local server, etc.).",
+      "Note who has access to each data category.",
+      "Review and update annually."
+    ],
+    "estimated_minutes": 45,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "data_inventory_exists", "description": "Data inventory document exists and is current"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a documented list of what sensitive data you hold and where it's stored?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["ID.AM-05"],
+      "cis_v8": ["3.1"],
+      "hipaa": ["164.308(a)(1)"],
+      "gdpr": ["Art. 30"]
+    },
+    "customer_message": {
+      "fail": "No data inventory maintained",
+      "unknown": "Data inventory not verified",
+      "detail_template": "Data inventory needs creation"
+    }
+  },
+  {
+    "id": "CTRL-DATA-002",
+    "category": "data",
+    "name": "Data Classification",
+    "short_name": "Data Labels",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Categorize data by sensitivity level so it receives appropriate protection.",
+    "customer_impact": "Not all data needs the same protection. Classification helps focus security resources where they matter most.",
+    "remediation_steps": [
+      "Define 3 simple tiers: Public, Internal, Confidential.",
+      "Classify customer data, financial records, and health info as Confidential.",
+      "Set access controls and handling rules per tier.",
+      "Train employees on the classification scheme."
+    ],
+    "estimated_minutes": 30,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "data_classification_policy", "description": "Data classification policy defined and communicated"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have defined categories for sensitive vs. non-sensitive data, and do employees know the difference?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["ID.AM-05"],
+      "cis_v8": ["3.2"],
+      "hipaa": ["164.308(a)(1)"]
+    },
+    "customer_message": {
+      "fail": "No data classification policy",
+      "unknown": "Data classification not verified",
+      "detail_template": "Data classification needs definition"
+    }
+  },
+  {
+    "id": "CTRL-DATA-003",
+    "category": "data",
+    "name": "Backup Strategy",
+    "short_name": "Backups",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Maintain regular, tested backups of all critical business data using the 3-2-1 rule.",
+    "customer_impact": "Ransomware and accidental deletion destroy businesses. A good backup strategy is your last line of defense.",
+    "remediation_steps": [
+      "Follow 3-2-1: 3 copies, 2 different media types, 1 offsite.",
+      "Enable automatic daily backups to a cloud service.",
+      "Ensure backups are separate from live systems (ransomware can encrypt connected backups).",
+      "Document your backup schedule and retention period."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "backup_platform", "check": "backups_configured_and_running", "description": "Automated backups configured and completing successfully"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "azure_backup", "endpoint": "vaults/jobs/status"},
+      {"method": "api", "integration": "aws_backup", "endpoint": "backup/jobs"},
+      {"method": "manual", "prompt": "Do you have automated daily backups of all critical business data stored separately from your main systems?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.DS-11"],
+      "cis_v8": ["11.1"],
+      "cyber_insurance": ["backups_required"]
+    },
+    "customer_message": {
+      "fail": "Backup strategy is missing or incomplete",
+      "unknown": "Backup status not verified",
+      "detail_template": "Backups need configuration"
+    }
+  },
+  {
+    "id": "CTRL-DATA-004",
+    "category": "data",
+    "name": "Backup Verification",
+    "short_name": "Test Restores",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Regularly verify that backups can actually be restored. An untested backup is not a backup.",
+    "customer_impact": "Backup systems fail silently. Many businesses discover their backups were corrupted only when they need them.",
+    "remediation_steps": [
+      "Schedule a monthly test restore of a sample of data.",
+      "Document the test: date, what was restored, result.",
+      "Ensure the restoration process is documented and someone knows how to do it.",
+      "Test full system restoration at least annually."
+    ],
+    "estimated_minutes": 30,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "backup_platform", "check": "restore_test_within_30_days", "description": "Backup restore test completed within the last 30 days"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you successfully restored data from your backups within the last 30 days?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["RC.RP-04"],
+      "cis_v8": ["11.3"],
+      "cyber_insurance": ["backup_verification"]
+    },
+    "customer_message": {
+      "fail": "Backup restore test not completed recently",
+      "unknown": "Last backup verification date unknown",
+      "detail_template": "Last verified {days_ago} days ago"
+    }
+  },
+  {
+    "id": "CTRL-DATA-005",
+    "category": "data",
+    "name": "Data Encryption at Rest",
+    "short_name": "Data Encryption",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Ensure sensitive data is encrypted when stored, particularly in cloud services and databases.",
+    "customer_impact": "Encrypted data is useless to an attacker who steals it. Most cloud services support this natively — it just needs to be enabled.",
+    "remediation_steps": [
+      "Enable encryption at rest in your cloud storage (Google Drive, OneDrive, Dropbox for Business, AWS S3).",
+      "Use encrypted databases for any customer records.",
+      "Avoid storing sensitive data in unencrypted spreadsheets or local files.",
+      "Verify your cloud provider's encryption settings in their admin console."
+    ],
+    "estimated_minutes": 20,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "cloud_platform", "check": "storage_encryption_enabled", "description": "Cloud storage encryption at rest enabled"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "compliance/encryption"},
+      {"method": "manual", "prompt": "Is encryption at rest enabled for your cloud storage and any customer databases?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.DS-01"],
+      "cis_v8": ["3.11"],
+      "hipaa": ["164.312(a)(2)(iv)"],
+      "pci_dss": ["3.5"]
+    },
+    "customer_message": {
+      "fail": "Data encryption at rest not confirmed",
+      "unknown": "Data encryption status not verified",
+      "detail_template": "Encryption configuration needs review"
+    }
+  },
+  {
+    "id": "CTRL-NET-001",
+    "category": "network",
+    "name": "Secure Configuration Baseline",
+    "short_name": "Secure Config",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Apply security hardening to cloud services and network devices beyond their default settings.",
+    "customer_impact": "Default configurations are designed for convenience, not security. Attackers know the default settings and exploit them.",
+    "remediation_steps": [
+      "Enable Microsoft Secure Score or Google Workspace Security Health.",
+      "Follow recommended security baselines (CIS Benchmarks for your platforms).",
+      "Disable unused services, ports, and features.",
+      "Review configuration quarterly."
+    ],
+    "estimated_minutes": 90,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "cloud_platform", "check": "secure_score_above_threshold", "description": "Platform security score above acceptable threshold"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "security/secureScores"},
+      {"method": "manual", "prompt": "Have you reviewed and applied security hardening settings in your Microsoft 365 or Google Workspace admin console?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.PS-01"],
+      "cis_v8": ["4.1"],
+      "cyber_insurance": ["configuration_management"]
+    },
+    "customer_message": {
+      "fail": "Cloud security configuration has gaps",
+      "unknown": "Security configuration not verified",
+      "detail_template": "Security configuration needs review"
+    }
+  },
+  {
+    "id": "CTRL-NET-002",
+    "category": "network",
+    "name": "Security Logging",
+    "short_name": "Audit Logs",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Enable logging for critical systems to maintain a record of security-relevant events.",
+    "customer_impact": "Logs are essential for detecting attacks and investigating incidents. Without them, you can't know what happened or when.",
+    "remediation_steps": [
+      "Enable audit logging in Microsoft 365 or Google Workspace.",
+      "Enable CloudTrail if using AWS, or Activity Logs in Azure.",
+      "Retain logs for at least 90 days (1 year is better for compliance).",
+      "Set alerts for suspicious events (failed logins, admin changes)."
+    ],
+    "estimated_minutes": 30,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "cloud_platform", "check": "audit_logging_enabled", "description": "Audit logging enabled with appropriate retention"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "security/auditLog/queries"},
+      {"method": "manual", "prompt": "Is audit logging enabled in your cloud platforms with at least 90 days retention?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["DE.CM-01"],
+      "cis_v8": ["8.2"],
+      "hipaa": ["164.312(b)"]
+    },
+    "customer_message": {
+      "fail": "Security logging not enabled",
+      "unknown": "Logging status not verified",
+      "detail_template": "Audit logging needs configuration"
+    }
+  },
+  {
+    "id": "CTRL-NET-003",
+    "category": "network",
+    "name": "External Exposure Management",
+    "short_name": "Attack Surface",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Identify and minimize what services and systems are exposed to the internet.",
+    "customer_impact": "Every internet-facing service is a potential entry point for attackers. Minimize your attack surface.",
+    "remediation_steps": [
+      "Scan your external presence (use Shodan or similar to see what's exposed).",
+      "Close unnecessary open ports and services.",
+      "Use a firewall or security group to restrict inbound traffic.",
+      "Replace VPNs and RDP with modern zero-trust access solutions when possible."
+    ],
+    "estimated_minutes": 45,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "network", "check": "no_unnecessary_exposure", "description": "No unnecessary internet-facing services identified"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you audited what services are accessible from the internet and confirmed only necessary ones are exposed?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["ID.RA-01"],
+      "cis_v8": ["12.1"],
+      "cyber_insurance": ["attack_surface_management"]
+    },
+    "customer_message": {
+      "fail": "External exposure not reviewed",
+      "unknown": "Attack surface not assessed",
+      "detail_template": "External exposure needs review"
+    }
+  },
+  {
+    "id": "CTRL-NET-004",
+    "category": "network",
+    "name": "Administrative Access Control",
+    "short_name": "Admin Access",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Restrict and monitor administrative access to cloud platforms and critical systems.",
+    "customer_impact": "Admin access to cloud platforms is the keys to the kingdom. It should be tightly controlled and audited.",
+    "remediation_steps": [
+      "Apply least-privilege: grant only the permissions needed.",
+      "Require MFA for all admin console access (cloud platforms, DNS, registrar).",
+      "Review admin accounts quarterly and remove unnecessary access.",
+      "Enable alerts for admin actions."
+    ],
+    "estimated_minutes": 30,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "cloud_platform", "check": "admin_access_restricted", "description": "Admin access limited to necessary accounts with MFA enforced"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "roleManagement/directory/roleAssignments"},
+      {"method": "manual", "prompt": "Is admin access to cloud platforms limited to only those who need it, with MFA required?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AA-05"],
+      "cis_v8": ["5.4"],
+      "pci_dss": ["7.1"]
+    },
+    "customer_message": {
+      "fail": "Admin access control has gaps",
+      "unknown": "Admin access not verified",
+      "detail_template": "Admin access configuration needs review"
+    }
+  },
+  {
+    "id": "CTRL-NET-005",
+    "category": "network",
+    "name": "Cloud Security Configuration",
+    "short_name": "Cloud Security",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Review and harden the security settings in your cloud service accounts.",
+    "customer_impact": "Cloud misconfiguration is the leading cause of data breaches. Most cloud providers offer security scoring tools that identify issues.",
+    "remediation_steps": [
+      "Review Microsoft Secure Score: admin.microsoft.com → Secure Score.",
+      "Review Google Workspace Security Dashboard.",
+      "Act on the highest-impact recommendations first.",
+      "Aim for a score above 70% and review monthly."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "cloud_platform", "check": "cloud_security_posture_reviewed", "description": "Cloud security posture reviewed and high-impact issues remediated"}
+    ],
+    "verification_methods": [
+      {"method": "api", "integration": "microsoft_365", "endpoint": "security/secureScores"},
+      {"method": "manual", "prompt": "Have you reviewed and addressed the security recommendations in your cloud admin console?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.PS-01"],
+      "cis_v8": ["4.2"],
+      "cyber_insurance": ["cloud_security"]
+    },
+    "customer_message": {
+      "fail": "Cloud security posture not reviewed",
+      "unknown": "Cloud configuration not verified",
+      "detail_template": "Cloud security needs attention"
+    }
+  },
+  {
+    "id": "CTRL-ORG-001",
+    "category": "organization",
+    "name": "Security Policy",
+    "short_name": "Security Policy",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Maintain a written security policy that documents your security requirements and employee responsibilities.",
+    "customer_impact": "A written policy is required by most insurance carriers and frameworks. It sets expectations and reduces liability.",
+    "remediation_steps": [
+      "Create a 1-2 page Acceptable Use Policy covering: device use, password rules, data handling, remote work.",
+      "Have employees acknowledge the policy in writing annually.",
+      "Update the policy when you adopt new technology or change processes.",
+      "SecurityOS can generate a starter policy for your business."
+    ],
+    "estimated_minutes": 90,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "security_policy_exists_and_acknowledged", "description": "Written security policy exists and employees have acknowledged it"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a written security policy that employees have signed or acknowledged?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["GV.PO-01"],
+      "cis_v8": ["17.1"],
+      "hipaa": ["164.308(a)(1)"],
+      "cyber_insurance": ["security_policy_required"]
+    },
+    "customer_message": {
+      "fail": "No written security policy",
+      "unknown": "Security policy not verified",
+      "detail_template": "Security policy needs creation"
+    }
+  },
+  {
+    "id": "CTRL-ORG-002",
+    "category": "organization",
+    "name": "Incident Response Plan",
+    "short_name": "Incident Response",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Have a documented plan for what to do when a security incident occurs.",
+    "customer_impact": "When an incident happens, panic costs time and money. A plan turns chaos into a structured response.",
+    "remediation_steps": [
+      "Define what counts as a security incident for your business.",
+      "Document who to call (IT provider, cyber insurance, legal).",
+      "Define steps: Contain → Investigate → Notify → Recover.",
+      "Test the plan with a tabletop exercise annually."
+    ],
+    "estimated_minutes": 120,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "incident_response_plan_exists", "description": "Incident response plan documented and tested"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a documented plan for what to do when a security incident occurs, including who to contact?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["RS.MA-01"],
+      "cis_v8": ["17.3"],
+      "hipaa": ["164.308(a)(6)"],
+      "cyber_insurance": ["incident_response_plan"]
+    },
+    "customer_message": {
+      "fail": "No incident response plan",
+      "unknown": "Incident response plan not verified",
+      "detail_template": "Incident response plan needs creation"
+    }
+  },
+  {
+    "id": "CTRL-ORG-003",
+    "category": "organization",
+    "name": "Employee Security Training",
+    "short_name": "Security Training",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Train employees on security basics, with a focus on phishing and social engineering.",
+    "customer_impact": "Human error causes 74% of breaches. Training dramatically reduces click rates on phishing emails.",
+    "remediation_steps": [
+      "Conduct annual security awareness training for all employees.",
+      "Run quarterly phishing simulations.",
+      "Cover: phishing, password hygiene, device security, social engineering.",
+      "Document training completion for compliance records."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "security_training_completed_all_employees", "description": "All employees completed security training within the last 12 months"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have ALL employees completed security awareness training in the last 12 months?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["PR.AT-01"],
+      "cis_v8": ["14.1"],
+      "hipaa": ["164.308(a)(5)"],
+      "ftc_safeguards": ["314.4(e)"]
+    },
+    "customer_message": {
+      "fail": "Security training not completed",
+      "unknown": "Training completion not verified",
+      "detail_template": "{count} {unit} haven't completed training"
+    }
+  },
+  {
+    "id": "CTRL-ORG-004",
+    "category": "organization",
+    "name": "Vendor Security Assessment",
+    "short_name": "Vendor Security",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Assess the security posture of vendors and third parties who have access to your data or systems.",
+    "customer_impact": "Your security is only as strong as your vendors'. Third-party breaches are a major source of data exposure.",
+    "remediation_steps": [
+      "List all vendors with access to your data or systems.",
+      "Request security certifications (SOC 2, ISO 27001) from critical vendors.",
+      "Include security requirements in vendor contracts.",
+      "Review high-risk vendors annually."
+    ],
+    "estimated_minutes": 45,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "critical_vendors_assessed", "description": "Critical vendors reviewed for security posture"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you assessed the security practices of your key vendors who have access to your data?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["GV.SC-06"],
+      "cis_v8": ["15.1"],
+      "hipaa": ["164.308(b)"]
+    },
+    "customer_message": {
+      "fail": "Vendor security assessment not completed",
+      "unknown": "Vendor security not verified",
+      "detail_template": "Vendor assessment needs completion"
+    }
+  },
+  {
+    "id": "CTRL-ORG-005",
+    "category": "organization",
+    "name": "Annual Security Review",
+    "short_name": "Annual Review",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Conduct a comprehensive annual review of your security posture, risks, and controls.",
+    "customer_impact": "Security is not a one-time event. Annual reviews ensure your controls keep pace with your business and threat landscape.",
+    "remediation_steps": [
+      "Review and update your data inventory and risk assessment.",
+      "Test backup restoration.",
+      "Review user access and admin accounts.",
+      "Update policies and retrain employees.",
+      "SecurityOS can generate your annual report automatically."
+    ],
+    "estimated_minutes": 180,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "annual_review_completed", "description": "Comprehensive security review completed within the last 12 months"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you completed a comprehensive security review in the last 12 months?"}
+    ],
+    "framework_mappings": {
+      "nist_csf_2": ["GV.RM-01"],
+      "cis_v8": ["17.2"],
+      "hipaa": ["164.308(a)(1)"],
+      "cyber_insurance": ["annual_review"]
+    },
+    "customer_message": {
+      "fail": "Annual security review not completed",
+      "unknown": "Annual review not verified",
+      "detail_template": "Last review over {months} months ago"
+    }
+  },
+
+  {
+    "id": "CTRL-AI-001",
+    "category": "ai_rmf",
+    "name": "AI Tool Inventory",
+    "short_name": "AI Inventory",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Maintain a current inventory of all AI tools and systems used in your business — including ChatGPT, Microsoft Copilot, AI accounting tools, AI scheduling, and any AI-powered features in your existing software.",
+    "customer_impact": "You can't manage risk you don't know about. Employees may be using AI tools that expose client data without your knowledge. A documented inventory is the foundation of AI risk management.",
+    "remediation_steps": [
+      "Survey employees on what AI tools they currently use for work tasks.",
+      "List each tool: name, purpose, who uses it, and what data is entered into it.",
+      "Identify which tools have access to sensitive client or business data.",
+      "Review the list monthly — AI tool adoption is fast-moving.",
+      "Document in a simple spreadsheet or your policy system."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_inventory_exists", "description": "Current inventory of AI tools used by the organization"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a documented list of all AI tools your team uses for work?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["GOVERN-1.1", "MAP-1.1"],
+      "nist_csf_2": ["ID.AM-02"],
+      "cis_v8": ["2.1"]
+    },
+    "customer_message": {
+      "fail": "No AI tool inventory exists",
+      "unknown": "AI tool usage not inventoried",
+      "detail_template": "AI tools in use are not tracked"
+    }
+  },
+  {
+    "id": "CTRL-AI-002",
+    "category": "ai_rmf",
+    "name": "AI Acceptable Use Policy",
+    "short_name": "AI Use Policy",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "A written policy that tells employees what AI tools are approved, how they may be used, and what data must never be entered into AI systems — especially client PII, PHI, financial data, or confidential business information.",
+    "customer_impact": "Without a policy, employees may unknowingly input patient records, legal documents, or financial data into public AI tools — creating breach liability. One employee pasting client data into ChatGPT can trigger regulatory reporting requirements.",
+    "remediation_steps": [
+      "Draft an AI Acceptable Use Policy (1-2 pages is sufficient).",
+      "Specify: approved tools, prohibited data types (PHI, PII, payment data), and prohibited use cases.",
+      "Require employee acknowledgment — have each employee sign or confirm they've read it.",
+      "Include consequences for policy violations.",
+      "Review and update the policy annually or when major new AI tools are adopted."
+    ],
+    "estimated_minutes": 90,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_use_policy_exists", "description": "Written AI acceptable use policy acknowledged by employees"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a written AI use policy that employees have acknowledged?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["GOVERN-1.2", "GOVERN-1.4"],
+      "nist_csf_2": ["GV.PO-01"],
+      "hipaa": ["164.308(a)(1)"],
+      "ftc_safeguards": ["314.4(a)"]
+    },
+    "customer_message": {
+      "fail": "No AI acceptable use policy in place",
+      "unknown": "AI use policy not verified",
+      "detail_template": "Employees have no guidance on AI use"
+    }
+  },
+  {
+    "id": "CTRL-AI-003",
+    "category": "ai_rmf",
+    "name": "AI Data Privacy Controls",
+    "short_name": "AI Data Privacy",
+    "severity": "critical",
+    "risk_weight": 1.0,
+    "description": "Ensure sensitive client data — medical records, legal documents, financial data, personal information — is never entered into public AI tools without appropriate data processing agreements and privacy controls.",
+    "customer_impact": "Public AI tools like ChatGPT may use your inputs for model training. Entering a patient's medical history or a client's financial details creates HIPAA, attorney-client privilege, or GLBA violations — even if you're just trying to write a summary.",
+    "remediation_steps": [
+      "Identify which AI tools your team uses with sensitive data.",
+      "For each tool, review the vendor's data processing/privacy terms.",
+      "Enable enterprise/privacy mode where available (e.g., ChatGPT Enterprise, Microsoft Copilot with data protection).",
+      "Sign a Business Associate Agreement (BAA) with any AI tool that processes PHI.",
+      "Prohibit entry of client PII/PHI into consumer-grade AI tools without enterprise agreements.",
+      "Train employees on what data is safe to enter into AI tools."
+    ],
+    "estimated_minutes": 120,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_data_privacy_controls", "description": "AI tools reviewed for data privacy; enterprise agreements in place where required"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you reviewed whether your AI tools share input data for training, and have you enabled appropriate privacy protections?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["MAP-2.2", "GOVERN-6.1"],
+      "nist_csf_2": ["PR.DS-01"],
+      "hipaa": ["164.312(a)(2)(iv)", "164.308(b)"],
+      "ftc_safeguards": ["314.4(c)"],
+      "pci_dss": ["3.1"],
+      "cyber_insurance": ["data_handling"]
+    },
+    "customer_message": {
+      "fail": "Sensitive data may be exposed through AI tools",
+      "unknown": "AI data privacy not verified",
+      "detail_template": "AI tool data practices not reviewed"
+    }
+  },
+  {
+    "id": "CTRL-AI-004",
+    "category": "ai_rmf",
+    "name": "AI Output Validation",
+    "short_name": "AI Output Review",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Ensure AI-generated content — advice, calculations, summaries, diagnoses, legal language, financial projections — is reviewed by a qualified human before being acted upon or shared with clients.",
+    "customer_impact": "AI models hallucinate. An AI-generated medical summary, legal clause, or financial calculation that goes unchecked can cause direct client harm and professional liability. Human review is your control against AI errors.",
+    "remediation_steps": [
+      "Establish a rule: no AI-generated output goes directly to clients without human review.",
+      "For high-stakes decisions (medical advice, legal documents, financial projections), require review by a licensed professional.",
+      "Document your review process — who reviews what, and when.",
+      "Add a standard disclosure when AI tools assisted in creating client-facing content.",
+      "Train employees to treat AI output as a first draft, not a final product."
+    ],
+    "estimated_minutes": 45,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_output_review_process", "description": "Documented process for human review of AI-generated content before use"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Do you have a process requiring human review of AI-generated outputs before they reach clients or affect decisions?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["MEASURE-2.5", "MANAGE-1.3"],
+      "nist_csf_2": ["PR.PS-04"]
+    },
+    "customer_message": {
+      "fail": "No AI output review process in place",
+      "unknown": "AI output validation not verified",
+      "detail_template": "AI outputs may go unchecked to clients"
+    }
+  },
+  {
+    "id": "CTRL-AI-005",
+    "category": "ai_rmf",
+    "name": "AI Vendor Risk Assessment",
+    "short_name": "AI Vendor Risk",
+    "severity": "high",
+    "risk_weight": 0.75,
+    "description": "Evaluate the trustworthiness, data practices, and reliability of AI vendors and tools before adopting them — and annually thereafter. Covers both AI-specific tools and AI features embedded in existing software.",
+    "customer_impact": "AI vendors differ widely in how they handle your data, how reliable their models are, and whether they meet regulatory standards. Using an AI tool without vendor assessment exposes you to data breaches, compliance violations, and unexpected model changes.",
+    "remediation_steps": [
+      "For each AI tool in your inventory, review the vendor's privacy policy and terms of service.",
+      "Ask key questions: Does the vendor train on my data? Where is data stored? What happens in a breach?",
+      "Check whether the vendor has SOC 2 Type II, ISO 27001, or similar certifications.",
+      "For Microsoft/Google AI tools: verify your enterprise agreement covers AI features.",
+      "Document your assessment and re-evaluate annually or when terms change."
+    ],
+    "estimated_minutes": 90,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_vendor_assessed", "description": "AI vendors reviewed for data practices, security posture, and compliance"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Have you reviewed the data handling and security practices of your AI tool vendors?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["GOVERN-6.1", "GOVERN-6.2", "MAP-5.1"],
+      "nist_csf_2": ["GV.SC-06"],
+      "hipaa": ["164.308(b)"],
+      "ftc_safeguards": ["314.4(f)"]
+    },
+    "customer_message": {
+      "fail": "AI vendors not assessed for risk",
+      "unknown": "AI vendor risk not evaluated",
+      "detail_template": "AI tool vendors not reviewed"
+    }
+  },
+  {
+    "id": "CTRL-AI-006",
+    "category": "ai_rmf",
+    "name": "AI Incident Response",
+    "short_name": "AI Incident Plan",
+    "severity": "medium",
+    "risk_weight": 0.5,
+    "description": "Have a documented plan for how to respond when an AI system produces harmful, biased, or incorrect output that affects clients — or when an AI tool you use suffers a data breach or service failure.",
+    "customer_impact": "AI incidents are a new category of business risk. If an AI tool exposes client data, generates discriminatory advice, or makes a costly error in your business process, you need a clear response plan — including who to notify, how to remediate, and how to prevent recurrence.",
+    "remediation_steps": [
+      "Add an 'AI Incidents' section to your existing Incident Response Plan.",
+      "Define what constitutes an AI incident: data exposure, harmful output, bias, service failure.",
+      "Identify who is responsible for AI incident response in your organization.",
+      "Document client notification procedures if AI causes data exposure or harm.",
+      "Test your AI incident response annually — run a tabletop exercise with your team.",
+      "Report significant AI-related data incidents per your standard breach notification obligations."
+    ],
+    "estimated_minutes": 60,
+    "applicable_industries": [],
+    "evidence_requirements": [
+      {"type": "policy", "check": "ai_incident_response_plan", "description": "AI incident scenarios covered in incident response plan"}
+    ],
+    "verification_methods": [
+      {"method": "manual", "prompt": "Does your incident response plan cover AI-specific incidents such as harmful AI output or AI vendor data breaches?"}
+    ],
+    "framework_mappings": {
+      "nist_ai_rmf": ["MANAGE-3.1", "MANAGE-3.2", "MANAGE-4.1"],
+      "nist_csf_2": ["RS.MA-01"],
+      "hipaa": ["164.308(a)(6)"],
+      "ftc_safeguards": ["314.4(h)"]
+    },
+    "customer_message": {
+      "fail": "No AI incident response plan",
+      "unknown": "AI incident response not verified",
+      "detail_template": "No plan for AI failures or AI data breaches"
+    }
+  }
+]

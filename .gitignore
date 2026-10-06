@@ -50,3 +50,5 @@ backend/database/*.db-journal
 backend/*.pyc
 backend/.pytest_cache/
 
+.vite/
+apps/web/dist/
