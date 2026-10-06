@@ -26,6 +26,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.auth.context import Principal, get_principal, require_org_access
+from backend.auth.permissions import (
+    PERM_ATTESTATION_CREATE,
+    PERM_ATTESTATION_REVOKE,
+    require_permission,
+)
 from backend.evidence.attestation import (
     Attestation, AttestationType, AttestationScope,
     CONFIRMATION_PHRASE, ALLOWED_VALIDITY_DAYS, DEFAULT_VALIDITY_DAYS,
@@ -130,6 +135,7 @@ def create_org_attestation(
     The server sets all timestamps.
     """
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_ATTESTATION_CREATE)
 
     # Enforce the confirmation phrase — server-side check
     if payload.confirmation_phrase.strip() != CONFIRMATION_PHRASE:
@@ -332,6 +338,7 @@ def revoke_org_attestation(
     Actor (revoked_by_*) is always taken from the JWT.
     """
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_ATTESTATION_REVOKE)
 
     org_attests = _attestations.get(org_id, {})
     attest = org_attests.get(attest_id)

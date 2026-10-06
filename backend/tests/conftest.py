@@ -40,6 +40,20 @@ from backend.auth.jwt import sign_dev_token
 @pytest.fixture(scope="session")
 def client():
     """A TestClient that shares state across the session (in-memory store)."""
+    # Seed org membership so test_auth.py tests can pass permission checks.
+    # user-abc has full access to org-test-001 (admin role).
+    from datetime import datetime, timezone
+    from backend.repositories.org_membership_repo import OrgMembership, org_membership_repo
+
+    now = datetime.now(timezone.utc).isoformat()
+    org_membership_repo.add(OrgMembership(
+        user_id="user-abc",
+        org_id="org-test-001",
+        role="admin",
+        granted_by="system",
+        granted_at=now,
+    ))
+
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
 
