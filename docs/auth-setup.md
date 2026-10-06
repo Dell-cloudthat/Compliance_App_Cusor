@@ -1,22 +1,28 @@
 # SecurityOS Authentication Setup
 
 SecurityOS uses OIDC/OAuth 2.0 bearer tokens for authentication. Every protected API endpoint
-requires a valid JWT in the `Authorization: Bearer <token>` header. This document explains
-how to configure identity providers so they emit the required `org_id` custom claim.
+requires a valid JWT in the `Authorization: Bearer <token>` header.
 
-## Required JWT Claims
+> **Phase 2.1 change:** the identity provider only proves *who* the user is. *Which orgs* they
+> can reach and *what* they can do there comes from SecurityOS memberships, created through
+> `POST /organizations` (self-serve), `POST /msp/{msp_id}/orgs` (MSP provisioning), and invites
+> (`POST /organizations/{org_id}/invites` → `POST /invites/accept`). The `org_id` claim is no
+> longer required and is never used for authorization. The provisioning steps below that emit
+> `org_id` are optional.
+
+## JWT Claims
 
 | Claim | Required | Description |
 |-------|----------|-------------|
-| `sub` or `oid` | Yes | Unique user identifier (never changes) |
-| `org_id` | **Yes** | SecurityOS organization ID for this user. Must be an explicit custom claim — we deliberately do not fall back to `tid` or `tenant_id`. See why below. |
+| `sub` or `oid` | Yes | Unique user identifier (never changes). Memberships are keyed on this. |
+| `org_id` | No (hint only) | Optional home-org hint. **Never used for authorization.** We still never read `tid` or `tenant_id`. See why below. |
 | `email` | Recommended | Used for audit log display and attestation records. Falls back to `upn` or `preferred_username`. |
 | `name` | Recommended | Display name for audit records. |
-| `msp_id` | MSP accounts only | SecurityOS MSP account ID. Present only for MSP users; absent for direct org users. |
-| `roles` | Optional | List of role strings (Phase 2 will use these for RBAC). |
+| `msp_id` | MSP staff only | SecurityOS MSP account ID. Required to use `/msp/{msp_id}/...` routes, and used to stop MSP staff from accepting an executive invite into their own clients' orgs. |
+| `roles` | Ignored | Roles come from SecurityOS memberships, never from the token. |
 | `exp`, `iat`, `iss`, `aud` | Yes | Standard OIDC claims. Always verified. |
 
-### Why `org_id` cannot be inferred from `tid`
+### Why `tid` is never used
 
 Entra's `tid` claim contains the Entra tenant ID — one per Microsoft tenant. If we used `tid`
 as `org_id`, every user in the same Microsoft tenant would share one SecurityOS organization,

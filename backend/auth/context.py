@@ -1,20 +1,26 @@
 """
-SecurityOS Auth Context — Phase 1.1
+SecurityOS Auth Context — Phase 2.1
 
 Provides the `Principal` dataclass and the `get_principal()` FastAPI dependency.
 
-Identity and tenant come ONLY from the verified JWT.
-Authorization (roles) comes from our database (Phase 2).
-`org_id` must be an explicit claim — the `tid` fallback that merged all Entra
-users into one org has been removed.
+Identity comes ONLY from the verified JWT.
+Access to an org comes ONLY from an active row in org_memberships.
+
+Phase 2.1 change — `org_id` claim is now OPTIONAL:
+  Orgs are created by the server (POST /organizations, POST /msp/{id}/orgs) with
+  server-generated IDs, and people join them through invites.  The token's
+  `org_id` claim is no longer used for authorization at all, so requiring it
+  only blocked sign-up.  The Phase 1.1 safety property still holds: a token
+  carrying only Entra `tid` (or any org-looking claim) grants access to nothing
+  until the user holds a membership.  The `tid` fallback remains removed.
 
 JWT claim mapping (Entra External ID and Auth0):
-  sub          → user_id
+  sub          → user_id   (required)
   email / upn / preferred_username → email
   name         → display_name
-  org_id       → org_id   (REQUIRED custom claim; see docs/auth-setup.md)
-  msp_id       → msp_id   (optional custom claim; present for MSP accounts only)
-  roles        → roles     (list; may be empty; not used for authz in Phase 1)
+  org_id       → org_id   (optional hint only — never used for authorization)
+  msp_id       → msp_id   (optional; identifies MSP staff for /msp routes)
+  roles        → roles     (ignored for authorization)
   auth_time    → auth_time
   amr          → amr
 """
@@ -30,7 +36,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from backend.auth.jwt import TokenError, verify_token
-from backend.repositories.msp_org_repo import msp_org_repo
+from backend.repositories.org_membership_repo import org_membership_repo
 
 logger = logging.getLogger("securityos.auth.context")
 
@@ -46,8 +52,8 @@ class Principal:
     user_id: str
     email: str
     display_name: str
-    org_id: str                          # The org the caller belongs to
-    msp_id: Optional[str]               # Set for MSP accounts; None otherwise
+    org_id: Optional[str]                # Home-org hint from the token; NOT used for authz
+    msp_id: Optional[str]                # Set for MSP staff; None otherwise
     roles: List[str] = field(default_factory=list)
     auth_time: Optional[int] = None
     amr: List[str] = field(default_factory=list)
@@ -57,20 +63,12 @@ class Principal:
 
     def manages_org(self, org_id: str) -> bool:
         """
-        True if this principal may act on behalf of the given org.
+        True if this principal holds at least one ACTIVE membership in org_id.
 
-        Rules:
-        - The principal's own org always matches.
-        - MSP users may only access orgs explicitly registered under their msp_id.
-          We look this up in the repository — being an MSP user is not sufficient
-          by itself; the specific org must have been provisioned under that MSP.
+        This is the only way to reach an org.  Matching the token's org_id
+        claim, or being MSP staff, is not sufficient on its own.
         """
-        if self.org_id == org_id:
-            return True
-        if self.msp_id is None:
-            return False
-        managed = msp_org_repo.get_managed_org_ids(self.msp_id)
-        return org_id in managed
+        return org_membership_repo.has_any_active(self.user_id, org_id)
 
 
 # ── Claim extraction ──────────────────────────────────────────────────────────
@@ -103,15 +101,9 @@ def _extract_principal(claims: dict) -> Principal:
         or user_id
     )
 
-    # org_id must be an explicit custom claim.
-    # The `tid` (Entra tenant ID) fallback is intentionally absent; see module docstring.
-    org_id: str = claims.get("org_id") or ""
-    if not org_id:
-        raise ValueError(
-            "JWT is missing the 'org_id' claim. "
-            "Configure your IdP to include org_id in access tokens. "
-            "See docs/auth-setup.md for Entra External ID and Auth0 instructions."
-        )
+    # org_id is an optional hint.  The `tid` (Entra tenant ID) fallback stays
+    # removed: `tid` is never read, so it cannot merge users into one org.
+    org_id: Optional[str] = claims.get("org_id") or None
 
     msp_id: Optional[str] = claims.get("msp_id") or None
 
@@ -190,8 +182,9 @@ async def get_principal(
 
 def require_org_access(principal: Principal, org_id: str) -> None:
     """
-    Enforce tenant isolation.  Raises HTTP 404 (not 403) when the caller does
-    not have access to the requested organization.  404 prevents org enumeration.
+    Enforce tenant isolation.  Raises HTTP 404 (not 403) unless the caller holds
+    an active membership in the org.  404 prevents org enumeration.  Expired
+    memberships (e.g. a finished auditor engagement) are treated as absent.
     """
     if not principal.manages_org(org_id):
         raise HTTPException(

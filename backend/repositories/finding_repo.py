@@ -80,6 +80,20 @@ class Finding:
     updated_at: str
     assigned_to_user_id: Optional[str] = None
     events: List[FindingEvent] = field(default_factory=list)
+    # Risk acceptance (Phase 2.1): set by the risk_accept action, cleared on reopen.
+    risk_accepted_until: Optional[str] = None
+    risk_justification: Optional[str] = None
+    risk_accepted_by: Optional[str] = None
+
+    def risk_acceptance_expired(self, now: Optional[datetime] = None) -> bool:
+        if self.state != "risk_accepted" or not self.risk_accepted_until:
+            return False
+        until = datetime.fromisoformat(self.risk_accepted_until)
+        return until <= (now or datetime.now(timezone.utc))
+
+
+# Actions that count as "doing the remediation work" for separation-of-duties checks.
+REMEDIATION_ACTIONS = frozenset({"start", "submit"})
 
 
 # ── Repository ────────────────────────────────────────────────────────────────
@@ -151,6 +165,8 @@ class InMemoryFindingRepository:
         actor_name: str,
         note: Optional[str] = None,
         assigned_to_user_id: Optional[str] = None,
+        risk_accepted_until: Optional[str] = None,
+        risk_justification: Optional[str] = None,
     ) -> FindingEvent:
         """
         Apply a state-machine transition to a finding.
@@ -184,6 +200,14 @@ class InMemoryFindingRepository:
             finding.updated_at = now
             if assigned_to_user_id is not None:
                 finding.assigned_to_user_id = assigned_to_user_id
+            if action == "risk_accept":
+                finding.risk_accepted_until = risk_accepted_until
+                finding.risk_justification = risk_justification
+                finding.risk_accepted_by = actor_user_id
+            elif action == "reopen":
+                finding.risk_accepted_until = None
+                finding.risk_justification = None
+                finding.risk_accepted_by = None
             finding.events.append(event)
 
         return event
@@ -194,6 +218,32 @@ class InMemoryFindingRepository:
             if event.action == "submit":
                 return event.actor_user_id
         return None
+
+    def remediators(self, finding: Finding) -> set:
+        """
+        Every user who did remediation work (start/submit) on this finding since
+        it was last opened.  Used for the no-self-approval and no-self-attestation
+        rules — someone who did any of the work cannot sign it off.
+        """
+        actors: set = set()
+        for event in reversed(finding.events):
+            if event.action in ("reopen", "create"):
+                break
+            if event.action in REMEDIATION_ACTIONS:
+                actors.add(event.actor_user_id)
+        return actors
+
+    def list_by_control(self, org_id: str, control_id: str) -> List[Finding]:
+        with self._lock:
+            return [
+                f for f in self._findings.values()
+                if f.org_id == org_id and control_id in f.control_ids
+            ]
+
+    def remove_org(self, org_id: str) -> None:
+        with self._lock:
+            for fid in [k for k, f in self._findings.items() if f.org_id == org_id]:
+                del self._findings[fid]
 
     def _clear(self) -> None:
         with self._lock:
