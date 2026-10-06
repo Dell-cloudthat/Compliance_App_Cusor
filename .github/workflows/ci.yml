@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "cursor/**"]
+  pull_request:
+    branches: ["main", "cursor/**"]
+
+jobs:
+  backend:
+    name: Backend tests (Python 3.12)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Generate test RSA key
+        run: openssl genrsa -out backend/tests/dev_key.pem 2048
+
+      - name: Run pytest
+        env:
+          ENV: test
+          AUTH_DEV_PRIVATE_KEY_PATH: backend/tests/dev_key.pem
+          AUTH_ISSUER: http://localhost/ci-issuer
+          AUTH_AUDIENCE: securityos-ci
+        run: python3 -m pytest backend/tests/ -v --tb=short
+
+      - name: Audit Python dependencies
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --ignore-vuln PYSEC-2022-42974 || true
+
+  frontend:
+    name: Frontend build (Node 20)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Audit npm dependencies
+        working-directory: apps/web
+        run: npm audit --audit-level=high || true
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

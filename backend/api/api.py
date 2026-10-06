@@ -1,12 +1,15 @@
 """
 SecurityOS FastAPI router.
 Handles business profiles, control status, scoring, and AI copilot.
+
+Authentication: all /organizations/{org_id}/* routes require a Bearer JWT.
+Public endpoints (no auth): GET /controls, GET /controls/{id}, POST /copilot.
 """
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 import json
 from pathlib import Path
@@ -17,6 +20,7 @@ with open(_CATALOG_PATH) as _f:
     CONTROLS = json.load(_f)
 CONTROLS_BY_ID = {c["id"]: c for c in CONTROLS}
 
+from backend.auth.context import Principal, get_principal, require_org_access
 from backend.scoring.engine import calculate_score, ControlStatus
 
 router = APIRouter(prefix="/api/v1/securityos", tags=["SecurityOS"])
@@ -25,6 +29,8 @@ router = APIRouter(prefix="/api/v1/securityos", tags=["SecurityOS"])
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
 
 class BusinessProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     business_name: str = Field(..., min_length=1, max_length=200)
     industry: str = ""
     employee_count: str = ""
@@ -37,16 +43,22 @@ class BusinessProfile(BaseModel):
 
 
 class ControlStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     control_id: str
     status: ControlStatus
     notes: Optional[str] = None
 
 
 class BulkControlStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     updates: List[ControlStatusUpdate]
 
 
 class CopilotMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(..., min_length=1, max_length=2000)
     control_statuses: Optional[Dict[str, Dict]] = None
     profile: Optional[Dict] = None
@@ -58,9 +70,10 @@ _profiles: Dict[str, Dict] = {}
 _control_statuses: Dict[str, Dict[str, Dict]] = {}
 
 
-# ─── Controls Catalog ─────────────────────────────────────────────────────────
+# ─── Controls Catalog (public — no auth required) ────────────────────────────
 
 VALID_CATEGORIES = {"identity", "devices", "data", "network", "organization", "ai_rmf"}
+
 
 @router.get("/controls")
 def list_controls(category: Optional[str] = None, framework: Optional[str] = None):
@@ -68,7 +81,10 @@ def list_controls(category: Optional[str] = None, framework: Optional[str] = Non
     controls = CONTROLS
     if category:
         if category not in VALID_CATEGORIES:
-            raise HTTPException(status_code=400, detail=f"Unknown category: {category}. Valid: {sorted(VALID_CATEGORIES)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown category: {category}. Valid: {sorted(VALID_CATEGORIES)}",
+            )
         controls = [c for c in controls if c["category"] == category]
     if framework:
         controls = [c for c in controls if framework in (c.get("framework_mappings") or {})]
@@ -87,15 +103,24 @@ def get_control(control_id: str):
 # ─── Business Profile ─────────────────────────────────────────────────────────
 
 @router.post("/organizations/{org_id}/profile")
-def update_profile(org_id: str, profile: BusinessProfile):
+def update_profile(
+    org_id: str,
+    profile: BusinessProfile,
+    principal: Principal = Depends(get_principal),
+):
     """Create or update a business profile."""
-    _profiles[org_id] = {**profile.dict(), "updated_at": datetime.utcnow().isoformat()}
+    require_org_access(principal, org_id)
+    _profiles[org_id] = {**profile.model_dump(), "updated_at": datetime.utcnow().isoformat()}
     return {"org_id": org_id, "profile": _profiles[org_id]}
 
 
 @router.get("/organizations/{org_id}/profile")
-def get_profile(org_id: str):
+def get_profile(
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Retrieve a business profile."""
+    require_org_access(principal, org_id)
     profile = _profiles.get(org_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -105,15 +130,25 @@ def get_profile(org_id: str):
 # ─── Control Statuses ─────────────────────────────────────────────────────────
 
 @router.get("/organizations/{org_id}/statuses")
-def get_control_statuses(org_id: str):
+def get_control_statuses(
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Get all control statuses for an organization."""
+    require_org_access(principal, org_id)
     statuses = _control_statuses.get(org_id, {})
     return {"org_id": org_id, "statuses": statuses}
 
 
 @router.patch("/organizations/{org_id}/statuses")
-def update_control_status(org_id: str, update: ControlStatusUpdate):
+def update_control_status(
+    org_id: str,
+    update: ControlStatusUpdate,
+    principal: Principal = Depends(get_principal),
+):
     """Update the status of a single control."""
+    require_org_access(principal, org_id)
+
     if update.control_id not in CONTROLS_BY_ID:
         raise HTTPException(status_code=404, detail=f"Control {update.control_id} not found")
 
@@ -129,8 +164,14 @@ def update_control_status(org_id: str, update: ControlStatusUpdate):
 
 
 @router.put("/organizations/{org_id}/statuses/bulk")
-def bulk_update_control_statuses(org_id: str, payload: BulkControlStatusUpdate):
+def bulk_update_control_statuses(
+    org_id: str,
+    payload: BulkControlStatusUpdate,
+    principal: Principal = Depends(get_principal),
+):
     """Update multiple control statuses at once."""
+    require_org_access(principal, org_id)
+
     if org_id not in _control_statuses:
         _control_statuses[org_id] = {}
 
@@ -151,8 +192,13 @@ def bulk_update_control_statuses(org_id: str, payload: BulkControlStatusUpdate):
 # ─── Scoring ──────────────────────────────────────────────────────────────────
 
 @router.get("/organizations/{org_id}/score")
-def get_score(org_id: str):
+def get_score(
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Calculate and return the Security Readiness Score."""
+    require_org_access(principal, org_id)
+
     statuses = _control_statuses.get(org_id, {})
     profile = _profiles.get(org_id)
     result = calculate_score(statuses, business_profile=profile)
@@ -193,8 +239,13 @@ def get_score(org_id: str):
 # ─── Trust Passport ───────────────────────────────────────────────────────────
 
 @router.get("/organizations/{org_id}/passport")
-def get_trust_passport(org_id: str):
+def get_trust_passport(
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Generate a Trust Passport for an organization."""
+    require_org_access(principal, org_id)
+
     profile = _profiles.get(org_id, {})
     statuses = _control_statuses.get(org_id, {})
     score_data = calculate_score(statuses, business_profile=profile)
@@ -237,14 +288,15 @@ def get_trust_passport(org_id: str):
     }
 
 
-# ─── AI Copilot (stub — connect to LLM in production) ─────────────────────────
+# ─── AI Copilot (public — no auth required for context building) ─────────────
 
 @router.post("/copilot")
 def copilot_query(payload: CopilotMessage):
     """
     AI Security Copilot endpoint.
-    In production, this routes to an LLM with RAG over the control catalog and business profile.
-    Currently returns structured context for client-side AI processing.
+    Returns structured context for client-side AI processing.
+    Authentication is optional here to allow unauthenticated copilot previews;
+    for production deployments with sensitive org data, add get_principal dependency.
     """
     statuses = payload.control_statuses or {}
     profile = payload.profile or {}
