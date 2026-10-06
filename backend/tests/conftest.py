@@ -3,11 +3,16 @@ Pytest fixtures for SecurityOS backend tests.
 
 Sets ENV and AUTH_DEV_PRIVATE_KEY_PATH before any modules that read them at
 import time are loaded.  Must be the first conftest evaluated.
+
+Phase 2.1: no test seeds repositories directly.  Orgs are created through
+POST /organizations or POST /msp/{id}/orgs, and people join through invites or
+POST /members — the same paths production uses.  Helpers for that live here.
 """
 
 import os
 import pathlib
 import time
+from datetime import datetime, timedelta, timezone
 
 # ── Configure dev auth BEFORE importing app modules ───────────────────────────
 
@@ -36,45 +41,28 @@ from fastapi.testclient import TestClient
 from backend.securityos_main import app
 from backend.auth.jwt import sign_dev_token
 
-
-@pytest.fixture(scope="session")
-def client():
-    """A TestClient that shares state across the session (in-memory store)."""
-    # Seed org membership so test_auth.py tests can pass permission checks.
-    # user-abc has full access to org-test-001 (admin role).
-    from datetime import datetime, timezone
-    from backend.repositories.org_membership_repo import OrgMembership, org_membership_repo
-
-    now = datetime.now(timezone.utc).isoformat()
-    org_membership_repo.add(OrgMembership(
-        user_id="user-abc",
-        org_id="org-test-001",
-        role="admin",
-        granted_by="system",
-        granted_at=now,
-    ))
-
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+API = "/api/v1/securityos"
 
 
-def _make_token(
+# ── Token + bootstrap helpers (importable by test modules) ────────────────────
+
+def make_token(
+    user_id: str,
     *,
-    org_id: str = "org-test-001",
     msp_id: str | None = None,
-    user_id: str = "user-abc",
-    email: str = "test@example.com",
-    name: str = "Test User",
+    name: str | None = None,
+    email: str | None = None,
+    org_id: str | None = None,
     expires_in: int = 3600,
     extra: dict | None = None,
 ) -> str:
-    """Return a signed dev JWT for the given principal."""
     claims: dict = {
         "sub": user_id,
-        "email": email,
-        "name": name,
-        "org_id": org_id,
+        "email": email or f"{user_id}@example.com",
+        "name": name or user_id,
     }
+    if org_id is not None:
+        claims["org_id"] = org_id
     if msp_id is not None:
         claims["msp_id"] = msp_id
     if extra:
@@ -82,45 +70,90 @@ def _make_token(
     return sign_dev_token(claims, expires_in=expires_in)
 
 
+def auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def future_iso(days: int = 30) -> str:
+    return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+def create_org(client, owner_token: str, name: str = "Test Org", *, also_executive: bool = False) -> str:
+    r = client.post(f"{API}/organizations", json={"name": name, "also_executive": also_executive},
+                    headers=auth(owner_token))
+    assert r.status_code == 201, r.text
+    return r.json()["org_id"]
+
+
+def invite_and_accept(client, admin_token: str, org_id: str, role: str, invitee_token: str,
+                      membership_expires_at: str | None = None):
+    body = {"role": role}
+    if membership_expires_at:
+        body["membership_expires_at"] = membership_expires_at
+    r = client.post(f"{API}/organizations/{org_id}/invites", json=body, headers=auth(admin_token))
+    assert r.status_code == 201, r.text
+    token = r.json()["token"]
+    return client.post(f"{API}/invites/accept", json={"token": token}, headers=auth(invitee_token))
+
+
+def add_member(client, admin_token: str, org_id: str, user_id: str, role: str,
+               expires_at: str | None = None):
+    body = {"user_id": user_id, "role": role}
+    if expires_at:
+        body["expires_at"] = expires_at
+    r = client.post(f"{API}/organizations/{org_id}/members", json=body, headers=auth(admin_token))
+    assert r.status_code == 201, r.text
+    return r
+
+
+# ── Fixtures ──────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def client():
+    """A TestClient that shares state across the session (in-memory store)."""
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+
+
 @pytest.fixture(scope="session")
 def valid_token():
-    """A token for org-test-001, no MSP."""
-    return _make_token()
+    """user-abc — owner (admin + executive) of the `test_org` fixture org."""
+    return make_token("user-abc", name="Test User", email="test@example.com", org_id="org-test-001")
+
+
+@pytest.fixture(scope="session")
+def test_org(client, valid_token):
+    """
+    A self-serve org created through the API by user-abc with also_executive=True
+    (owner-operated small business: admin + executive).
+    """
+    return create_org(client, valid_token, "Test Org", also_executive=True)
 
 
 @pytest.fixture(scope="session")
 def org_b_token():
-    """A token for org-B (a different org)."""
-    return _make_token(org_id="org-B-999", user_id="user-orgb", email="orgb@example.com")
+    """A user in a different org."""
+    return make_token("user-orgb", email="orgb@example.com", org_id="org-B-999")
 
 
 @pytest.fixture(scope="session")
 def msp_token():
     """A token for an MSP user managing msp-test-001."""
-    return _make_token(
-        org_id="org-msp-internal",
-        msp_id="msp-test-001",
-        user_id="user-msp",
-        email="msp@example.com",
-        name="MSP Admin",
-    )
+    return make_token("user-msp", msp_id="msp-test-001", name="MSP Admin",
+                      email="msp@example.com", org_id="org-msp-internal")
 
 
 @pytest.fixture(scope="session")
 def other_msp_token():
     """A token for a different MSP (msp-other-999)."""
-    return _make_token(
-        org_id="org-other-internal",
-        msp_id="msp-other-999",
-        user_id="user-other-msp",
-        email="other@example.com",
-    )
+    return make_token("user-other-msp", msp_id="msp-other-999", email="other@example.com",
+                      org_id="org-other-internal")
 
 
 @pytest.fixture(scope="session")
 def expired_token():
     """A token that is already expired."""
-    return _make_token(expires_in=-1)
+    return make_token("user-abc", expires_in=-1)
 
 
 @pytest.fixture(scope="session")

@@ -158,9 +158,9 @@ def test_anonymous_attestation_post_returns_401(client):
 
 # ── Authenticated requests work and enforce JWT actor ─────────────────────────
 
-def test_valid_token_can_read_own_org_statuses(client, valid_token):
+def test_valid_token_can_read_own_org_statuses(client, valid_token, test_org):
     resp = client.get(
-        "/api/v1/securityos/organizations/org-test-001/statuses",
+        f"/api/v1/securityos/organizations/{test_org}/statuses",
         headers={"Authorization": f"Bearer {valid_token}"},
     )
     assert resp.status_code == 200
@@ -207,10 +207,10 @@ def test_authenticated_attestation_ignores_body_actor_fields(client, valid_token
         )
 
 
-def test_authenticated_attestation_records_jwt_actor(client, valid_token):
+def test_authenticated_attestation_records_jwt_actor(client, valid_token, test_org):
     """An authenticated attestation must record the actor from the JWT."""
     resp = client.post(
-        "/api/v1/securityos/organizations/org-test-001/attestations",
+        f"/api/v1/securityos/organizations/{test_org}/attestations",
         json={
             "source_name": "Microsoft Defender",
             "source_description": "EDR coverage for all Windows endpoints",
@@ -226,7 +226,7 @@ def test_authenticated_attestation_records_jwt_actor(client, valid_token):
     assert attest["created_by_name"] == "Test User"
     assert attest["created_by_email"] == "test@example.com"
     assert attest["created_by_user_id"] == "user-abc"
-    assert attest["organization_id"] == "org-test-001"
+    assert attest["organization_id"] == test_org
 
 
 def test_revoke_requires_auth(client):
@@ -238,11 +238,11 @@ def test_revoke_requires_auth(client):
     assert resp.status_code == 401
 
 
-def test_revoke_records_jwt_actor(client, valid_token):
+def test_revoke_records_jwt_actor(client, valid_token, test_org):
     """After creating an attestation, revoke it; actor must come from JWT."""
     # Create first
     create_resp = client.post(
-        "/api/v1/securityos/organizations/org-test-001/attestations",
+        f"/api/v1/securityos/organizations/{test_org}/attestations",
         json={
             "source_name": "SentinelOne",
             "source_description": "EDR for revocation test",
@@ -256,7 +256,7 @@ def test_revoke_records_jwt_actor(client, valid_token):
 
     # Revoke
     revoke_resp = client.post(
-        f"/api/v1/securityos/organizations/org-test-001/attestations/{attest_id}/revoke",
+        f"/api/v1/securityos/organizations/{test_org}/attestations/{attest_id}/revoke",
         json={"reason": "no longer needed"},
         headers={"Authorization": f"Bearer {valid_token}"},
     )

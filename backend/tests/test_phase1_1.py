@@ -206,33 +206,34 @@ def test_msp_managed_org_not_accessible_by_other_msp(client):
     assert resp.status_code == 404
 
 
-# ── Token with `tid` but no `org_id` → 401 ───────────────────────────────────
+# ── Token with `tid` but no `org_id` → no access ──────────────────────────────
 
-def test_token_with_tid_but_no_org_id_returns_401(client):
+def test_token_with_tid_but_no_org_id_grants_no_access(client):
     """
-    A token that only has the Entra `tid` claim (no explicit `org_id`) must
-    be rejected with 401.  The tid-fallback was intentionally removed because
-    it mapped all users in an Entra tenant to a single SecurityOS org.
+    Phase 2.1: org_id is an optional hint and authorization comes only from
+    memberships.  A token carrying only the Entra `tid` claim authenticates
+    (so the user can sign up or accept an invite) but reaches no org — `tid`
+    is never read, so it cannot merge users into a shared org.
     """
-    # Sign a token with tid (Entra-style) but no org_id
     tid_token = sign_dev_token({
         "sub": "user-entra-12345",
         "email": "user@contoso.com",
         "name": "Entra User",
         "tid": "00000000-0000-0000-0000-000000000001",  # Entra tenant ID
-        # Intentionally no 'org_id' claim
     })
+    headers = {"Authorization": f"Bearer {tid_token}"}
 
+    # The tenant id is not an org this user can reach
     resp = client.get(
-        "/api/v1/securityos/organizations/some-org/statuses",
-        headers={"Authorization": f"Bearer {tid_token}"},
+        "/api/v1/securityos/organizations/00000000-0000-0000-0000-000000000001/statuses",
+        headers=headers,
     )
-    assert resp.status_code == 401, (
-        f"Expected 401 for tid-only token, got {resp.status_code}: {resp.text}"
-    )
-    assert "org_id" in resp.json().get("detail", "").lower(), (
-        "Error message should mention the missing org_id claim"
-    )
+    assert resp.status_code == 404, resp.text
+
+    # Identity works; no memberships exist
+    me = client.get("/api/v1/securityos/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["organizations"] == []
 
 
 # ── Body with forbidden actor fields → 422 ───────────────────────────────────

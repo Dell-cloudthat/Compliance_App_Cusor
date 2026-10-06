@@ -29,8 +29,12 @@ from backend.auth.context import Principal, get_principal, require_org_access
 from backend.auth.permissions import (
     PERM_ATTESTATION_CREATE,
     PERM_ATTESTATION_REVOKE,
+    PERM_FINDING_VIEW,
     require_permission,
 )
+from backend.repositories import control_state_repo
+from backend.repositories.audit_repo import audit_repo
+from backend.repositories.finding_repo import finding_repo
 from backend.evidence.attestation import (
     Attestation, AttestationType, AttestationScope,
     CONFIRMATION_PHRASE, ALLOWED_VALIDITY_DAYS, DEFAULT_VALIDITY_DAYS,
@@ -44,8 +48,26 @@ from backend.evidence.third_party_coverage import (
 
 router = APIRouter(prefix="/api/v1/securityos", tags=["Attestations"])
 
-# In-memory store: {org_id: {attest_id: Attestation}}
-_attestations: Dict[str, Dict[str, Attestation]] = {}
+# Shared store (also read by backend/controls/state.py for scoring).
+_attestations: Dict[str, Dict[str, Attestation]] = control_state_repo.attestations  # type: ignore[assignment]
+
+
+def _check_not_self_attesting(org_id: str, control_ids: List[str], user_id: str) -> None:
+    """
+    Separation of duties: whoever did remediation work (start/submit) on a
+    finding linked to any of these controls cannot attest them.
+    """
+    for control_id in control_ids:
+        for finding in finding_repo.list_by_control(org_id, control_id):
+            if user_id in finding_repo.remediators(finding):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Self-attestation prohibited: you did remediation work on finding "
+                        f"'{finding.finding_id}' for control {control_id}. "
+                        "A different executive must attest."
+                    ),
+                )
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -136,6 +158,7 @@ def create_org_attestation(
     """
     require_org_access(principal, org_id)
     require_permission(principal, org_id, PERM_ATTESTATION_CREATE)
+    _check_not_self_attesting(org_id, payload.control_ids, principal.user_id)
 
     # Enforce the confirmation phrase — server-side check
     if payload.confirmation_phrase.strip() != CONFIRMATION_PHRASE:
@@ -181,6 +204,9 @@ def create_org_attestation(
     if org_id not in _attestations:
         _attestations[org_id] = {}
     _attestations[org_id][attest.id] = attest
+    audit_repo.record(org_id=org_id, actor_user_id=principal.user_id, action="attestation.created",
+                      attestation_id=attest.id, control_ids=list(attest.control_ids),
+                      source_name=attest.source_name)
 
     return {
         "attestation": to_dict(attest),
@@ -207,6 +233,7 @@ def list_org_attestations(
     Refreshes expiry status before returning.
     """
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
     org_attests = _attestations.get(org_id, {})
 
@@ -249,6 +276,7 @@ def list_expiring_attestations(
 ):
     """Return active attestations that expire within the warning window (default 14 days)."""
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
     org_attests = _attestations.get(org_id, {})
     expiring = []
@@ -277,6 +305,7 @@ def get_attestation_recommendations(
     which third-party providers could cover them via grouped attestation.
     """
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
     ids = [c.strip() for c in control_ids.split(",") if c.strip()] if control_ids else []
     if not ids:
@@ -313,6 +342,7 @@ def get_org_attestation(
 ):
     """Return a single attestation record with current status."""
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
     org_attests = _attestations.get(org_id, {})
     attest = org_attests.get(attest_id)
@@ -354,6 +384,8 @@ def revoke_org_attestation(
         revoked_by_name=principal.display_name,
         reason=payload.reason,
     )
+    audit_repo.record(org_id=org_id, actor_user_id=principal.user_id, action="attestation.revoked",
+                      attestation_id=attest_id, reason=payload.reason)
 
     return {
         "attestation_id": attest_id,
@@ -383,6 +415,7 @@ def get_reconfirm_prompt(
     for a fresh ATTEST confirmation.
     """
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
     org_attests = _attestations.get(org_id, {})
     attest = org_attests.get(attest_id)

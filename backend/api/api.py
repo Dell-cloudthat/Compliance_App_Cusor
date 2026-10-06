@@ -4,6 +4,15 @@ Handles business profiles, control status, scoring, and AI copilot.
 
 Authentication: all /organizations/{org_id}/* routes require a Bearer JWT.
 Public endpoints (no auth): GET /controls, GET /controls/{id}, POST /copilot.
+
+Phase 2.1:
+  - Every org route requires an active membership (404 otherwise) AND a
+    permission (403 otherwise): reads need finding.view, profile writes need
+    org.manage, status writes need finding.remediate.
+  - Manual status writes may only set fail / unknown / in_progress.  A control
+    reaches "pass" only through an approved finding or an active attestation
+    (and, from Phase 5, integration evidence).  See backend/controls/state.py.
+  - Score and Trust Passport are computed from that derived state.
 """
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -21,6 +30,15 @@ with open(_CATALOG_PATH) as _f:
 CONTROLS_BY_ID = {c["id"]: c for c in CONTROLS}
 
 from backend.auth.context import Principal, get_principal, require_org_access
+from backend.auth.permissions import (
+    PERM_FINDING_REMEDIATE,
+    PERM_FINDING_VIEW,
+    PERM_ORG_MANAGE,
+    require_permission,
+)
+from backend.repositories import control_state_repo
+from backend.repositories.audit_repo import audit_repo
+from backend.repositories.org_repo import org_repo
 from backend.scoring.engine import calculate_score, ControlStatus
 
 router = APIRouter(prefix="/api/v1/securityos", tags=["SecurityOS"])
@@ -64,10 +82,59 @@ class CopilotMessage(BaseModel):
     profile: Optional[Dict] = None
 
 
-# ─── In-memory store (replace with DB in production) ─────────────────────────
+# ─── Stores ───────────────────────────────────────────────────────────────────
+# Profiles live on the Organization (org_repo); manual statuses live in
+# control_state_repo so the MSP router shares the same state.
 
-_profiles: Dict[str, Dict] = {}
-_control_statuses: Dict[str, Dict[str, Dict]] = {}
+_control_statuses = control_state_repo.manual_statuses  # back-compat alias
+
+
+def _effective_statuses(org_id: str) -> Dict[str, Dict]:
+    # Imported lazily: backend.controls.state imports the finding repo, which is fine,
+    # but keeping the import here avoids a cycle with routers that import this module.
+    from backend.controls.state import effective_statuses
+    return effective_statuses(org_id)
+
+
+def _profile(org_id: str) -> Dict:
+    org = org_repo.get(org_id)
+    return dict(org.profile) if org else {}
+
+
+def apply_manual_status(
+    org_id: str,
+    control_id: str,
+    status: str,
+    notes: Optional[str],
+    principal: Principal,
+    evidence_source: str = "manual",
+) -> Dict:
+    """Shared by /organizations and /msp status routes.  Rejects score-raising values."""
+    from backend.controls.state import MANUAL_ALLOWED_STATUSES
+
+    if control_id not in CONTROLS_BY_ID:
+        raise HTTPException(status_code=404, detail=f"Control {control_id} not found")
+    status_value = status.value if hasattr(status, "value") else str(status)
+    if status_value not in MANUAL_ALLOWED_STATUSES:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Status '{status_value}' cannot be set manually. A control passes only when "
+                "its finding is approved, it is covered by an active attestation, or an "
+                "integration verifies it."
+            ),
+        )
+    entry = {
+        "status": status_value,
+        "notes": notes,
+        "evidence_source": evidence_source,
+        "last_checked": datetime.utcnow().isoformat(),
+        "set_by": principal.user_id,
+    }
+    control_state_repo.manual_statuses.setdefault(org_id, {})[control_id] = entry
+    audit_repo.record(org_id=org_id, actor_user_id=principal.user_id, action="control.status_set",
+                      control_id=control_id, status=status_value)
+    return entry
 
 
 # ─── Controls Catalog (public — no auth required) ────────────────────────────
@@ -108,10 +175,12 @@ def update_profile(
     profile: BusinessProfile,
     principal: Principal = Depends(get_principal),
 ):
-    """Create or update a business profile."""
+    """Create or update a business profile.  Requires org.manage."""
     require_org_access(principal, org_id)
-    _profiles[org_id] = {**profile.model_dump(), "updated_at": datetime.utcnow().isoformat()}
-    return {"org_id": org_id, "profile": _profiles[org_id]}
+    require_permission(principal, org_id, PERM_ORG_MANAGE)
+    org = org_repo.update_profile(org_id, profile.model_dump())
+    audit_repo.record(org_id=org_id, actor_user_id=principal.user_id, action="org.profile_updated")
+    return {"org_id": org_id, "profile": {**org.profile, "updated_at": org.updated_at}}
 
 
 @router.get("/organizations/{org_id}/profile")
@@ -119,12 +188,13 @@ def get_profile(
     org_id: str,
     principal: Principal = Depends(get_principal),
 ):
-    """Retrieve a business profile."""
+    """Retrieve a business profile.  Requires finding.view."""
     require_org_access(principal, org_id)
-    profile = _profiles.get(org_id)
-    if not profile:
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
+    org = org_repo.get(org_id)
+    if not org:
         raise HTTPException(status_code=404, detail="Profile not found")
-    return profile
+    return {**org.profile, "updated_at": org.updated_at}
 
 
 # ─── Control Statuses ─────────────────────────────────────────────────────────
@@ -134,10 +204,10 @@ def get_control_statuses(
     org_id: str,
     principal: Principal = Depends(get_principal),
 ):
-    """Get all control statuses for an organization."""
+    """Effective control statuses (derived from findings, attestations, manual input)."""
     require_org_access(principal, org_id)
-    statuses = _control_statuses.get(org_id, {})
-    return {"org_id": org_id, "statuses": statuses}
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
+    return {"org_id": org_id, "statuses": _effective_statuses(org_id)}
 
 
 @router.patch("/organizations/{org_id}/statuses")
@@ -146,21 +216,14 @@ def update_control_status(
     update: ControlStatusUpdate,
     principal: Principal = Depends(get_principal),
 ):
-    """Update the status of a single control."""
+    """
+    Record a manual status (fail / unknown / in_progress only).  Requires
+    finding.remediate.  "pass" and "not_applicable" are rejected with 403.
+    """
     require_org_access(principal, org_id)
-
-    if update.control_id not in CONTROLS_BY_ID:
-        raise HTTPException(status_code=404, detail=f"Control {update.control_id} not found")
-
-    if org_id not in _control_statuses:
-        _control_statuses[org_id] = {}
-
-    _control_statuses[org_id][update.control_id] = {
-        "status": update.status,
-        "notes": update.notes,
-        "last_checked": datetime.utcnow().isoformat(),
-    }
-    return {"control_id": update.control_id, "status": update.status}
+    require_permission(principal, org_id, PERM_FINDING_REMEDIATE)
+    entry = apply_manual_status(org_id, update.control_id, update.status, update.notes, principal)
+    return {"control_id": update.control_id, "status": entry["status"]}
 
 
 @router.put("/organizations/{org_id}/statuses/bulk")
@@ -169,23 +232,28 @@ def bulk_update_control_statuses(
     payload: BulkControlStatusUpdate,
     principal: Principal = Depends(get_principal),
 ):
-    """Update multiple control statuses at once."""
+    """
+    Record several manual statuses.  All-or-nothing: if any entry is a
+    score-raising value or an unknown control, nothing is written.
+    """
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_REMEDIATE)
 
-    if org_id not in _control_statuses:
-        _control_statuses[org_id] = {}
+    from backend.controls.state import MANUAL_ALLOWED_STATUSES
+    for update in payload.updates:
+        value = update.status.value if hasattr(update.status, "value") else str(update.status)
+        if update.control_id not in CONTROLS_BY_ID:
+            raise HTTPException(status_code=404, detail=f"Control {update.control_id} not found")
+        if value not in MANUAL_ALLOWED_STATUSES:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Status '{value}' cannot be set manually (control {update.control_id}).",
+            )
 
     results = []
     for update in payload.updates:
-        if update.control_id not in CONTROLS_BY_ID:
-            continue
-        _control_statuses[org_id][update.control_id] = {
-            "status": update.status,
-            "notes": update.notes,
-            "last_checked": datetime.utcnow().isoformat(),
-        }
-        results.append({"control_id": update.control_id, "status": update.status})
-
+        entry = apply_manual_status(org_id, update.control_id, update.status, update.notes, principal)
+        results.append({"control_id": update.control_id, "status": entry["status"]})
     return {"updated": len(results), "results": results}
 
 
@@ -196,11 +264,12 @@ def get_score(
     org_id: str,
     principal: Principal = Depends(get_principal),
 ):
-    """Calculate and return the Security Readiness Score."""
+    """Security Readiness Score, computed from derived control state."""
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
-    statuses = _control_statuses.get(org_id, {})
-    profile = _profiles.get(org_id)
+    statuses = _effective_statuses(org_id)
+    profile = _profile(org_id) or None
     result = calculate_score(statuses, business_profile=profile)
     return {
         "total_score": result.total_score,
@@ -243,11 +312,12 @@ def get_trust_passport(
     org_id: str,
     principal: Principal = Depends(get_principal),
 ):
-    """Generate a Trust Passport for an organization."""
+    """Generate a Trust Passport, computed from derived control state."""
     require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
 
-    profile = _profiles.get(org_id, {})
-    statuses = _control_statuses.get(org_id, {})
+    profile = _profile(org_id)
+    statuses = _effective_statuses(org_id)
     score_data = calculate_score(statuses, business_profile=profile)
 
     KEY_PASSPORT_CONTROLS = [
@@ -269,6 +339,7 @@ def get_trust_passport(
             "label": label,
             "status": entry.get("status", ControlStatus.UNKNOWN),
             "last_checked": entry.get("last_checked"),
+            "basis": entry.get("derived_from", "none"),
         })
 
     return {

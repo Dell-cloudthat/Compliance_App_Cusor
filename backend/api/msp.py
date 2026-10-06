@@ -12,27 +12,47 @@ This router provides the MSP portal backend:
   GET    /api/v1/securityos/msp/{msp_id}/dashboard         — aggregate dashboard
 
 Authentication: every route requires a valid Bearer JWT.
-Tenant isolation: the caller's msp_id from the JWT must match the path msp_id.
-Storage: in-memory dicts (swap for PostgreSQL via securityos_schema.sql when DATABASE_URL is set).
+Tenant isolation (Phase 2.1):
+  - the caller's msp_id from the JWT must match the path msp_id, AND
+  - the org must have been provisioned under that MSP, AND
+  - the caller must hold an active membership in that client org.
+  Any miss → 404.  Missing permission → 403.
+
+The MSP staff member who provisions a client org becomes its admin and
+msp_technician.  They can invite the client's executive, but MSP staff can
+never hold the executive role in a client org, so the client always signs off.
+
+Storage: shares org_repo / control_state_repo with the /organizations routes,
+so a client org has exactly one profile and one control state.
 """
 
 from datetime import datetime
 from typing import Dict, List, Optional, Any
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.api.api import apply_manual_status
+from backend.api.orgs import grant_role
 from backend.auth.context import Principal, get_principal, require_msp_access
+from backend.auth.permissions import (
+    PERM_FINDING_REMEDIATE,
+    PERM_FINDING_VIEW,
+    PERM_ORG_MANAGE,
+    has_permission,
+    require_permission,
+)
+from backend.controls.state import effective_statuses
+from backend.repositories import control_state_repo
+from backend.repositories.audit_repo import audit_repo
+from backend.repositories.finding_repo import finding_repo
+from backend.repositories.invite_repo import invite_repo
 from backend.repositories.msp_org_repo import msp_org_repo
+from backend.repositories.org_membership_repo import org_membership_repo
+from backend.repositories.org_repo import Organization, org_repo
 from backend.scoring.engine import calculate_score, ControlStatus
 
 router = APIRouter(prefix="/api/v1/securityos/msp", tags=["MSP"])
-
-
-# ── In-memory stores ──────────────────────────────────────────────────────────
-# Structure: _msp_orgs[msp_id][org_id] = {name, profile, statuses, created_at, ...}
-_msp_orgs: Dict[str, Dict[str, Dict]] = {}
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
@@ -65,21 +85,50 @@ class ManagedOrgUpdate(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_msp_org(msp_id: str, org_id: str) -> Dict:
-    orgs = _msp_orgs.get(msp_id, {})
-    org = orgs.get(org_id)
-    if not org:
+def _get_msp_org(principal: Principal, msp_id: str, org_id: str, permission: str) -> Organization:
+    """
+    Resolve a client org for an MSP route.  404 unless the org belongs to this
+    MSP AND the caller holds an active membership in it; 403 without `permission`.
+    """
+    require_msp_access(principal, msp_id)
+    org = org_repo.get(org_id)
+    if (
+        org is None
+        or org.msp_id != msp_id
+        or not org_membership_repo.has_any_active(principal.user_id, org_id)
+    ):
         raise HTTPException(
             status_code=404,
             detail=f"Managed org '{org_id}' not found under MSP '{msp_id}'",
         )
+    require_permission(principal, org_id, permission)
     return org
 
 
-def _score_org(org: Dict) -> Dict:
-    statuses = org.get("statuses", {})
-    profile  = org.get("profile", {})
-    result   = calculate_score(statuses, business_profile=profile)
+def _visible_orgs(principal: Principal, msp_id: str) -> List[Organization]:
+    """Client orgs under this MSP that the caller can view."""
+    return [
+        o for o in org_repo.list_by_msp(msp_id)
+        if has_permission(principal, o.org_id, PERM_FINDING_VIEW)
+    ]
+
+
+def _org_dict(org: Organization) -> Dict:
+    return {
+        "org_id": org.org_id,
+        "msp_id": org.msp_id,
+        "name": org.name,
+        "contact_email": org.contact_email,
+        "notes": org.notes,
+        "profile": dict(org.profile),
+        "statuses": effective_statuses(org.org_id),
+        "created_at": org.created_at,
+        "updated_at": org.updated_at,
+    }
+
+
+def _score_org(org: Organization) -> Dict:
+    result = calculate_score(effective_statuses(org.org_id), business_profile=org.profile)
     return {
         "total_score": result.total_score,
         "grade": result.grade,
@@ -121,35 +170,37 @@ def create_managed_org(
     """
     require_msp_access(principal, msp_id)
 
-    org_id = f"org-{uuid.uuid4().hex[:12]}"
-    now = datetime.utcnow().isoformat()
-
-    org = {
-        "org_id": org_id,
-        "msp_id": msp_id,
-        "name": payload.name,
-        "contact_email": payload.contact_email,
-        "notes": payload.notes,
-        "profile": {
-            "business_name": payload.name,
+    org = org_repo.create(
+        name=payload.name,
+        created_by=principal.user_id,
+        msp_id=msp_id,
+        contact_email=payload.contact_email,
+        notes=payload.notes,
+        profile={
             "industry": payload.industry,
             "employee_count": payload.employee_count,
             "email_provider": payload.email_provider,
             "cloud_providers": payload.cloud_providers,
             "sensitive_data": payload.sensitive_data,
         },
-        "statuses": {},   # populated as evidence flows in
-        "created_at": now,
-        "updated_at": now,
+    )
+    msp_org_repo.add_org(msp_id, org.org_id)
+    audit_repo.record(org_id=org.org_id, actor_user_id=principal.user_id, action="org.created",
+                      via="msp_provisioning", msp_id=msp_id)
+    # The provisioning technician administers the org and can work findings.
+    # They can invite the client's executive but can never become one.
+    for role in ("admin", "msp_technician"):
+        grant_role(user_id=principal.user_id, org_id=org.org_id, role=role,
+                   granted_by=principal.user_id, via="msp_provisioning")
+
+    return {
+        "org_id": org.org_id,
+        "msp_id": msp_id,
+        "name": org.name,
+        "score": _score_org(org),
+        "created_at": org.created_at,
+        "your_roles": sorted(org_membership_repo.active_roles(principal.user_id, org.org_id)),
     }
-
-    if msp_id not in _msp_orgs:
-        _msp_orgs[msp_id] = {}
-    _msp_orgs[msp_id][org_id] = org
-    msp_org_repo.add_org(msp_id, org_id)
-
-    score = _score_org(org)
-    return {"org_id": org_id, "msp_id": msp_id, "name": payload.name, "score": score, "created_at": now}
 
 
 @router.get("/{msp_id}/orgs", summary="List all managed client orgs")
@@ -163,16 +214,14 @@ def list_managed_orgs(
     """
     require_msp_access(principal, msp_id)
 
-    orgs = _msp_orgs.get(msp_id, {})
-
     results = []
-    for org in orgs.values():
+    for org in _visible_orgs(principal, msp_id):
         score = _score_org(org)
         results.append({
-            "org_id": org["org_id"],
-            "name": org["name"],
-            "industry": org["profile"].get("industry", ""),
-            "contact_email": org.get("contact_email"),
+            "org_id": org.org_id,
+            "name": org.name,
+            "industry": org.profile.get("industry", ""),
+            "contact_email": org.contact_email,
             "score": score["total_score"],
             "grade": score["grade"],
             "color": score["color"],
@@ -180,7 +229,7 @@ def list_managed_orgs(
             "open_issues": score["summary"].get("failing", 0) + score["summary"].get("unknown", 0),
             "verified_pct": score["verified_pct"],
             "top_issue": score["top_issues"][0]["short_name"] if score["top_issues"] else None,
-            "updated_at": org["updated_at"],
+            "updated_at": org.updated_at,
         })
 
     # Sort: critical risk first, then high, then score ascending within group
@@ -201,10 +250,8 @@ def get_managed_org(
     principal: Principal = Depends(get_principal),
 ):
     """Return full details for one managed client org including profile and current score."""
-    require_msp_access(principal, msp_id)
-    org = _get_msp_org(msp_id, org_id)
-    score = _score_org(org)
-    return {**org, "current_score": score}
+    org = _get_msp_org(principal, msp_id, org_id, PERM_FINDING_VIEW)
+    return {**_org_dict(org), "current_score": _score_org(org)}
 
 
 @router.patch("/{msp_id}/orgs/{org_id}", summary="Update a managed org's profile")
@@ -214,30 +261,25 @@ def update_managed_org(
     payload: ManagedOrgUpdate,
     principal: Principal = Depends(get_principal),
 ):
-    """Update name, industry, contact info, or other profile fields for a managed org."""
-    require_msp_access(principal, msp_id)
-    org = _get_msp_org(msp_id, org_id)
+    """Update name, industry, contact info, or other profile fields.  Requires org.manage."""
+    org = _get_msp_org(principal, msp_id, org_id, PERM_ORG_MANAGE)
 
+    profile_changes: Dict[str, Any] = {}
     if payload.name is not None:
-        org["name"] = payload.name
-        org["profile"]["business_name"] = payload.name
-    if payload.industry is not None:
-        org["profile"]["industry"] = payload.industry
-    if payload.employee_count is not None:
-        org["profile"]["employee_count"] = payload.employee_count
-    if payload.email_provider is not None:
-        org["profile"]["email_provider"] = payload.email_provider
-    if payload.cloud_providers is not None:
-        org["profile"]["cloud_providers"] = payload.cloud_providers
-    if payload.sensitive_data is not None:
-        org["profile"]["sensitive_data"] = payload.sensitive_data
+        profile_changes["business_name"] = payload.name
+    for field_name in ("industry", "employee_count", "email_provider", "cloud_providers", "sensitive_data"):
+        value = getattr(payload, field_name)
+        if value is not None:
+            profile_changes[field_name] = value
+    if profile_changes:
+        org_repo.update_profile(org_id, profile_changes)
     if payload.contact_email is not None:
-        org["contact_email"] = payload.contact_email
+        org.contact_email = payload.contact_email
     if payload.notes is not None:
-        org["notes"] = payload.notes
-
-    org["updated_at"] = datetime.utcnow().isoformat()
-    return {"org_id": org_id, "updated": True, "org": org}
+        org.notes = payload.notes
+    org.updated_at = datetime.utcnow().isoformat()
+    audit_repo.record(org_id=org_id, actor_user_id=principal.user_id, action="org.profile_updated")
+    return {"org_id": org_id, "updated": True, "org": _org_dict(org)}
 
 
 @router.delete("/{msp_id}/orgs/{org_id}", status_code=204, summary="Remove a managed org")
@@ -246,11 +288,15 @@ def delete_managed_org(
     org_id: str,
     principal: Principal = Depends(get_principal),
 ):
-    """Remove a client organization from MSP management."""
-    require_msp_access(principal, msp_id)
-    _get_msp_org(msp_id, org_id)  # raises 404 if not found
-    del _msp_orgs[msp_id][org_id]
+    """Remove a client organization and all of its data.  Requires org.manage."""
+    _get_msp_org(principal, msp_id, org_id, PERM_ORG_MANAGE)
+    audit_repo.record(org_id=org_id, actor_user_id=principal.user_id, action="org.deleted", msp_id=msp_id)
     msp_org_repo.remove_org(msp_id, org_id)
+    org_membership_repo.remove_org(org_id)
+    invite_repo.remove_org(org_id)
+    finding_repo.remove_org(org_id)
+    control_state_repo.remove_org(org_id)
+    org_repo.delete(org_id)
 
 
 @router.get("/{msp_id}/orgs/{org_id}/score", summary="Get score for a managed org")
@@ -263,16 +309,13 @@ def get_org_score(
     Calculate and return the Security Readiness Score for a managed client org.
     Identical to the standalone /score endpoint but scoped to MSP-managed orgs.
     """
-    require_msp_access(principal, msp_id)
-    org = _get_msp_org(msp_id, org_id)
-    statuses = org.get("statuses", {})
-    profile  = org.get("profile", {})
-    result   = calculate_score(statuses, business_profile=profile)
+    org = _get_msp_org(principal, msp_id, org_id, PERM_FINDING_VIEW)
+    result = calculate_score(effective_statuses(org_id), business_profile=org.profile)
 
     return {
         "org_id": org_id,
         "msp_id": msp_id,
-        "org_name": org["name"],
+        "org_name": org.name,
         "total_score": result.total_score,
         "grade": result.grade,
         "color": result.color,
@@ -318,27 +361,23 @@ def update_org_control_status(
     evidence_source: str = "manual",
     principal: Principal = Depends(get_principal),
 ):
-    """Update a single control status for a managed client org."""
-    require_msp_access(principal, msp_id)
-    org = _get_msp_org(msp_id, org_id)
+    """
+    Record a manual status for a client control (fail / unknown / in_progress
+    only).  Requires finding.remediate.  "pass" and "not_applicable" → 403: the
+    MSP cannot mark its own work as passing; the client's executive approves it.
+    """
+    org = _get_msp_org(principal, msp_id, org_id, PERM_FINDING_REMEDIATE)
     try:
         ControlStatus(status)
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid status '{status}'. Valid: pass, fail, unknown, in_progress, not_applicable",
+            detail=f"Invalid status '{status}'. Valid: fail, unknown, in_progress",
         )
-
-    if "statuses" not in org:
-        org["statuses"] = {}
-    org["statuses"][control_id] = {
-        "status": status,
-        "notes": notes,
-        "evidence_source": evidence_source,
-        "last_checked": datetime.utcnow().isoformat(),
-    }
-    org["updated_at"] = datetime.utcnow().isoformat()
-    return {"org_id": org_id, "control_id": control_id, "status": status}
+    # Manual input is always recorded as manual evidence, whatever the caller claims.
+    entry = apply_manual_status(org_id, control_id, status, notes, principal)
+    org.updated_at = datetime.utcnow().isoformat()
+    return {"org_id": org_id, "control_id": control_id, "status": entry["status"]}
 
 
 @router.get("/{msp_id}/dashboard", summary="MSP aggregate dashboard")
@@ -352,7 +391,7 @@ def get_msp_dashboard(
     """
     require_msp_access(principal, msp_id)
 
-    orgs = _msp_orgs.get(msp_id, {})
+    orgs = _visible_orgs(principal, msp_id)
 
     if not orgs:
         return {
@@ -368,12 +407,12 @@ def get_msp_dashboard(
     org_scores = []
     all_issues: Dict[str, int] = {}
 
-    for org in orgs.values():
+    for org in orgs:
         score = _score_org(org)
         risk = _risk_level(score["total_score"])
         org_scores.append({
-            "org_id": org["org_id"],
-            "name": org["name"],
+            "org_id": org.org_id,
+            "name": org.name,
             "score": score["total_score"],
             "grade": score["grade"],
             "color": score["color"],
