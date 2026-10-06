@@ -27,11 +27,12 @@ from backend.api.api import router as securityos_router
 from backend.api.tiers import router as tiers_router
 from backend.api.msp import router as msp_router
 from backend.api.attestations import router as attestations_router
+from backend.auth.jwt import validate_prod_config
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("securityos")
 
-ENV: str = os.environ.get("ENV", "dev").lower()
+ENV: str = os.environ.get("ENV", "prod").lower()
 
 # ── Guard: fail fast in prod if dev auth key is present ───────────────────────
 # The jwt module also does this check, but we repeat it here for a clear startup log.
@@ -122,6 +123,9 @@ def root():
 
 @app.on_event("startup")
 async def startup():
+    # Fail fast if required prod config is missing
+    validate_prod_config()
+
     logger.info("SecurityOS API v0.3.0 starting (ENV=%s)", ENV)
     logger.info("  Routes: /api/v1/securityos · /api/v1/securityos/tiers · /api/v1/securityos/msp")
 

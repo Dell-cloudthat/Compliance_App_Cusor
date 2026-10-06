@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.auth.context import Principal, get_principal, require_org_access
 from backend.evidence.attestation import (
@@ -51,7 +51,11 @@ class AttestationCreate(BaseModel):
 
     Actor fields (who is attesting) are NOT accepted here — they are set
     server-side from the verified JWT to prevent spoofing.
+    Extra fields are forbidden (422) so that old clients sending
+    attested_by_name / attested_by_email / user_id receive a clear error.
     """
+    model_config = ConfigDict(extra="forbid")
+
     # What is being attested
     source_provider_id: Optional[str] = None   # ID from the provider catalog
     source_name: str = Field(..., min_length=1, max_length=200)
@@ -73,6 +77,8 @@ class RevokeRequest(BaseModel):
 
     Actor fields (revoked_by_*) are set server-side from the JWT.
     """
+    model_config = ConfigDict(extra="forbid")
+
     reason: Optional[str] = None
 
 

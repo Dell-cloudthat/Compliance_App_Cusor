@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 import json
 from pathlib import Path
@@ -29,6 +29,8 @@ router = APIRouter(prefix="/api/v1/securityos", tags=["SecurityOS"])
 # ─── Pydantic Models ──────────────────────────────────────────────────────────
 
 class BusinessProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     business_name: str = Field(..., min_length=1, max_length=200)
     industry: str = ""
     employee_count: str = ""
@@ -41,16 +43,22 @@ class BusinessProfile(BaseModel):
 
 
 class ControlStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     control_id: str
     status: ControlStatus
     notes: Optional[str] = None
 
 
 class BulkControlStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     updates: List[ControlStatusUpdate]
 
 
 class CopilotMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(..., min_length=1, max_length=2000)
     control_statuses: Optional[Dict[str, Dict]] = None
     profile: Optional[Dict] = None

@@ -21,9 +21,10 @@ from typing import Dict, List, Optional, Any
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.auth.context import Principal, get_principal, require_msp_access
+from backend.repositories.msp_org_repo import msp_org_repo
 from backend.scoring.engine import calculate_score, ControlStatus
 
 router = APIRouter(prefix="/api/v1/securityos/msp", tags=["MSP"])
@@ -37,6 +38,8 @@ _msp_orgs: Dict[str, Dict[str, Dict]] = {}
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class ManagedOrgCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(..., min_length=1, max_length=200, description="Client organization name")
     industry: str = ""
     employee_count: str = ""
@@ -48,6 +51,8 @@ class ManagedOrgCreate(BaseModel):
 
 
 class ManagedOrgUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     industry: Optional[str] = None
     employee_count: Optional[str] = None
@@ -141,6 +146,7 @@ def create_managed_org(
     if msp_id not in _msp_orgs:
         _msp_orgs[msp_id] = {}
     _msp_orgs[msp_id][org_id] = org
+    msp_org_repo.add_org(msp_id, org_id)
 
     score = _score_org(org)
     return {"org_id": org_id, "msp_id": msp_id, "name": payload.name, "score": score, "created_at": now}
@@ -244,6 +250,7 @@ def delete_managed_org(
     require_msp_access(principal, msp_id)
     _get_msp_org(msp_id, org_id)  # raises 404 if not found
     del _msp_orgs[msp_id][org_id]
+    msp_org_repo.remove_org(msp_id, org_id)
 
 
 @router.get("/{msp_id}/orgs/{org_id}/score", summary="Get score for a managed org")
