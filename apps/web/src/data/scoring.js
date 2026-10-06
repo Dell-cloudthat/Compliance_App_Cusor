@@ -169,6 +169,57 @@ export function toGrade(score) {
   return 'At Risk';
 }
 
+/**
+ * Estimate how many score points would be gained by fixing one control.
+ * Simulates the control passing with direct_automated evidence.
+ */
+export function calculateImpact(controlId, statuses, profile, catalog) {
+  const before = calculateScore(statuses, profile, catalog);
+  if (before.allControls.find(c => c.id === controlId && c.status === STATUS.PASS)) return 0;
+  const fakeStatuses = {
+    ...statuses,
+    [controlId]: { status: STATUS.PASS, evidence_source: 'automatic', notes: null, last_checked: new Date().toISOString() },
+  };
+  const after = calculateScore(fakeStatuses, profile, catalog);
+  return Math.max(0, after.totalScore - before.totalScore);
+}
+
+/**
+ * Calculate per-framework readiness percentages from allControls results.
+ * Returns an array ordered by most controls (most relevant first).
+ */
+export function calculateFrameworkReadiness(allControls) {
+  const FRAMEWORKS = [
+    { id: 'nist_csf_2',     label: 'NIST CSF 2.0' },
+    { id: 'nist_ai_rmf',    label: 'NIST AI RMF' },
+    { id: 'hipaa',          label: 'HIPAA' },
+    { id: 'pci_dss',        label: 'PCI DSS' },
+    { id: 'ftc_safeguards', label: 'FTC Safeguards' },
+    { id: 'cyber_insurance',label: 'Cyber Insurance' },
+  ];
+
+  const result = [];
+  for (const { id, label } of FRAMEWORKS) {
+    const fwControls = allControls.filter(c =>
+      c.applicable &&
+      Array.isArray(c.framework_mappings?.[id]) &&
+      c.framework_mappings[id].length > 0
+    );
+    if (fwControls.length === 0) continue;
+    const passing = fwControls.filter(c => c.status === STATUS.PASS).length;
+    result.push({
+      id,
+      label,
+      total: fwControls.length,
+      passing,
+      failing: fwControls.filter(c => c.status === STATUS.FAIL).length,
+      pct: Math.round((passing / fwControls.length) * 100),
+    });
+  }
+  // Most-populated frameworks first
+  return result.sort((a, b) => b.total - a.total);
+}
+
 export function toColor(score) {
   if (score >= 90) return 'green';
   if (score >= 75) return 'blue';

@@ -1,17 +1,18 @@
 import { useState, useEffect, createContext, useContext, useCallback, useMemo } from 'react';
 import OnboardingView from './views/securityos/OnboardingView';
 import AnalysisView from './views/securityos/AnalysisView';
-import HomeView from './views/securityos/HomeView';
+import SecurityProfileView from './views/securityos/SecurityProfileView';
+import FixRoadmapView from './views/securityos/FixRoadmapView';
+import ReportView from './views/securityos/ReportView';
 import FixView from './views/securityos/FixView';
 import AttestView from './views/securityos/AttestView';
 import RiskView from './views/securityos/RiskView';
 import CopilotView from './views/securityos/CopilotView';
-import PassportView from './views/securityos/PassportView';
-import SettingsView from './views/securityos/SettingsView';
 import GlobalView from './views/securityos/GlobalView';
+import SettingsView from './views/securityos/SettingsView';
 import { calculateScore, buildDemoStatuses } from './data/scoring';
 import { loadCatalog } from './data/controls';
-import { Home, Bot, BadgeCheck, Settings, Globe } from 'lucide-react';
+import { Shield, Map, Bot, Globe, Settings } from 'lucide-react';
 
 // ── App Context ───────────────────────────────────────────────────────────────
 export const AppContext = createContext(null);
@@ -68,15 +69,16 @@ function normalizeTenant(t) {
   const statuses = t?.statuses ?? buildDemoStatuses();
   const name = t?.name ?? profile.businessName ?? 'Tenant';
   const attestations = t?.attestations ?? [];
-  return { id: t?.id ?? makeId('tenant'), name, profile, statuses, attestations };
+  const assignments = t?.assignments ?? {};
+  return { id: t?.id ?? makeId('tenant'), name, profile, statuses, attestations, assignments };
 }
 
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'home', label: 'Home', icon: Home },
-  { id: 'global', label: 'Global', icon: Globe },
-  { id: 'copilot', label: 'Copilot', icon: Bot },
-  { id: 'passport', label: 'Passport', icon: BadgeCheck },
+  { id: 'profile',  label: 'Profile',  icon: Shield },
+  { id: 'roadmap',  label: 'Roadmap',  icon: Map },
+  { id: 'copilot',  label: 'Copilot',  icon: Bot },
+  { id: 'global',   label: 'Customers',icon: Globe },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -95,11 +97,12 @@ export default function SecurityOSApp() {
     }];
   });
   const [activeTenantId, setActiveTenantId] = useState(() => saved?.activeTenantId ?? tenants?.[0]?.id ?? 'tenant-1');
-  const [view, setView] = useState('home');
+  const [view, setView] = useState('profile');
   const [fixControlId, setFixControlId] = useState(null);
   const [attestControlId, setAttestControlId] = useState(null);
   const [phase, setPhase] = useState(saved ? 'app' : 'onboarding');
   const [riskOpen, setRiskOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const [activeFramework, setActiveFramework] = useState('all');
   const [copilotInitialPrompt, setCopilotInitialPrompt] = useState(null);
 
@@ -118,6 +121,7 @@ export default function SecurityOSApp() {
   const profile = activeTenant?.profile ?? DEFAULT_PROFILE;
   const statuses = activeTenant?.statuses ?? {};
   const attestations = activeTenant?.attestations ?? [];
+  const assignments = activeTenant?.assignments ?? {};
 
   const scoring = calculateScore(statuses, profile, catalog);
 
@@ -191,12 +195,30 @@ export default function SecurityOSApp() {
     }));
   }, [activeTenantId]);
 
+  const setAssignment = useCallback((controlId, data) => {
+    setTenants(prev => prev.map(t => {
+      if (t.id !== activeTenantId) return t;
+      const nextAssignments = data
+        ? { ...(t.assignments ?? {}), [controlId]: data }
+        : Object.fromEntries(Object.entries(t.assignments ?? {}).filter(([k]) => k !== controlId));
+      return { ...t, assignments: nextAssignments };
+    }));
+  }, [activeTenantId]);
+
   function openRisk() {
     setRiskOpen(true);
   }
 
   function closeRisk() {
     setRiskOpen(false);
+  }
+
+  function openReport() {
+    setReportOpen(true);
+  }
+
+  function closeReport() {
+    setReportOpen(false);
   }
 
   const addTenant = useCallback((name = 'New Tenant', seed = 'demo') => {
@@ -245,6 +267,14 @@ export default function SecurityOSApp() {
     closeAttest,
     addAttestation,
 
+    // Assignment APIs
+    assignments,
+    setAssignment,
+
+    // Report
+    openReport,
+    closeReport,
+
     // Framework filtering
     activeFramework,
     setFramework: setActiveFramework,
@@ -284,7 +314,9 @@ export default function SecurityOSApp() {
       <div className="flex flex-col h-screen bg-slate-950 text-white overflow-hidden max-w-lg mx-auto">
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
-          {attestControlId ? (
+          {reportOpen ? (
+            <ReportView onBack={closeReport} />
+          ) : attestControlId ? (
             <AttestView
               preSelectedControlIds={attestControlId !== '__any__' ? [attestControlId] : []}
               onBack={closeAttest}
@@ -295,17 +327,17 @@ export default function SecurityOSApp() {
             <RiskView onBack={closeRisk} />
           ) : (
             <>
-              {view === 'home'     && <HomeView />}
-              {view === 'global'   && <GlobalView />}
+              {view === 'profile'  && <SecurityProfileView />}
+              {view === 'roadmap'  && <FixRoadmapView />}
               {view === 'copilot'  && <CopilotView />}
-              {view === 'passport' && <PassportView />}
+              {view === 'global'   && <GlobalView />}
               {view === 'settings' && <SettingsView />}
             </>
           )}
         </main>
 
         {/* Bottom nav — always visible */}
-        {!fixControlId && !attestControlId && !riskOpen && (
+        {!fixControlId && !attestControlId && !riskOpen && !reportOpen && (
           <nav className="flex border-t border-slate-800 bg-slate-900 shrink-0">
             {NAV.map(({ id, label, icon: Icon }) => {
               const active = view === id;

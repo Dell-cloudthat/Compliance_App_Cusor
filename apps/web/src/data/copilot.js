@@ -292,6 +292,95 @@ ${control?.evidence_requirements?.length > 0
 Once complete, tap "Mark as Fixed" to update your score.`;
 }
 
+// ── Context builder — creates a machine-readable environment summary ──────
+export function buildContext(profile, scoring) {
+  const { totalScore, issues, passing, evidenceBreakdown } = scoring;
+  const grade = toGrade(totalScore);
+  const crit = issues.filter(c => c.severity === 'critical');
+  const high = issues.filter(c => c.severity === 'high');
+  const med  = issues.filter(c => c.severity === 'medium');
+
+  return {
+    customer:       profile?.businessName   || 'Organization',
+    industry:       profile?.industry       || null,
+    emailProvider:  profile?.emailProvider  || null,
+    score:          totalScore,
+    grade,
+    openFixes:      issues.length,
+    critical:       crit.length,
+    high:           high.length,
+    medium:         med.length,
+    passing:        passing.length,
+    topIssues:      issues.slice(0, 5).map(c => ({
+      id:       c.id,
+      name:     c.short_name,
+      severity: c.severity,
+      category: c.category,
+      effort:   c.estimated_minutes,
+    })),
+    evidenceBreakdown,
+  };
+}
+
+// ── Fix Roadmap Recommender ───────────────────────────────────────────────────
+export function recommendRoadmap(profile, scoring) {
+  const { totalScore, issues } = scoring;
+  const ctx = buildContext(profile, scoring);
+
+  if (issues.length === 0) {
+    return `**All controls are currently passing** for ${ctx.customer}.
+
+Your score of **${totalScore}/100 (${ctx.grade})** is excellent.
+
+To maintain this posture:
+1. Schedule a quarterly review of user accounts and access
+2. Run a monthly backup restore test
+3. Renew any expiring attestations before they lapse
+4. Continue security awareness training annually
+
+Would you like me to explain any specific control in detail?`;
+  }
+
+  const EFFORT_LABEL = mins => {
+    if (!mins || mins <= 5)  return '5 min';
+    if (mins <= 15)          return '15 min';
+    if (mins <= 30)          return '30 min';
+    if (mins <= 45)          return '45 min';
+    if (mins <= 60)          return '1 hour';
+    if (mins <= 120)         return '2 hours';
+    return '4+ hours';
+  };
+
+  const top5 = issues.slice(0, 5);
+  const totalMinutes = top5.reduce((s, c) => s + (c.estimated_minutes || 30), 0);
+  const totalHours   = Math.floor(totalMinutes / 60);
+  const remMins      = totalMinutes % 60;
+  const timeStr      = totalHours > 0
+    ? (remMins > 0 ? `${totalHours}h ${remMins}m` : `${totalHours} hour${totalHours > 1 ? 's' : ''}`)
+    : `${totalMinutes} minutes`;
+
+  const lines = [
+    `Based on **${ctx.customer}**'s current environment, here is the recommended roadmap:\n`,
+  ];
+
+  top5.forEach((c, i) => {
+    const sev = c.severity.charAt(0).toUpperCase() + c.severity.slice(1);
+    lines.push(`**${i + 1}. ${c.short_name}**`);
+    lines.push(`   Severity: ${sev}`);
+    lines.push(`   Estimated effort: ${EFFORT_LABEL(c.estimated_minutes)}`);
+    if (c.customerMessage) lines.push(`   Issue: ${c.customerMessage}`);
+    lines.push('');
+  });
+
+  lines.push(`**Total estimated engineering time: ${timeStr}**`);
+  lines.push('');
+  lines.push(`Addressing these top items would significantly improve the current score of **${totalScore}/100** and close the most impactful security gaps.`);
+  lines.push('');
+  lines.push(`Would you like step-by-step instructions for any of these? I can walk you through each fix individually.`);
+
+  return lines.join('\n');
+}
+
 // ── General Copilot response (used in CopilotView) ─────────────────────────
 export function respond(msg, profile, scoring) {
   const m = msg.toLowerCase();
@@ -370,30 +459,12 @@ ${isMicrosoft ? `1. Go to admin.microsoft.com
 This takes about 30 minutes. After that, your biggest single vulnerability is closed.`;
   }
 
-  if (m.includes('most important') || m.includes('priority') || m.includes('first') || m.includes('start')) {
-    if (critical.length > 0) {
-      const top = critical[0];
-      return `Your #1 priority right now: **${top.name}**
-
-This is Critical because: ${top.customer_impact}
-
-**How to fix it:**
-${(top.remediation_steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')}
-
-After that: ${issues.slice(1, 4).map(c => c.short_name).join(', ')}.
-
-Tap "Fix it" next to ${top.short_name} on the home screen for the full guide.`;
-    }
-    if (issues.length > 0) {
-      return `Your top priorities right now:
-
-${issues.slice(0, 4).map((c, i) => `**${i + 1}. ${c.short_name}**\n${c.customerMessage}`).join('\n\n')}
-
-Start with #1 and work your way down. Each fix takes under an hour.`;
-    }
-    return `Great news — no critical issues found. Your score is ${score}/100 (${grade}).
-
-To maintain this, schedule a quarterly review of user access and a monthly backup restore test.`;
+  if (
+    m.includes('most important') || m.includes('priority') || m.includes('first') ||
+    m.includes('start') || m.includes('work on') || m.includes('roadmap') ||
+    m.includes('fix first') || m.includes('this week')
+  ) {
+    return recommendRoadmap(profile, scoring);
   }
 
   if (m.includes('hipaa')) {
