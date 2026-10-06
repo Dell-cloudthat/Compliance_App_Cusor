@@ -13,14 +13,19 @@ Routes:
   GET    /api/v1/securityos/organizations/{org_id}/attestations/recommendations
   GET    /api/v1/securityos/providers
   GET    /api/v1/securityos/providers/{provider_id}
+
+Authentication: every org-scoped route requires a valid Bearer JWT.
+Actor identity (created_by_*, revoked_by_*) is always sourced from the JWT —
+never from the request body.
 """
 
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from backend.auth.context import Principal, get_principal, require_org_access
 from backend.evidence.attestation import (
     Attestation, AttestationType, AttestationScope,
     CONFIRMATION_PHRASE, ALLOWED_VALIDITY_DAYS, DEFAULT_VALIDITY_DAYS,
@@ -41,11 +46,12 @@ _attestations: Dict[str, Dict[str, Attestation]] = {}
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class AttestationCreate(BaseModel):
-    # Who is attesting (in production, comes from JWT — provided in request for now)
-    attested_by_name: str = Field(..., min_length=1, max_length=200)
-    attested_by_email: str = Field(..., min_length=1, max_length=200)
-    user_id: Optional[str] = None
+    """
+    Request body for creating an attestation.
 
+    Actor fields (who is attesting) are NOT accepted here — they are set
+    server-side from the verified JWT to prevent spoofing.
+    """
     # What is being attested
     source_provider_id: Optional[str] = None   # ID from the provider catalog
     source_name: str = Field(..., min_length=1, max_length=200)
@@ -62,12 +68,15 @@ class AttestationCreate(BaseModel):
 
 
 class RevokeRequest(BaseModel):
-    revoked_by_name: str = Field(..., min_length=1)
-    revoked_by_user_id: Optional[str] = None
+    """
+    Request body for revoking an attestation.
+
+    Actor fields (revoked_by_*) are set server-side from the JWT.
+    """
     reason: Optional[str] = None
 
 
-# ── Provider endpoints ────────────────────────────────────────────────────────
+# ── Provider endpoints (public — no auth required) ────────────────────────────
 
 @router.get("/providers", summary="List all third-party security providers")
 def list_providers(category: Optional[str] = None):
@@ -101,14 +110,21 @@ def get_provider(provider_id: str):
     status_code=201,
     summary="Create a new attestation",
 )
-def create_org_attestation(org_id: str, payload: AttestationCreate, request: Request):
+def create_org_attestation(
+    org_id: str,
+    payload: AttestationCreate,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+):
     """
     Create a new third-party coverage attestation.
 
-    The user MUST send confirmation_phrase = "ATTEST" exactly (case-sensitive).
-    The server sets all timestamps — browser timestamps are ignored.
-    Multiple controls can be covered by a single attestation.
+    The caller MUST send confirmation_phrase = "ATTEST" exactly (case-sensitive).
+    Actor identity is taken from the JWT — not the request body.
+    The server sets all timestamps.
     """
+    require_org_access(principal, org_id)
+
     # Enforce the confirmation phrase — server-side check
     if payload.confirmation_phrase.strip() != CONFIRMATION_PHRASE:
         raise HTTPException(
@@ -133,9 +149,10 @@ def create_org_attestation(org_id: str, payload: AttestationCreate, request: Req
     try:
         attest = create_attestation(
             organization_id=org_id,
-            created_by_user_id=payload.user_id,
-            created_by_name=payload.attested_by_name,
-            created_by_email=payload.attested_by_email,
+            # Actor always comes from the verified JWT
+            created_by_user_id=principal.user_id,
+            created_by_name=principal.display_name,
+            created_by_email=principal.email,
             attestation_type=payload.attestation_type,
             scope_type=payload.scope_type,
             control_ids=payload.control_ids,
@@ -171,11 +188,14 @@ def list_org_attestations(
     org_id: str,
     status: Optional[str] = None,        # "active" | "expired" | "revoked"
     include_expired: bool = False,
+    principal: Principal = Depends(get_principal),
 ):
     """
     Return all attestations for an organization.
     Refreshes expiry status before returning.
     """
+    require_org_access(principal, org_id)
+
     org_attests = _attestations.get(org_id, {})
 
     results = []
@@ -211,8 +231,13 @@ def list_org_attestations(
     "/organizations/{org_id}/attestations/expiring",
     summary="List attestations expiring soon",
 )
-def list_expiring_attestations(org_id: str):
+def list_expiring_attestations(
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Return active attestations that expire within the warning window (default 14 days)."""
+    require_org_access(principal, org_id)
+
     org_attests = _attestations.get(org_id, {})
     expiring = []
     for attest in org_attests.values():
@@ -230,11 +255,17 @@ def list_expiring_attestations(org_id: str):
     "/organizations/{org_id}/attestations/recommendations",
     summary="Suggest grouped attestations for failing controls",
 )
-def get_attestation_recommendations(org_id: str, control_ids: str = ""):
+def get_attestation_recommendations(
+    org_id: str,
+    control_ids: str = "",
+    principal: Principal = Depends(get_principal),
+):
     """
     Given a comma-separated list of failing/unknown control IDs, suggest
     which third-party providers could cover them via grouped attestation.
     """
+    require_org_access(principal, org_id)
+
     ids = [c.strip() for c in control_ids.split(",") if c.strip()] if control_ids else []
     if not ids:
         return {"recommendations": [], "message": "Provide control_ids as a comma-separated query parameter."}
@@ -263,8 +294,14 @@ def get_attestation_recommendations(org_id: str, control_ids: str = ""):
     "/organizations/{org_id}/attestations/{attest_id}",
     summary="Get one attestation",
 )
-def get_org_attestation(org_id: str, attest_id: str):
+def get_org_attestation(
+    org_id: str,
+    attest_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Return a single attestation record with current status."""
+    require_org_access(principal, org_id)
+
     org_attests = _attestations.get(org_id, {})
     attest = org_attests.get(attest_id)
     if not attest:
@@ -277,12 +314,19 @@ def get_org_attestation(org_id: str, attest_id: str):
     "/organizations/{org_id}/attestations/{attest_id}/revoke",
     summary="Revoke an attestation",
 )
-def revoke_org_attestation(org_id: str, attest_id: str, payload: RevokeRequest):
+def revoke_org_attestation(
+    org_id: str,
+    attest_id: str,
+    payload: RevokeRequest,
+    principal: Principal = Depends(get_principal),
+):
     """
     Revoke an attestation. Sets status=REVOKED with revoked_at timestamp.
     Does not delete the record — preserves full audit history.
-    The calling system should re-evaluate affected controls after revocation.
+    Actor (revoked_by_*) is always taken from the JWT.
     """
+    require_org_access(principal, org_id)
+
     org_attests = _attestations.get(org_id, {})
     attest = org_attests.get(attest_id)
     if not attest:
@@ -293,8 +337,8 @@ def revoke_org_attestation(org_id: str, attest_id: str, payload: RevokeRequest):
 
     revoke_attestation(
         attest,
-        revoked_by_user_id=payload.revoked_by_user_id,
-        revoked_by_name=payload.revoked_by_name,
+        revoked_by_user_id=principal.user_id,
+        revoked_by_name=principal.display_name,
         reason=payload.reason,
     )
 
@@ -315,12 +359,18 @@ def revoke_org_attestation(org_id: str, attest_id: str, payload: RevokeRequest):
     "/organizations/{org_id}/attestations/{attest_id}/reconfirm",
     summary="Get reconfirmation prompt for an expiring attestation",
 )
-def get_reconfirm_prompt(org_id: str, attest_id: str):
+def get_reconfirm_prompt(
+    org_id: str,
+    attest_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """
     Return the context needed to reconfirm an expiring attestation.
     The client should show the original attestation context and prompt
     for a fresh ATTEST confirmation.
     """
+    require_org_access(principal, org_id)
+
     org_attests = _attestations.get(org_id, {})
     attest = org_attests.get(attest_id)
     if not attest:

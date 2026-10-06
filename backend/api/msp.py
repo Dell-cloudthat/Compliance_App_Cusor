@@ -11,17 +11,19 @@ This router provides the MSP portal backend:
   GET    /api/v1/securityos/msp/{msp_id}/orgs/{org_id}/score  — get org score
   GET    /api/v1/securityos/msp/{msp_id}/dashboard         — aggregate dashboard
 
+Authentication: every route requires a valid Bearer JWT.
+Tenant isolation: the caller's msp_id from the JWT must match the path msp_id.
 Storage: in-memory dicts (swap for PostgreSQL via securityos_schema.sql when DATABASE_URL is set).
-The MSP ID maps to an MSP account; org IDs are per-client organizations.
 """
 
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.auth.context import Principal, get_principal, require_msp_access
 from backend.scoring.engine import calculate_score, ControlStatus
 
 router = APIRouter(prefix="/api/v1/securityos/msp", tags=["MSP"])
@@ -103,11 +105,17 @@ def _risk_level(score: int) -> str:
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/{msp_id}/orgs", status_code=201, summary="Create a managed client org")
-def create_managed_org(msp_id: str, payload: ManagedOrgCreate):
+def create_managed_org(
+    msp_id: str,
+    payload: ManagedOrgCreate,
+    principal: Principal = Depends(get_principal),
+):
     """
     Create a new managed client organization under this MSP account.
     Returns the new org record including its generated org_id.
     """
+    require_msp_access(principal, msp_id)
+
     org_id = f"org-{uuid.uuid4().hex[:12]}"
     now = datetime.utcnow().isoformat()
 
@@ -139,11 +147,16 @@ def create_managed_org(msp_id: str, payload: ManagedOrgCreate):
 
 
 @router.get("/{msp_id}/orgs", summary="List all managed client orgs")
-def list_managed_orgs(msp_id: str):
+def list_managed_orgs(
+    msp_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """
     Return all client organizations managed by this MSP, with their current scores.
     Sorted by score ascending (highest risk first) for the MSP dashboard.
     """
+    require_msp_access(principal, msp_id)
+
     orgs = _msp_orgs.get(msp_id, {})
 
     results = []
@@ -176,16 +189,27 @@ def list_managed_orgs(msp_id: str):
 
 
 @router.get("/{msp_id}/orgs/{org_id}", summary="Get one managed org")
-def get_managed_org(msp_id: str, org_id: str):
+def get_managed_org(
+    msp_id: str,
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Return full details for one managed client org including profile and current score."""
+    require_msp_access(principal, msp_id)
     org = _get_msp_org(msp_id, org_id)
     score = _score_org(org)
     return {**org, "current_score": score}
 
 
 @router.patch("/{msp_id}/orgs/{org_id}", summary="Update a managed org's profile")
-def update_managed_org(msp_id: str, org_id: str, payload: ManagedOrgUpdate):
+def update_managed_org(
+    msp_id: str,
+    org_id: str,
+    payload: ManagedOrgUpdate,
+    principal: Principal = Depends(get_principal),
+):
     """Update name, industry, contact info, or other profile fields for a managed org."""
+    require_msp_access(principal, msp_id)
     org = _get_msp_org(msp_id, org_id)
 
     if payload.name is not None:
@@ -211,18 +235,28 @@ def update_managed_org(msp_id: str, org_id: str, payload: ManagedOrgUpdate):
 
 
 @router.delete("/{msp_id}/orgs/{org_id}", status_code=204, summary="Remove a managed org")
-def delete_managed_org(msp_id: str, org_id: str):
+def delete_managed_org(
+    msp_id: str,
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """Remove a client organization from MSP management."""
+    require_msp_access(principal, msp_id)
     _get_msp_org(msp_id, org_id)  # raises 404 if not found
     del _msp_orgs[msp_id][org_id]
 
 
 @router.get("/{msp_id}/orgs/{org_id}/score", summary="Get score for a managed org")
-def get_org_score(msp_id: str, org_id: str):
+def get_org_score(
+    msp_id: str,
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """
     Calculate and return the Security Readiness Score for a managed client org.
     Identical to the standalone /score endpoint but scoped to MSP-managed orgs.
     """
+    require_msp_access(principal, msp_id)
     org = _get_msp_org(msp_id, org_id)
     statuses = org.get("statuses", {})
     profile  = org.get("profile", {})
@@ -264,7 +298,10 @@ def get_org_score(msp_id: str, org_id: str):
     }
 
 
-@router.patch("/{msp_id}/orgs/{org_id}/statuses/{control_id}", summary="Update a control status for a managed org")
+@router.patch(
+    "/{msp_id}/orgs/{org_id}/statuses/{control_id}",
+    summary="Update a control status for a managed org",
+)
 def update_org_control_status(
     msp_id: str,
     org_id: str,
@@ -272,13 +309,18 @@ def update_org_control_status(
     status: str,
     notes: Optional[str] = None,
     evidence_source: str = "manual",
+    principal: Principal = Depends(get_principal),
 ):
     """Update a single control status for a managed client org."""
+    require_msp_access(principal, msp_id)
     org = _get_msp_org(msp_id, org_id)
     try:
         ControlStatus(status)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid status '{status}'. Valid: pass, fail, unknown, in_progress, not_applicable")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{status}'. Valid: pass, fail, unknown, in_progress, not_applicable",
+        )
 
     if "statuses" not in org:
         org["statuses"] = {}
@@ -293,11 +335,16 @@ def update_org_control_status(
 
 
 @router.get("/{msp_id}/dashboard", summary="MSP aggregate dashboard")
-def get_msp_dashboard(msp_id: str):
+def get_msp_dashboard(
+    msp_id: str,
+    principal: Principal = Depends(get_principal),
+):
     """
     Aggregate view across all managed client orgs for the MSP portal.
     Returns portfolio-level risk metrics and per-org summary.
     """
+    require_msp_access(principal, msp_id)
+
     orgs = _msp_orgs.get(msp_id, {})
 
     if not orgs:
@@ -327,31 +374,25 @@ def get_msp_dashboard(msp_id: str):
             "open_issues": score["summary"].get("failing", 0) + score["summary"].get("unknown", 0),
             "top_issue": score["top_issues"][0]["short_name"] if score["top_issues"] else None,
         })
-        # Tally common issues across all client orgs
         for issue in score["top_issues"]:
             all_issues[issue["short_name"]] = all_issues.get(issue["short_name"], 0) + 1
 
-    # Portfolio score = average across all orgs
     portfolio_score = int(sum(o["score"] for o in org_scores) / len(org_scores)) if org_scores else 0
 
-    # Risk distribution
     risk_dist: Dict[str, int] = {"critical": 0, "high": 0, "moderate": 0, "low": 0}
     for o in org_scores:
         risk_dist[o["risk_level"]] = risk_dist.get(o["risk_level"], 0) + 1
 
-    # Orgs needing immediate attention (critical or high risk)
     orgs_at_risk = sorted(
         [o for o in org_scores if o["risk_level"] in ("critical", "high")],
         key=lambda x: x["score"],
     )
 
-    # Most common issues across the portfolio
     common_issues = sorted(
         [{"name": k, "affected_orgs": v} for k, v in all_issues.items()],
         key=lambda x: -x["affected_orgs"],
     )[:5]
 
-    # All orgs sorted by risk (worst first)
     risk_order = {"critical": 0, "high": 1, "moderate": 2, "low": 3}
     org_scores.sort(key=lambda x: (risk_order.get(x["risk_level"], 4), x["score"]))
 
