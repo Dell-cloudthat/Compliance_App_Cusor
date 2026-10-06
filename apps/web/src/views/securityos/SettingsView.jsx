@@ -94,6 +94,26 @@ export default function SettingsView() {
               />
             </Row>
 
+            <Row label="Owner / Attester Name">
+              <input
+                value={profile.ownerName ?? ''}
+                onChange={e => upd('ownerName', e.target.value)}
+                placeholder="e.g. Jane Smith"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+            </Row>
+
+            <Row label="Owner / Attester Email">
+              <input
+                type="email"
+                value={profile.ownerEmail ?? ''}
+                onChange={e => upd('ownerEmail', e.target.value)}
+                placeholder="e.g. jane@yourcompany.com"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
+              <p className="text-[10px] text-slate-600 mt-1">Used to identify you on attestations you create.</p>
+            </Row>
+
             <Row label="Industry">
               <select
                 value={profile.industry}
@@ -200,8 +220,8 @@ export default function SettingsView() {
 
         {/* About */}
         <div className="px-5 py-6">
-          <p className="text-xs text-slate-600">SecurityOS v0.2.0 · 25 controls · NIST CSF 2.0 primary framework</p>
-          <p className="text-xs text-slate-700 mt-1">Confidence-weighted scoring: auto-verified (100%) · manual (70%) · unknown (0%)</p>
+          <p className="text-xs text-slate-600">SecurityOS v0.3.0 · 31 controls · NIST CSF 2.0 + AI RMF</p>
+          <p className="text-xs text-slate-700 mt-1">Confidence-weighted scoring: automated (100%) · integrated (90%) · attested (70%) · manual (50%) · unknown (0%)</p>
         </div>
       </div>
     </div>

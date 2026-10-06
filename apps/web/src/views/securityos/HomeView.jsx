@@ -3,7 +3,7 @@ import { useApp, ScoreRing } from '../../SecurityOSApp';
 import { STATUS, FRAMEWORK_OPTIONS, filterControlsByFramework } from '../../data/controls';
 import { toGrade, toColor } from '../../data/scoring';
 import { calculateTCO, riskLevel, fmtUSD } from '../../data/risk';
-import { CheckCircle2, ChevronRight, Clock, TrendingDown, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Clock, TrendingDown, ShieldAlert, Zap, ShieldCheck, PenLine } from 'lucide-react';
 
 const COLOR_TEXT = {
   green:  'text-green-400',
@@ -63,6 +63,44 @@ function PassingRow({ control, onReview }) {
   );
 }
 
+function EvidenceBreakdownBar({ breakdown, totalPassing, onAttest }) {
+  const { automated = 0, integrated = 0, attested = 0, manual = 0 } = breakdown;
+  const hasAny = automated + integrated + attested + manual > 0;
+
+  return (
+    <div className="mx-4 mt-3 rounded-2xl bg-slate-800/40 border border-slate-700/50 px-4 py-3">
+      <div className="flex items-center justify-between mb-2.5">
+        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Evidence Sources</p>
+        <button
+          onClick={onAttest}
+          className="text-[10px] text-indigo-400 font-medium hover:text-indigo-300 transition-colors flex items-center gap-1"
+        >
+          <ShieldCheck size={10} /> + Attest platform
+        </button>
+      </div>
+
+      {!hasAny ? (
+        <p className="text-xs text-slate-600 text-center py-1">No passing controls yet</p>
+      ) : (
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { count: automated,  label: 'Automated', icon: Zap,         color: 'text-green-400',  bg: 'bg-green-500/10'  },
+            { count: integrated, label: 'Integrated', icon: ChevronRight, color: 'text-sky-400',   bg: 'bg-sky-500/10'    },
+            { count: attested,   label: 'Attested',  icon: ShieldCheck, color: 'text-indigo-400', bg: 'bg-indigo-500/10' },
+            { count: manual,     label: 'Manual',    icon: PenLine,     color: 'text-slate-400',  bg: 'bg-slate-700/40'  },
+          ].map(({ count, label, icon: Icon, color, bg }) => (
+            <div key={label} className={`rounded-xl ${bg} flex flex-col items-center py-2 px-1`}>
+              <Icon size={12} className={`${color} mb-1`} />
+              <p className={`text-base font-bold ${color} tabular-nums`}>{count}</p>
+              <p className={`text-[9px] ${color} opacity-70 font-medium text-center leading-tight`}>{label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FrameworkSelector({ activeFramework, onSelect }) {
   const scrollRef = useRef(null);
   return (
@@ -95,8 +133,8 @@ function FrameworkSelector({ activeFramework, onSelect }) {
 }
 
 export default function HomeView() {
-  const { scoring, profile, statuses, catalog, openFix, openRisk, activeFramework, setFramework } = useApp();
-  const { totalScore, grade, color, issues, passing, summary, verifiedPct, confidenceNote } = scoring;
+  const { scoring, profile, statuses, catalog, openFix, openRisk, openAttest, activeFramework, setFramework } = useApp();
+  const { totalScore, grade, color, issues, passing, summary, verifiedPct, confidenceNote, evidenceBreakdown } = scoring;
 
   const filteredIssues  = filterControlsByFramework(issues, activeFramework);
   const filteredPassing = filterControlsByFramework(passing, activeFramework);
@@ -145,6 +183,13 @@ export default function HomeView() {
 
       {/* Framework selector */}
       <FrameworkSelector activeFramework={activeFramework} onSelect={setFramework} />
+
+      {/* Evidence breakdown */}
+      <EvidenceBreakdownBar
+        breakdown={evidenceBreakdown}
+        totalPassing={passing.length}
+        onAttest={() => openAttest(null)}
+      />
 
       {/* Framework filter banner */}
       {isFiltered && (

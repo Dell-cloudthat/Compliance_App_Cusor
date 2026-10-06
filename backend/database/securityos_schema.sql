@@ -164,6 +164,87 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_org ON api_keys (org_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys (key_hash);
 
 
+-- ── Third-Party Providers ─────────────────────────────────────────────────────
+-- Normalized catalog of known security platforms.
+-- Populated from backend/evidence/third_party_coverage.py at startup.
+-- Custom providers can be added by MSPs.
+
+CREATE TABLE IF NOT EXISTS third_party_providers (
+    id          TEXT PRIMARY KEY,                       -- e.g. "crowdstrike_falcon"
+    name        TEXT NOT NULL,
+    product     TEXT,
+    category    TEXT NOT NULL,
+    controls    JSONB NOT NULL DEFAULT '[]',            -- SecurityOS control IDs
+    description TEXT,
+    icon        TEXT,
+    is_builtin  BOOLEAN NOT NULL DEFAULT TRUE,          -- FALSE = MSP-added custom provider
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+
+-- ── Attestations ──────────────────────────────────────────────────────────────
+-- Explicit, authenticated confirmations that a named third-party platform
+-- provides the security coverage required by one or more controls.
+--
+-- Attestations are immutable once created — revocation sets status/revoked_at
+-- but NEVER deletes the record. Full audit history is always preserved.
+
+CREATE TABLE IF NOT EXISTS attestations (
+    id                  TEXT PRIMARY KEY,               -- "attest-<hex>"
+    organization_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+
+    -- Attesting user (preserved even if user record changes/is deleted)
+    created_by_user_id  UUID REFERENCES organization_users(id) ON DELETE SET NULL,
+    created_by_name     TEXT NOT NULL,
+    created_by_email    TEXT NOT NULL,
+
+    -- What is being attested
+    attestation_type    TEXT NOT NULL DEFAULT 'third_party_platform'
+                            CHECK (attestation_type IN ('third_party_platform','operational_process','configuration')),
+    scope_type          TEXT NOT NULL DEFAULT 'evidence_source'
+                            CHECK (scope_type IN ('individual_control','control_group','evidence_source')),
+    control_ids         JSONB NOT NULL,                 -- ["CTRL-DEV-003", "CTRL-DEV-005", ...]
+
+    -- The third-party source
+    source_provider_id  TEXT REFERENCES third_party_providers(id) ON DELETE SET NULL,
+    source_name         TEXT NOT NULL,
+    source_description  TEXT NOT NULL,
+    statement           TEXT NOT NULL,
+    confirmation_phrase TEXT NOT NULL DEFAULT 'ATTEST',
+
+    -- Lifecycle
+    status              TEXT NOT NULL DEFAULT 'active'
+                            CHECK (status IN ('active','expired','revoked')),
+    effective_at        TIMESTAMPTZ,
+    expires_at          TIMESTAMPTZ,
+    validity_days       INTEGER NOT NULL DEFAULT 90,
+
+    -- Timestamps (server-set, never client-set)
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at          TIMESTAMPTZ,
+    revoked_by_user_id  UUID REFERENCES organization_users(id) ON DELETE SET NULL,
+    revoked_by_name     TEXT,
+    revoke_reason       TEXT,
+
+    -- Request audit
+    ip_address          INET,
+    user_agent          TEXT,
+    metadata            JSONB DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_attestations_org ON attestations (organization_id);
+CREATE INDEX IF NOT EXISTS idx_attestations_status ON attestations (organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_attestations_expires ON attestations (expires_at) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_attestations_provider ON attestations (source_provider_id);
+
+DO $$ BEGIN
+    CREATE TRIGGER trg_attestations_updated_at
+        BEFORE UPDATE ON attestations
+        FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+
 -- ── Audit Log ─────────────────────────────────────────────────────────────────
 -- Immutable record of all security-relevant actions.
 

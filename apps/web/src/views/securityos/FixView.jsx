@@ -5,7 +5,7 @@ import { respondForControl, SUGGESTED_BY_CATEGORY } from '../../data/copilot';
 import {
   ArrowLeft, CheckCheck, RotateCcw, Clock, ShieldAlert,
   Bot, Send, Sparkles, ChevronDown, ChevronUp,
-  Monitor, Users, Zap,
+  Monitor, Users, Zap, ShieldCheck,
 } from 'lucide-react';
 
 const SEVERITY_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
@@ -237,7 +237,7 @@ function InlineCopilot({ control, profile, scoring, onOpenFullCopilot }) {
 
 // ── Main FixView ──────────────────────────────────────────────────────────
 export default function FixView({ controlId, onBack }) {
-  const { statuses, updateStatus, profile, scoring, openCopilotWithPrompt } = useApp();
+  const { statuses, updateStatus, profile, scoring, openCopilotWithPrompt, openAttest } = useApp();
   const control = getControlById(controlId);
 
   if (!control) {
@@ -374,20 +374,31 @@ export default function FixView({ controlId, onBack }) {
       {/* Action buttons */}
       <div className="px-5 pb-6 pt-3 border-t border-slate-800 space-y-2">
         {!isPassing && (
-          <button
-            onClick={() => { updateStatus(controlId, STATUS.PASS); onBack(); }}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
-          >
-            <CheckCheck size={17} /> Mark as Fixed
-          </button>
-        )}
-        {currentStatus !== STATUS.IN_PROGRESS && !isPassing && (
-          <button
-            onClick={() => { updateStatus(controlId, STATUS.IN_PROGRESS); onBack(); }}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-800 border border-slate-700 text-yellow-400 text-sm font-medium hover:bg-slate-700 transition-colors"
-          >
-            <RotateCcw size={15} /> Working on it
-          </button>
+          <>
+            <button
+              onClick={() => { updateStatus(controlId, STATUS.PASS); onBack(); }}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-green-600 hover:bg-green-500 text-white text-sm font-semibold transition-colors"
+            >
+              <CheckCheck size={17} /> Mark as Fixed
+            </button>
+
+            {/* Attestation path — for controls covered by a third-party platform */}
+            <button
+              onClick={() => openAttest(controlId)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-800 border border-indigo-500/30 text-indigo-400 text-sm font-medium hover:bg-slate-700 hover:border-indigo-500/60 transition-colors"
+            >
+              <ShieldCheck size={15} /> Covered by another platform?
+            </button>
+
+            {currentStatus !== STATUS.IN_PROGRESS && (
+              <button
+                onClick={() => { updateStatus(controlId, STATUS.IN_PROGRESS); onBack(); }}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-800 border border-slate-700 text-yellow-400 text-sm font-medium hover:bg-slate-700 transition-colors"
+              >
+                <RotateCcw size={15} /> Working on it
+              </button>
+            )}
+          </>
         )}
         {isPassing && (
           <button

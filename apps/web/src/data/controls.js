@@ -24,17 +24,31 @@ export const STATUS = {
 };
 
 export const EVIDENCE_SOURCE = {
-  AUTOMATIC: 'automatic',   // verified via integration API — highest confidence
-  MANUAL: 'manual',         // customer self-attested — moderate confidence
-  INFERRED: 'inferred',     // inferred from indirect signals
-  NONE: 'none',             // not gathered
+  DIRECT_AUTOMATED:       'direct_automated',       // native integration API — 1.0
+  AUTOMATIC:              'automatic',              // legacy alias → 1.0
+  INTEGRATED_THIRD_PARTY: 'integrated_third_party', // live third-party API — 0.9
+  ATTESTED_THIRD_PARTY:   'attested_third_party',   // explicit user attestation — 0.7
+  MANUAL:                 'manual',                 // self-reported — 0.5
+  INFERRED:               'inferred',               // indirect signal — 0.5
+  NONE:                   'none',                   // not gathered — 0.0
 };
 
+/**
+ * Evidence confidence hierarchy:
+ *   DIRECT_AUTOMATED  → 1.00  (live integration directly on this control)
+ *   INTEGRATED_THIRD  → 0.90  (live integration via third-party connector)
+ *   ATTESTED_THIRD    → 0.70  (user explicitly typed ATTEST for a named platform)
+ *   MANUAL / INFERRED → 0.50  (self-reported, no automation)
+ *   UNKNOWN / NONE    → 0.00
+ */
 export const EVIDENCE_CONFIDENCE = {
-  automatic: 1.0,
-  manual: 0.70,
-  inferred: 0.50,
-  none: 0.0,
+  direct_automated:       1.00,
+  automatic:              1.00,  // backward-compat alias
+  integrated_third_party: 0.90,
+  attested_third_party:   0.70,
+  manual:                 0.50,
+  inferred:               0.50,
+  none:                   0.00,
 };
 
 export const CATEGORIES = {

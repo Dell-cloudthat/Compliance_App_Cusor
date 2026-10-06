@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.api import router as securityos_router
 from backend.api.tiers import router as tiers_router
 from backend.api.msp import router as msp_router
+from backend.api.attestations import router as attestations_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("securityos")
@@ -61,6 +62,7 @@ app.add_middleware(
 app.include_router(securityos_router)
 app.include_router(tiers_router)
 app.include_router(msp_router)
+app.include_router(attestations_router)
 
 
 @app.get("/health", tags=["Health"])

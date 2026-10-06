@@ -20,6 +20,15 @@ export function calculateScore(controlStatuses = {}, profile = null, catalog = n
   let verifiedCount = 0;
   let applicableCount = 0;
 
+  // Evidence breakdown counters for passing controls only
+  const evidenceBreakdown = {
+    automated: 0,    // direct_automated or automatic
+    integrated: 0,   // integrated_third_party
+    attested: 0,     // attested_third_party
+    manual: 0,       // manual or inferred
+    unknown: 0,      // none / unverified
+  };
+
   const categoryBuckets = {};
   const allResults = [];
 
@@ -42,6 +51,19 @@ export function calculateScore(controlStatuses = {}, profile = null, catalog = n
     let earnedPts = 0;
     if (applicable && status === STATUS.PASS) {
       earnedPts = maxPts * confidence;
+
+      // Bucket the passing control into its evidence tier
+      if (evidenceSrc === 'direct_automated' || evidenceSrc === 'automatic') {
+        evidenceBreakdown.automated++;
+      } else if (evidenceSrc === 'integrated_third_party') {
+        evidenceBreakdown.integrated++;
+      } else if (evidenceSrc === 'attested_third_party') {
+        evidenceBreakdown.attested++;
+      } else if (evidenceSrc === 'manual' || evidenceSrc === 'inferred') {
+        evidenceBreakdown.manual++;
+      } else {
+        evidenceBreakdown.unknown++;
+      }
     }
     // FAIL, UNKNOWN, IN_PROGRESS → 0 points
     // NOT_APPLICABLE → excluded from totals
@@ -119,6 +141,7 @@ export function calculateScore(controlStatuses = {}, profile = null, catalog = n
     issues,
     passing,
     allControls: allResults,
+    evidenceBreakdown,
     summary: {
       total: applicableCount,
       passing: passing.length,

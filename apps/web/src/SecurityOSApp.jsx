@@ -3,6 +3,7 @@ import OnboardingView from './views/securityos/OnboardingView';
 import AnalysisView from './views/securityos/AnalysisView';
 import HomeView from './views/securityos/HomeView';
 import FixView from './views/securityos/FixView';
+import AttestView from './views/securityos/AttestView';
 import RiskView from './views/securityos/RiskView';
 import CopilotView from './views/securityos/CopilotView';
 import PassportView from './views/securityos/PassportView';
@@ -66,7 +67,8 @@ function normalizeTenant(t) {
   const profile = t?.profile ?? DEFAULT_PROFILE;
   const statuses = t?.statuses ?? buildDemoStatuses();
   const name = t?.name ?? profile.businessName ?? 'Tenant';
-  return { id: t?.id ?? makeId('tenant'), name, profile, statuses };
+  const attestations = t?.attestations ?? [];
+  return { id: t?.id ?? makeId('tenant'), name, profile, statuses, attestations };
 }
 
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
@@ -95,6 +97,7 @@ export default function SecurityOSApp() {
   const [activeTenantId, setActiveTenantId] = useState(() => saved?.activeTenantId ?? tenants?.[0]?.id ?? 'tenant-1');
   const [view, setView] = useState('home');
   const [fixControlId, setFixControlId] = useState(null);
+  const [attestControlId, setAttestControlId] = useState(null);
   const [phase, setPhase] = useState(saved ? 'app' : 'onboarding');
   const [riskOpen, setRiskOpen] = useState(false);
   const [activeFramework, setActiveFramework] = useState('all');
@@ -114,6 +117,7 @@ export default function SecurityOSApp() {
 
   const profile = activeTenant?.profile ?? DEFAULT_PROFILE;
   const statuses = activeTenant?.statuses ?? {};
+  const attestations = activeTenant?.attestations ?? [];
 
   const scoring = calculateScore(statuses, profile, catalog);
 
@@ -171,6 +175,22 @@ export default function SecurityOSApp() {
     setFixControlId(null);
   }
 
+  function openAttest(controlId = null) {
+    setAttestControlId(controlId || '__any__');
+    setFixControlId(null);
+  }
+
+  function closeAttest() {
+    setAttestControlId(null);
+  }
+
+  const addAttestation = useCallback((attestation) => {
+    setTenants(prev => prev.map(t => {
+      if (t.id !== activeTenantId) return t;
+      return { ...t, attestations: [...(t.attestations ?? []), attestation] };
+    }));
+  }, [activeTenantId]);
+
   function openRisk() {
     setRiskOpen(true);
   }
@@ -219,6 +239,12 @@ export default function SecurityOSApp() {
     openCopilotWithPrompt,
     clearCopilotPrompt,
 
+    // Attestation APIs
+    attestations,
+    openAttest,
+    closeAttest,
+    addAttestation,
+
     // Framework filtering
     activeFramework,
     setFramework: setActiveFramework,
@@ -258,7 +284,12 @@ export default function SecurityOSApp() {
       <div className="flex flex-col h-screen bg-slate-950 text-white overflow-hidden max-w-lg mx-auto">
         {/* Main content */}
         <main className="flex-1 overflow-y-auto">
-          {fixControlId ? (
+          {attestControlId ? (
+            <AttestView
+              preSelectedControlIds={attestControlId !== '__any__' ? [attestControlId] : []}
+              onBack={closeAttest}
+            />
+          ) : fixControlId ? (
             <FixView controlId={fixControlId} onBack={closeFix} />
           ) : riskOpen ? (
             <RiskView onBack={closeRisk} />
@@ -274,7 +305,7 @@ export default function SecurityOSApp() {
         </main>
 
         {/* Bottom nav — always visible */}
-        {!fixControlId && !riskOpen && (
+        {!fixControlId && !attestControlId && !riskOpen && (
           <nav className="flex border-t border-slate-800 bg-slate-900 shrink-0">
             {NAV.map(({ id, label, icon: Icon }) => {
               const active = view === id;

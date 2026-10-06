@@ -29,18 +29,38 @@ class ControlStatus(str, Enum):
 
 
 class EvidenceSource(str, Enum):
-    AUTOMATIC = "automatic"    # Verified via direct API integration — highest confidence
-    MANUAL = "manual"          # Customer self-attested — moderate confidence
-    INFERRED = "inferred"      # Inferred from indirect signals — lower confidence
-    NONE = "none"              # No evidence gathered
+    # Legacy values (backward compatible)
+    AUTOMATIC = "automatic"
+    MANUAL    = "manual"
+    INFERRED  = "inferred"
+    NONE      = "none"
+    # New canonical values
+    DIRECT_AUTOMATED       = "direct_automated"
+    INTEGRATED_THIRD_PARTY = "integrated_third_party"
+    ATTESTED_THIRD_PARTY   = "attested_third_party"
+    UNKNOWN                = "unknown"
 
 
-EVIDENCE_CONFIDENCE: Dict[EvidenceSource, float] = {
-    EvidenceSource.AUTOMATIC: 1.0,
-    EvidenceSource.MANUAL: 0.70,
-    EvidenceSource.INFERRED: 0.50,
-    EvidenceSource.NONE: 0.0,
-}
+# Confidence weights — imported from the canonical confidence module.
+# All numeric values live there; do not hard-code here.
+from backend.evidence.confidence import EVIDENCE_CONFIDENCE as _CONF_MAP, resolve_evidence_type as _resolve
+
+def _build_confidence() -> Dict[str, float]:
+    """Build a string-keyed confidence map covering both legacy and new source strings."""
+    legacy = {
+        "automatic":               _CONF_MAP[_resolve("automatic")],
+        "manual":                  _CONF_MAP[_resolve("manual")],
+        "inferred":                _CONF_MAP[_resolve("inferred")],
+        "none":                    _CONF_MAP[_resolve("none")],
+        "direct_automated":        _CONF_MAP[_resolve("direct_automated")],
+        "integrated_third_party":  _CONF_MAP[_resolve("integrated_third_party")],
+        "attested_third_party":    _CONF_MAP[_resolve("attested_third_party")],
+        "attested":                _CONF_MAP[_resolve("attested_third_party")],
+        "unknown":                 _CONF_MAP[_resolve("unknown")],
+    }
+    return legacy
+
+EVIDENCE_CONFIDENCE: Dict[str, float] = _build_confidence()
 
 SEVERITY_RISK_WEIGHT: Dict[str, float] = {
     "critical": 1.0,
@@ -96,11 +116,13 @@ class ScoreResult:
     grade: str = ""
     color: str = ""
     categories: Dict[str, CategoryResult] = field(default_factory=dict)
-    verified_pct: float = 0.0   # % of applicable controls with real evidence
-    confidence_note: str = ""   # Human-readable confidence qualifier
+    verified_pct: float = 0.0
+    confidence_note: str = ""
     summary: Dict[str, int] = field(default_factory=dict)
     top_issues: List[ControlResult] = field(default_factory=list)
     all_controls: List[ControlResult] = field(default_factory=list)
+    # Evidence breakdown — counts by source type
+    evidence_breakdown: Dict[str, int] = field(default_factory=dict)
 
 
 CATEGORY_META = {
@@ -148,7 +170,8 @@ def calculate_control_points(
     if status == ControlStatus.NOT_APPLICABLE:
         return 0.0, 0.0
     if status == ControlStatus.PASS:
-        confidence = EVIDENCE_CONFIDENCE.get(evidence_source, 0.7)
+        src_str = evidence_source.value if hasattr(evidence_source, 'value') else str(evidence_source)
+        confidence = EVIDENCE_CONFIDENCE.get(src_str, 0.5)
         return max_pts * confidence, max_pts
 
     return 0.0, max_pts
@@ -213,11 +236,11 @@ def calculate_score(
         except ValueError:
             status = ControlStatus.UNKNOWN
 
-        src_raw = entry.get("evidence_source", EvidenceSource.NONE)
+        src_raw = entry.get("evidence_source") or EvidenceSource.NONE
+        # Accept both legacy and new evidence source strings
         try:
             evidence_source = EvidenceSource(src_raw)
         except ValueError:
-            # Infer source: if status is set without an explicit source, treat as manual
             evidence_source = EvidenceSource.MANUAL if status != ControlStatus.UNKNOWN else EvidenceSource.NONE
 
         applicable = is_applicable(control, business_profile)
@@ -302,6 +325,29 @@ def calculate_score(
     else:
         confidence_note = f"Only {int(verified_pct)}% of controls verified — score may not reflect actual security"
 
+    # Evidence breakdown by source type
+    evidence_breakdown: Dict[str, int] = {
+        "automated":       0,
+        "integrated":      0,
+        "attested":        0,
+        "manual":          0,
+        "unknown":         0,
+    }
+    for c in all_results:
+        if not c.applicable:
+            continue
+        src = str(c.evidence_source) if hasattr(c.evidence_source, 'value') else c.evidence_source
+        if src in ("automatic", "direct_automated"):
+            evidence_breakdown["automated"] += 1
+        elif src == "integrated_third_party":
+            evidence_breakdown["integrated"] += 1
+        elif src in ("attested_third_party", "attested"):
+            evidence_breakdown["attested"] += 1
+        elif src in ("manual", "inferred"):
+            evidence_breakdown["manual"] += 1
+        else:
+            evidence_breakdown["unknown"] += 1
+
     return ScoreResult(
         total_score=normalized_score,
         grade=score_to_grade(normalized_score),
@@ -312,6 +358,7 @@ def calculate_score(
         summary=summary,
         top_issues=issues[:5],
         all_controls=all_results,
+        evidence_breakdown=evidence_breakdown,
     )
 
 
