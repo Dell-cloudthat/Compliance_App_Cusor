@@ -82,8 +82,19 @@ def validate_prod_config() -> None:
 
 _check_dev_mode_safety()
 
-# ── Refresh counter (for testing/metrics) ─────────────────────────────────────
-# Incremented every time we force-refresh the JWKS due to an unknown kid.
+# ── kid-forced-refresh rate limiter ───────────────────────────────────────────
+# A token with an unknown kid triggers a JWKS refresh.  Without a cooldown an
+# attacker can send a flood of tokens with random kids and hammer the IdP's
+# JWKS endpoint.  We enforce a minimum 60 s between forced refreshes.
+# Within the window an unknown kid → TokenError(fatal=True) with no HTTP call.
+
+KID_REFRESH_MIN_INTERVAL: int = int(
+    os.environ.get("AUTH_KID_REFRESH_MIN_INTERVAL_SECONDS", "60")
+)
+_kid_refresh_last_at: float = 0.0
+_kid_refresh_lock = threading.Lock()
+
+# Monotonic counter — incremented only when a refresh is actually performed.
 _jwks_kid_refresh_count: int = 0
 
 
@@ -94,6 +105,17 @@ def get_jwks_kid_refresh_count() -> int:
 def reset_jwks_kid_refresh_count() -> None:
     global _jwks_kid_refresh_count
     _jwks_kid_refresh_count = 0
+
+
+def get_kid_refresh_last_at() -> float:
+    with _kid_refresh_lock:
+        return _kid_refresh_last_at
+
+
+def reset_kid_refresh_last_at() -> None:
+    global _kid_refresh_last_at
+    with _kid_refresh_lock:
+        _kid_refresh_last_at = 0.0
 
 
 # ── OIDC discovery cache ──────────────────────────────────────────────────────
@@ -298,7 +320,7 @@ def _verify_with_jwks(token: str, jwks_url: str, header: Dict) -> Dict[str, Any]
 
     iss and aud are always verified.
     """
-    global _jwks_kid_refresh_count
+    global _jwks_kid_refresh_count, _kid_refresh_last_at
 
     token_kid: Optional[str] = header.get("kid")
 
@@ -314,8 +336,22 @@ def _verify_with_jwks(token: str, jwks_url: str, header: Dict) -> Dict[str, Any]
     jwks_data = _get_jwks(jwks_url)
     candidates = _keys_to_try(jwks_data)
 
-    # Unknown kid — refresh once
+    # Unknown kid — refresh once, subject to a minimum 60 s cooldown.
+    # Without the cooldown an attacker could send a flood of tokens with random
+    # kids and hammer the IdP's JWKS endpoint.  Within the window we return
+    # a fatal 401 without making any outbound HTTP call.
     if token_kid and not candidates:
+        with _kid_refresh_lock:
+            now = time.time()
+            if (now - _kid_refresh_last_at) < KID_REFRESH_MIN_INTERVAL:
+                raise TokenError(
+                    f"Unknown key ID '{token_kid}'; JWKS refresh is on cooldown. "
+                    "Try again later.",
+                    fatal=True,
+                )
+            # Mark the timestamp before the fetch so concurrent requests that
+            # race through the lock also back off for the cooldown window.
+            _kid_refresh_last_at = now
         _jwks_kid_refresh_count += 1
         logger.info("Unknown kid '%s' — refreshing JWKS (refresh #%d)", token_kid, _jwks_kid_refresh_count)
         jwks_data = _get_jwks(jwks_url, force=True)

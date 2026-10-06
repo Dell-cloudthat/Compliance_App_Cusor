@@ -32,7 +32,9 @@ from backend.auth.jwt import (
     _get_dev_public_key_jwk,
     _verify_with_jwks,
     get_jwks_kid_refresh_count,
+    get_kid_refresh_last_at,
     reset_jwks_kid_refresh_count,
+    reset_kid_refresh_last_at,
     sign_dev_token,
     validate_prod_config,
 )
@@ -427,8 +429,9 @@ def test_unknown_kid_triggers_exactly_one_refresh():
         ]
     }
 
-    # Reset the refresh counter
+    # Reset counters and cooldown timestamp so the refresh is allowed.
     reset_jwks_kid_refresh_count()
+    reset_kid_refresh_last_at()
     initial_count = get_jwks_kid_refresh_count()
 
     # Save and clear ONLY the JWKS cache (not OIDC config — that has no bearing
@@ -466,6 +469,52 @@ def test_unknown_kid_triggers_exactly_one_refresh():
         f"Expected _fetch_json to be called exactly 2 times (initial + refresh), "
         f"got {mock_fetch.call_count}"
     )
+    # After the refresh the cooldown timestamp must have been updated
+    assert get_kid_refresh_last_at() > 0.0, "Expected _kid_refresh_last_at to be set after refresh"
+
+
+# ── Kid-refresh cooldown → 401 without HTTP call ──────────────────────────────
+
+def test_kid_refresh_within_cooldown_returns_401_without_fetch():
+    """
+    Within the 60 s cooldown window a second unknown-kid request must return
+    TokenError(fatal=True) immediately, without making any outbound HTTP call.
+    """
+    import backend.auth.jwt as jwt_mod
+    import time as _time
+
+    unknown_kid = "cooldown-test-kid-abc"
+
+    # Simulate that a refresh just happened by setting _kid_refresh_last_at to now
+    with jwt_mod._kid_refresh_lock:
+        jwt_mod._kid_refresh_last_at = _time.time()
+
+    saved_jwks_cache = jwt_mod._jwks_cache
+    saved_jwks_fetched_at = jwt_mod._jwks_fetched_at
+    # Populate a JWKS cache with a *different* kid so the unknown kid misses
+    jwt_mod._jwks_cache = {"keys": [{"kty": "RSA", "kid": "other-kid", "use": "sig", "alg": "RS256", "n": "x", "e": "AQAB"}]}
+    jwt_mod._jwks_fetched_at = _time.time()
+
+    from backend.auth.jwt import TokenError as _TokenError
+
+    try:
+        with patch("backend.auth.jwt._fetch_json") as mock_fetch:
+            with pytest.raises(_TokenError) as exc_info:
+                jwt_mod._verify_with_jwks(
+                    "dummy.token.here",
+                    "https://mock.example.com/jwks.json",
+                    {"alg": "RS256", "kid": unknown_kid},
+                )
+    finally:
+        jwt_mod._jwks_cache = saved_jwks_cache
+        jwt_mod._jwks_fetched_at = saved_jwks_fetched_at
+        reset_kid_refresh_last_at()
+
+    assert exc_info.value.fatal, "TokenError must be fatal within the cooldown window"
+    assert "cooldown" in str(exc_info.value).lower(), (
+        f"Expected 'cooldown' in error message, got: {exc_info.value}"
+    )
+    mock_fetch.assert_not_called()
 
 
 # ── After delete, org is no longer accessible ─────────────────────────────────
