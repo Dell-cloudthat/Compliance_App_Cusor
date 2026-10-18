@@ -15,9 +15,10 @@ import { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../SecurityOSApp';
 import { toGrade } from '../../data/scoring';
 import { respond, recommendRoadmap, buildContext } from '../../data/copilot';
+import { getGroundedCopilot } from '../../data/api';
 import {
   Bot, Send, Sparkles, User, ChevronDown, ChevronUp,
-  Shield, AlertTriangle, Target, Zap,
+  Shield, AlertTriangle, Target, Zap, Database,
 } from 'lucide-react';
 
 function Msg({ m }) {
@@ -115,9 +116,10 @@ function ContextPanel({ scoring, profile }) {
 }
 
 export default function CopilotView() {
-  const { profile, scoring, copilotInitialPrompt, clearCopilotPrompt, setView } = useApp();
+  const { profile, scoring, copilotInitialPrompt, clearCopilotPrompt, setView, apiSession } = useApp();
   const { issues } = scoring;
   const grade = toGrade(scoring.totalScore);
+  const isGrounded = !!apiSession?.token;
 
   // Dynamic suggested questions based on actual open issues
   const SUGGESTED = [
@@ -136,9 +138,13 @@ export default function CopilotView() {
       : `What integrations would improve our evidence confidence?`,
   ];
 
+  const groundedNote = isGrounded
+    ? `\n\n🟢 **Grounded mode** — my answers are based on ${apiSession.orgName}'s actual findings, evidence, and control data.`
+    : `\n\n⚪ **Local mode** — start the API server to get answers grounded in live org data.`;
+
   const [msgs, setMsgs] = useState([{
     role: 'assistant',
-    content: `I'm your AI Security Copilot — I know ${profile.businessName || 'your organization'}'s current environment.\n\n**Current status:** ${scoring.totalScore}/100 — ${grade}${issues.length > 0 ? `\n**Open fixes:** ${issues.length} (${issues.filter(c => c.severity === 'critical').length} critical, ${issues.filter(c => c.severity === 'high').length} high)` : '\n**Status:** All controls passing!'}\n\nAsk me about specific fixes, how to build a remediation plan, framework requirements, or anything about your security environment.`,
+    content: `I'm your AI Security Copilot — I know ${profile.businessName || 'your organization'}'s current environment.\n\n**Current status:** ${scoring.totalScore}/100 — ${grade}${issues.length > 0 ? `\n**Open fixes:** ${issues.length} (${issues.filter(c => c.severity === 'critical').length} critical, ${issues.filter(c => c.severity === 'high').length} high)` : '\n**Status:** All controls passing!'}${groundedNote}\n\nAsk me about specific fixes, how to build a remediation plan, framework requirements, or anything about your security environment.`,
   }]);
   const [input, setInput]   = useState('');
   const [loading, setLoading] = useState(false);
@@ -163,21 +169,85 @@ export default function CopilotView() {
     setInput('');
     setMsgs(prev => [...prev, { role: 'user', content: q }]);
     setLoading(true);
-    await new Promise(r => setTimeout(r, 450 + Math.random() * 500));
 
-    // Route roadmap requests to the roadmap recommender
-    const lower = q.toLowerCase();
     let answer;
-    if (
-      lower.includes('roadmap') ||
-      lower.includes('work on this week') ||
-      lower.includes('prioritize') ||
-      lower.includes('what should we') ||
-      lower.includes('fix first')
-    ) {
-      answer = recommendRoadmap(profile, scoring);
+
+    if (isGrounded) {
+      // Use the grounded backend copilot — grounded in org's actual findings and evidence
+      try {
+        const data = await getGroundedCopilot(apiSession.orgId, apiSession.token, q);
+        const ctx = data.grounded_context;
+        const openFindings = ctx.open_findings || [];
+        const overdue = ctx.overdue_finding_count || 0;
+
+        // Build a structured response from the grounded context
+        const lines = [];
+        lines.push(`Based on **${ctx.org_profile?.business_name || 'your org'}**'s actual security data (score: ${ctx.score?.total}/100 — ${ctx.score?.grade}):`);
+        lines.push('');
+
+        if (overdue > 0) {
+          lines.push(`⚠️ **${overdue} finding${overdue !== 1 ? 's are' : ' is'} overdue** — these should be addressed immediately.`);
+          lines.push('');
+        }
+
+        if (openFindings.length > 0) {
+          const lower = q.toLowerCase();
+          const focusOverdue = lower.includes('overdue') || lower.includes('urgent') || lower.includes('first');
+          const focusFramework = lower.includes('hipaa') || lower.includes('compliance') || lower.includes('framework');
+
+          let toShow = openFindings;
+          if (focusOverdue) toShow = openFindings.filter(f => f.is_overdue);
+          if (focusFramework) toShow = openFindings.filter(f =>
+            Object.keys(f.control_guidance?.[0]?.framework_mappings || {}).some(fw =>
+              lower.includes(fw.replace('_', ' ')) || lower.includes(fw)
+            )
+          );
+          if (!toShow.length) toShow = openFindings;
+
+          toShow.slice(0, 3).forEach(f => {
+            const guidance = f.control_guidance?.[0];
+            const steps = guidance?.remediation_steps?.slice(0, 3) || [];
+            const effort = guidance?.estimated_minutes
+              ? (guidance.estimated_minutes < 60 ? `${guidance.estimated_minutes} min` : `${Math.round(guidance.estimated_minutes / 6) / 10} hr`)
+              : null;
+
+            lines.push(`**${f.title}** (${f.severity}${f.is_overdue ? ' · OVERDUE' : ''})`);
+            if (f.business_impact) lines.push(`_${f.business_impact.split('.')[0]}._`);
+            if (steps.length) {
+              lines.push('');
+              lines.push('Steps:');
+              steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
+            }
+            if (effort) lines.push(`Effort: ~${effort}`);
+            if (f.definition_of_done) lines.push(`Done when: ${f.definition_of_done}`);
+            lines.push('');
+          });
+
+          if (toShow.length > 3) {
+            lines.push(`_...and ${toShow.length - 3} more open findings. See the Findings tab for the complete list._`);
+          }
+        } else {
+          lines.push('✅ No open findings found. All controls are passing or risk-accepted.');
+        }
+
+        lines.push('');
+        lines.push(`_Confidence: ${ctx.score?.confidence_note || 'based on available evidence'}_`);
+        answer = lines.join('\n');
+      } catch (e) {
+        // Fall back to local response on API error
+        answer = respond(q, profile, scoring) + '\n\n_⚠️ Could not reach API — showing local analysis._';
+      }
     } else {
-      answer = respond(q, profile, scoring);
+      await new Promise(r => setTimeout(r, 450 + Math.random() * 500));
+      const lower = q.toLowerCase();
+      if (
+        lower.includes('roadmap') || lower.includes('work on this week') ||
+        lower.includes('prioritize') || lower.includes('what should we') || lower.includes('fix first')
+      ) {
+        answer = recommendRoadmap(profile, scoring);
+      } else {
+        answer = respond(q, profile, scoring);
+      }
     }
 
     setMsgs(prev => [...prev, { role: 'assistant', content: answer }]);
@@ -194,9 +264,20 @@ export default function CopilotView() {
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-white font-bold text-sm">Security Copilot</h1>
-            <p className="text-xs text-green-400 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-              Online · {scoring.totalScore}/100 · {issues.length} open fix{issues.length !== 1 ? 'es' : ''}
+            <p className="text-xs flex items-center gap-1.5">
+              {isGrounded ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                  <span className="text-green-400 flex items-center gap-1"><Database size={9} /> Grounded</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500 inline-block" />
+                  <span className="text-slate-500">Local mode</span>
+                </>
+              )}
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-400">{scoring.totalScore}/100 · {issues.length} open</span>
             </p>
           </div>
           <button

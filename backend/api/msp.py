@@ -410,6 +410,12 @@ def get_msp_dashboard(
     for org in orgs:
         score = _score_org(org)
         risk = _risk_level(score["total_score"])
+        org_findings = finding_repo.list_by_org(org.org_id)
+        overdue = sum(1 for f in org_findings if f.is_overdue())
+        critical_open = sum(
+            1 for f in org_findings
+            if f.severity == "critical" and f.state not in ("closed",)
+        )
         org_scores.append({
             "org_id": org.org_id,
             "name": org.name,
@@ -418,6 +424,8 @@ def get_msp_dashboard(
             "color": score["color"],
             "risk_level": risk,
             "open_issues": score["summary"].get("failing", 0) + score["summary"].get("unknown", 0),
+            "overdue_findings": overdue,
+            "critical_open_findings": critical_open,
             "top_issue": score["top_issues"][0]["short_name"] if score["top_issues"] else None,
         })
         for issue in score["top_issues"]:
@@ -442,12 +450,17 @@ def get_msp_dashboard(
     risk_order = {"critical": 0, "high": 1, "moderate": 2, "low": 3}
     org_scores.sort(key=lambda x: (risk_order.get(x["risk_level"], 4), x["score"]))
 
+    total_overdue = sum(o.get("overdue_findings", 0) for o in org_scores)
+    total_critical_open = sum(o.get("critical_open_findings", 0) for o in org_scores)
+
     return {
         "msp_id": msp_id,
         "total_orgs": len(orgs),
         "portfolio_score": portfolio_score,
         "portfolio_grade": _portfolio_grade(portfolio_score),
         "risk_distribution": risk_dist,
+        "total_overdue_findings": total_overdue,
+        "total_critical_open_findings": total_critical_open,
         "orgs_at_risk": orgs_at_risk,
         "common_issues": common_issues,
         "orgs": org_scores,
@@ -461,3 +474,89 @@ def _portfolio_grade(score: int) -> str:
     if score >= 60: return "Fair"
     if score >= 40: return "Poor"
     return "At Risk"
+
+
+@router.get("/{msp_id}/priority-queue", summary="MSP cross-customer priority queue")
+def get_msp_priority_queue(
+    msp_id: str,
+    severity: Optional[str] = None,
+    org_id_filter: Optional[str] = None,
+    principal: Principal = Depends(get_principal),
+):
+    """
+    Cross-customer priority queue for MSP technicians.
+
+    Returns all open findings that are either:
+    - **Overdue** (due_date has passed and finding is not closed), or
+    - **Critical or high severity** and not yet closed.
+
+    Sorted by: overdue first → severity (critical before high) → created_at ascending.
+
+    Optional query params:
+    - **severity**: filter to a specific severity (critical | high | medium | low | info)
+    - **org_id_filter**: restrict to one managed client org
+    """
+    require_msp_access(principal, msp_id)
+
+    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    HIGH_RISK = {"critical", "high"}
+
+    orgs = _visible_orgs(principal, msp_id)
+    if org_id_filter:
+        orgs = [o for o in orgs if o.org_id == org_id_filter]
+
+    queue_items = []
+    for org in orgs:
+        for f in finding_repo.list_by_org(org.org_id):
+            if f.state == "closed":
+                continue
+            is_overdue = f.is_overdue()
+            is_high_risk = f.severity in HIGH_RISK
+            if not (is_overdue or is_high_risk):
+                continue
+            if severity and f.severity != severity:
+                continue
+
+            queue_items.append({
+                "finding_id": f.finding_id,
+                "org_id": f.org_id,
+                "org_name": org.name,
+                "title": f.title,
+                "description": f.description,
+                "severity": f.severity,
+                "state": f.state,
+                "is_overdue": is_overdue,
+                "due_date": f.due_date,
+                "assigned_to_user_id": f.assigned_to_user_id,
+                "created_at": f.created_at,
+                "updated_at": f.updated_at,
+                "business_impact": f.business_impact,
+                "affected_resources": [
+                    {"resource_type": r.resource_type, "identifier": r.identifier}
+                    for r in (f.affected_resources or [])
+                ],
+                "control_ids": f.control_ids,
+                "catalog_remediation_steps": f.catalog_remediation_steps,
+                "catalog_estimated_minutes": f.catalog_estimated_minutes,
+            })
+
+    # Sort: overdue first, then severity, then oldest first (most urgent)
+    queue_items.sort(key=lambda x: (
+        not x["is_overdue"],
+        severity_order.get(x["severity"], 5),
+        x["created_at"],
+    ))
+
+    overdue_count = sum(1 for x in queue_items if x["is_overdue"])
+    critical_count = sum(1 for x in queue_items if x["severity"] == "critical")
+    high_count = sum(1 for x in queue_items if x["severity"] == "high")
+
+    return {
+        "msp_id": msp_id,
+        "total_items": len(queue_items),
+        "overdue_count": overdue_count,
+        "critical_count": critical_count,
+        "high_count": high_count,
+        "queue": queue_items,
+        "generated_at": datetime.utcnow().isoformat(),
+    }

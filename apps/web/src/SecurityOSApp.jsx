@@ -10,9 +10,11 @@ import RiskView from './views/securityos/RiskView';
 import CopilotView from './views/securityos/CopilotView';
 import GlobalView from './views/securityos/GlobalView';
 import SettingsView from './views/securityos/SettingsView';
+import FindingsView from './views/securityos/FindingsView';
 import { calculateScore, buildDemoStatuses } from './data/scoring';
 import { loadCatalog } from './data/controls';
-import { Shield, Map, Bot, Globe, Settings } from 'lucide-react';
+import { Shield, Map, Bot, Globe, Settings, AlertTriangle, List } from 'lucide-react';
+import { connectToAPI, loadSession } from './data/api';
 
 // ── App Context ───────────────────────────────────────────────────────────────
 export const AppContext = createContext(null);
@@ -75,7 +77,8 @@ function normalizeTenant(t) {
 
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'profile',  label: 'Profile',  icon: Shield },
+  { id: 'profile',  label: 'Score',    icon: Shield },
+  { id: 'findings', label: 'Findings', icon: AlertTriangle },
   { id: 'roadmap',  label: 'Roadmap',  icon: Map },
   { id: 'copilot',  label: 'Copilot',  icon: Bot },
   { id: 'global',   label: 'Customers',icon: Globe },
@@ -105,6 +108,8 @@ export default function SecurityOSApp() {
   const [reportOpen, setReportOpen] = useState(false);
   const [activeFramework, setActiveFramework] = useState('all');
   const [copilotInitialPrompt, setCopilotInitialPrompt] = useState(null);
+  // API session — null when backend is offline, object when connected
+  const [apiSession, setApiSession] = useState(() => loadSession());
 
   // Ensure active tenant id always points to an existing tenant.
   useEffect(() => {
@@ -128,6 +133,13 @@ export default function SecurityOSApp() {
   useEffect(() => {
     saveState({ tenants, activeTenantId });
   }, [tenants, activeTenantId]);
+
+  // Auto-connect to backend API on startup
+  useEffect(() => {
+    connectToAPI().then(session => {
+      if (session) setApiSession(session);
+    });
+  }, []);
 
   const updateStatus = useCallback((controlId, status, notes = null, evidenceSource = 'manual') => {
     setTenants(prev => prev.map(t => {
@@ -291,6 +303,9 @@ export default function SecurityOSApp() {
     renameTenant,
     setView,
     view,
+    // Backend API session
+    apiSession,
+    setApiSession,
   };
 
   // ── Render phases ──────────────────────────────────────────────────────────
@@ -328,6 +343,7 @@ export default function SecurityOSApp() {
           ) : (
             <>
               {view === 'profile'  && <SecurityProfileView />}
+              {view === 'findings' && <FindingsView />}
               {view === 'roadmap'  && <FixRoadmapView />}
               {view === 'copilot'  && <CopilotView />}
               {view === 'global'   && <GlobalView />}
@@ -345,12 +361,12 @@ export default function SecurityOSApp() {
                 <button
                   key={id}
                   onClick={() => setView(id)}
-                  className={`flex-1 flex flex-col items-center py-3 gap-0.5 transition-colors ${
+                  className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors ${
                     active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <Icon size={20} />
-                  <span className="text-[10px] font-medium">{label}</span>
+                  <Icon size={18} />
+                  <span className="text-[9px] font-medium">{label}</span>
                 </button>
               );
             })}
