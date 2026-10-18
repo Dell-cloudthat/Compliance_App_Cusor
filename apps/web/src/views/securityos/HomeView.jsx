@@ -1,9 +1,10 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useApp, ScoreRing } from '../../SecurityOSApp';
 import { STATUS, FRAMEWORK_OPTIONS, filterControlsByFramework } from '../../data/controls';
 import { toGrade, toColor } from '../../data/scoring';
 import { calculateTCO, riskLevel, fmtUSD } from '../../data/risk';
-import { CheckCircle2, ChevronRight, Clock, TrendingDown, ShieldAlert, Zap, ShieldCheck, PenLine } from 'lucide-react';
+import { getScoreEvidence } from '../../data/api';
+import { CheckCircle2, ChevronRight, Clock, TrendingDown, ShieldAlert, Zap, ShieldCheck, PenLine, AlertTriangle } from 'lucide-react';
 
 const COLOR_TEXT = {
   green:  'text-green-400',
@@ -133,8 +134,16 @@ function FrameworkSelector({ activeFramework, onSelect }) {
 }
 
 export default function HomeView() {
-  const { scoring, profile, statuses, catalog, openFix, openRisk, openAttest, activeFramework, setFramework } = useApp();
+  const { scoring, profile, statuses, catalog, openFix, openRisk, openAttest, activeFramework, setFramework, apiSession, setView } = useApp();
   const { totalScore, grade, color, issues, passing, summary, verifiedPct, confidenceNote, evidenceBreakdown } = scoring;
+  const [evidenceData, setEvidenceData] = useState(null);
+
+  useEffect(() => {
+    if (!apiSession?.token) return;
+    getScoreEvidence(apiSession.orgId, apiSession.token)
+      .then(d => setEvidenceData(d))
+      .catch(() => {});
+  }, [apiSession]);
 
   const filteredIssues  = filterControlsByFramework(issues, activeFramework);
   const filteredPassing = filterControlsByFramework(passing, activeFramework);
@@ -180,6 +189,35 @@ export default function HomeView() {
           <span>{confidenceNote}</span>
         </div>
       </div>
+
+      {/* Concealed-gap warning from backend evidence */}
+      {evidenceData?.concealed_gap_warning && (
+        <div className="mx-4 mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/25 flex items-start gap-2">
+          <AlertTriangle size={14} className="text-red-400 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-red-400 mb-0.5">Score Doesn't Tell the Full Story</p>
+            <p className="text-[11px] text-red-300/80 leading-relaxed">
+              Score is {evidenceData.total_score} but {evidenceData.concealed_gaps?.length} critical/high control{evidenceData.concealed_gaps?.length !== 1 ? 's are' : ' is'} failing: {evidenceData.concealed_gaps?.map(g => g.name).join(', ')}.
+            </p>
+            <button
+              onClick={() => setView('findings')}
+              className="text-[11px] text-red-400 font-semibold mt-1.5 flex items-center gap-1 hover:text-red-300"
+            >
+              View findings <ChevronRight size={11} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Stale evidence notice */}
+      {evidenceData && evidenceData.summary?.stale_count > 0 && !evidenceData.concealed_gap_warning && (
+        <div className="mx-4 mt-3 p-3 rounded-xl bg-yellow-500/8 border border-yellow-500/20 flex items-center gap-2">
+          <Clock size={13} className="text-yellow-500 shrink-0" />
+          <p className="text-[11px] text-yellow-400">
+            {evidenceData.summary.stale_count} control{evidenceData.summary.stale_count !== 1 ? 's have' : ' has'} evidence older than 30 days — refresh to keep your score accurate.
+          </p>
+        </div>
+      )}
 
       {/* Framework selector */}
       <FrameworkSelector activeFramework={activeFramework} onSelect={setFramework} />

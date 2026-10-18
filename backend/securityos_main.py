@@ -32,6 +32,7 @@ from backend.api.findings import router as findings_router
 from backend.api.orgs import router as orgs_router
 from backend.api.intelligence import router as intelligence_router
 from backend.api.integrations import router as integrations_router
+from backend.api.dev import router as dev_router
 from backend.auth.jwt import validate_prod_config
 
 logging.basicConfig(level=logging.INFO)
@@ -107,6 +108,8 @@ app.include_router(findings_router)
 app.include_router(orgs_router)
 app.include_router(intelligence_router)
 app.include_router(integrations_router)
+if ENV != "prod":
+    app.include_router(dev_router)
 
 
 @app.get("/health", tags=["Health"])

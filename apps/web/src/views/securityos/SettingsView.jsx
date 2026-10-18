@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../../SecurityOSApp';
 import { STATUS, CONTROLS_CATALOG } from '../../data/controls';
 import { buildDemoStatuses } from '../../data/scoring';
-import { ShieldCheck, RefreshCw, Trash2, ChevronRight } from 'lucide-react';
+import { getIntegrations, connectM365 } from '../../data/api';
+import { ShieldCheck, RefreshCw, Trash2, ChevronRight, Wifi, WifiOff, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 
 const INDUSTRIES = [
   'Medical / Dental Practice', 'Mental Health / Therapy', 'Legal Services',
@@ -31,8 +32,152 @@ function Row({ label, children }) {
   );
 }
 
+function M365Panel({ apiSession }) {
+  const [integration, setIntegration] = useState(null);
+  const [loading, setLoading]         = useState(false);
+  const [connecting, setConnecting]   = useState(false);
+  const [tenantId, setTenantId]       = useState('');
+  const [showForm, setShowForm]       = useState(false);
+  const [message, setMessage]         = useState(null);
+
+  useEffect(() => {
+    if (!apiSession?.token) return;
+    getIntegrations(apiSession.orgId, apiSession.token)
+      .then(d => {
+        const m365 = d.integrations?.find(i => i.provider === 'microsoft_365');
+        setIntegration(m365 || null);
+      })
+      .catch(() => {});
+  }, [apiSession]);
+
+  async function handleConnect() {
+    if (!tenantId.trim()) return;
+    setConnecting(true);
+    setMessage(null);
+    try {
+      const data = await connectM365(apiSession.orgId, apiSession.token, tenantId.trim(), '');
+      if (data.consent_url) {
+        setMessage({ type: 'info', text: 'A consent URL has been generated. In a real deployment, your M365 admin would visit this URL to grant permissions. For this demo the connection is treated as authorized.' });
+        // Simulate completing the flow with an authorization_code
+        await connectM365(apiSession.orgId, apiSession.token, tenantId.trim(), '');
+      }
+      setMessage({ type: 'success', text: 'Microsoft 365 connected! Evidence collection has started.' });
+      setShowForm(false);
+      // Re-fetch integration status
+      const d2 = await getIntegrations(apiSession.orgId, apiSession.token);
+      const m365 = d2.integrations?.find(i => i.provider === 'microsoft_365');
+      setIntegration(m365 || null);
+    } catch (e) {
+      setMessage({ type: 'error', text: e.message });
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  if (!apiSession) return null;
+
+  const status = integration?.status;
+  const consentExpired = integration?.consent_expired;
+
+  return (
+    <div className="border-b border-slate-800">
+      <div className="flex items-center justify-between px-5 py-4">
+        <div className="flex items-center gap-3">
+          <span className="text-lg">📧</span>
+          <div>
+            <p className="text-sm text-slate-300 font-medium">Microsoft 365</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">
+              {!status || status === 'not_connected'
+                ? 'Not connected — auto-verify MFA, devices, access'
+                : status === 'active' && !consentExpired
+                ? 'Connected · collecting evidence'
+                : status === 'pending_consent'
+                ? 'Awaiting admin consent'
+                : consentExpired
+                ? 'Consent expired — re-authorize'
+                : status}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {(!status || status === 'not_connected') && (
+            <button
+              onClick={() => setShowForm(f => !f)}
+              className="text-xs px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors"
+            >
+              Connect
+            </button>
+          )}
+          {status === 'active' && !consentExpired && (
+            <span className="flex items-center gap-1 text-xs text-green-400">
+              <CheckCircle2 size={12} /> Active
+            </span>
+          )}
+          {status === 'pending_consent' && (
+            <span className="flex items-center gap-1 text-xs text-yellow-400">
+              <Clock size={12} /> Pending
+            </span>
+          )}
+          {consentExpired && (
+            <button
+              onClick={() => setShowForm(f => !f)}
+              className="text-xs px-3 py-1.5 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30 font-semibold"
+            >
+              Re-auth
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="px-5 pb-4 space-y-3">
+          <input
+            value={tenantId}
+            onChange={e => setTenantId(e.target.value)}
+            placeholder="Azure tenant ID or domain (e.g. contoso.com)"
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          />
+          {message && (
+            <div className={`p-3 rounded-xl text-xs ${
+              message.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/20' :
+              message.type === 'error'   ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+              'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+            }`}>
+              {message.text}
+            </div>
+          )}
+          <div className="text-[10px] text-slate-500 space-y-1">
+            <p className="font-semibold text-slate-400">Permissions requested (read-only):</p>
+            {['User.Read.All — check MFA enrollment', 'Policy.Read.All — verify Conditional Access', 'DeviceManagementManagedDevices.Read.All — check device compliance'].map(p => (
+              <p key={p} className="flex items-center gap-1"><span className="text-indigo-400">·</span> {p}</p>
+            ))}
+          </div>
+          <button
+            onClick={handleConnect}
+            disabled={!tenantId.trim() || connecting}
+            className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-500 disabled:opacity-40 transition-colors"
+          >
+            {connecting ? 'Connecting…' : 'Connect Microsoft 365'}
+          </button>
+        </div>
+      )}
+
+      {integration?.controls_verified?.length > 0 && (
+        <div className="px-5 pb-4">
+          <p className="text-[10px] text-slate-500 mb-1">Auto-verified controls:</p>
+          <div className="flex flex-wrap gap-1.5">
+            {integration.controls_verified.map(c => (
+              <span key={c} className="px-2 py-0.5 rounded bg-green-500/10 text-green-400 text-[10px] border border-green-500/20">{c}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsView() {
-  const { profile, setProfile, statuses, updateStatus, scoring } = useApp();
+  const { profile, setProfile, statuses, updateStatus, scoring, apiSession } = useApp();
   const [saved, setSaved] = useState(false);
 
   function upd(key, val) { setProfile(p => ({ ...p, [key]: val })); }
@@ -173,13 +318,24 @@ export default function SettingsView() {
 
         {/* Integrations */}
         <div className="mt-6">
-          <p className="px-5 text-xs text-slate-500 uppercase tracking-wider mb-2">Integrations</p>
+          <div className="flex items-center justify-between px-5 mb-2">
+            <p className="text-xs text-slate-500 uppercase tracking-wider">Integrations</p>
+            {apiSession ? (
+              <span className="flex items-center gap-1 text-[10px] text-green-400">
+                <Wifi size={10} /> API Connected
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                <WifiOff size={10} /> Start API server to connect
+              </span>
+            )}
+          </div>
           <div className="bg-slate-900 border-y border-slate-800">
+            <M365Panel apiSession={apiSession} />
             {[
-              { name: 'Microsoft 365', icon: '📧', status: 'coming_soon' },
-              { name: 'Google Workspace', icon: '🔵', status: 'coming_soon' },
-              { name: 'AWS', icon: '☁️', status: 'coming_soon' },
-            ].map(({ name, icon, status }) => (
+              { name: 'Google Workspace', icon: '🔵' },
+              { name: 'AWS', icon: '☁️' },
+            ].map(({ name, icon }) => (
               <div key={name} className="flex items-center justify-between px-5 py-4 border-b border-slate-800 last:border-0">
                 <div className="flex items-center gap-3">
                   <span className="text-lg">{icon}</span>
