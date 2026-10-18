@@ -30,6 +30,7 @@ from backend.api.attestations import router as attestations_router
 from backend.api.members import router as members_router
 from backend.api.findings import router as findings_router
 from backend.api.orgs import router as orgs_router
+from backend.api.intelligence import router as intelligence_router
 from backend.auth.jwt import validate_prod_config
 
 logging.basicConfig(level=logging.INFO)
@@ -103,6 +104,7 @@ app.include_router(attestations_router)
 app.include_router(members_router)
 app.include_router(findings_router)
 app.include_router(orgs_router)
+app.include_router(intelligence_router)
 
 
 @app.get("/health", tags=["Health"])
