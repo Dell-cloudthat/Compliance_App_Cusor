@@ -13,7 +13,7 @@ import SettingsView from './views/securityos/SettingsView';
 import FindingsView from './views/securityos/FindingsView';
 import { calculateScore, buildDemoStatuses } from './data/scoring';
 import { loadCatalog } from './data/controls';
-import { Shield, Map, Bot, Globe, Settings, AlertTriangle } from 'lucide-react';
+import { Shield, Map, Bot, Globe, Settings, AlertTriangle, List } from 'lucide-react';
 import { connectToAPI, loadSession } from './data/api';
 
 // ── App Context ───────────────────────────────────────────────────────────────
@@ -77,8 +77,9 @@ function normalizeTenant(t) {
 
 // ── Bottom Nav ────────────────────────────────────────────────────────────────
 const NAV = [
-  { id: 'profile',  label: 'Profile',  icon: Shield },
+  { id: 'profile',  label: 'Score',    icon: Shield },
   { id: 'findings', label: 'Findings', icon: AlertTriangle },
+  { id: 'roadmap',  label: 'Roadmap',  icon: Map },
   { id: 'copilot',  label: 'Copilot',  icon: Bot },
   { id: 'global',   label: 'Customers',icon: Globe },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -343,6 +344,7 @@ export default function SecurityOSApp() {
             <>
               {view === 'profile'  && <SecurityProfileView />}
               {view === 'findings' && <FindingsView />}
+              {view === 'roadmap'  && <FixRoadmapView />}
               {view === 'copilot'  && <CopilotView />}
               {view === 'global'   && <GlobalView />}
               {view === 'settings' && <SettingsView />}
@@ -359,12 +361,12 @@ export default function SecurityOSApp() {
                 <button
                   key={id}
                   onClick={() => setView(id)}
-                  className={`flex-1 flex flex-col items-center py-3 gap-0.5 transition-colors ${
+                  className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors ${
                     active ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
                   }`}
                 >
-                  <Icon size={20} />
-                  <span className="text-[10px] font-medium">{label}</span>
+                  <Icon size={18} />
+                  <span className="text-[9px] font-medium">{label}</span>
                 </button>
               );
             })}
