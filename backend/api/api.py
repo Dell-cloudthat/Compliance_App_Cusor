@@ -359,15 +359,152 @@ def get_trust_passport(
     }
 
 
+# ─── Score Evidence Breakdown ────────────────────────────────────────────────
+
+# A status entry older than this many days is considered stale.
+_STALE_DAYS = 30
+# Score threshold above which a concealed-gap warning is issued.
+_SCORE_WARN_THRESHOLD = 70
+# Severities that trigger the concealed-gap warning.
+_HIGH_SEVERITY_SET = {"critical", "high"}
+
+
+@router.get("/organizations/{org_id}/score/evidence", summary="Per-control evidence breakdown")
+def get_score_evidence(
+    org_id: str,
+    principal: Principal = Depends(get_principal),
+):
+    """
+    Return a per-control evidence breakdown so customers can see exactly what
+    backs each control's status.
+
+    For every control the response includes:
+    - **status** — derived effective status (pass / fail / in_progress / unknown)
+    - **evidence_source** — where the status came from (attestation, approved_finding, manual, none, …)
+    - **evidence_confidence** — 0.0–1.0 confidence weight used in scoring
+    - **derived_from** — which mechanism produced the status
+    - **last_checked** — ISO-8601 timestamp of the most recent evidence
+    - **age_days** — how many days ago the evidence was recorded
+    - **stale** — true when age_days > 30 (manual or unverified evidence needs refresh)
+    - **notes** — any human-readable notes attached to the status
+
+    The summary section includes a **concealed_gap_warning** when the overall score
+    is ≥ 70 but at least one critical or high-severity control is still failing.
+    """
+    require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
+
+    from backend.scoring.engine import EVIDENCE_CONFIDENCE, load_catalog, calculate_score
+
+    catalog = load_catalog()
+    statuses = _effective_statuses(org_id)
+    profile = _profile(org_id) or None
+    score_result = calculate_score(statuses, business_profile=profile, catalog=catalog)
+
+    now = datetime.utcnow()
+    controls_out = []
+    verified_count = 0
+    stale_count = 0
+    failing_high_severity: list = []
+
+    for ctrl in catalog:
+        ctrl_id = ctrl["id"]
+        entry = statuses.get(ctrl_id, {})
+        status = entry.get("status", "unknown")
+        evidence_source = entry.get("evidence_source", "none")
+        derived_from = entry.get("derived_from", "none")
+        last_checked = entry.get("last_checked")
+        notes = entry.get("notes")
+
+        # Age calculation
+        age_days: Optional[float] = None
+        is_stale = False
+        if last_checked:
+            try:
+                lc_dt = datetime.fromisoformat(last_checked.replace("Z", "+00:00"))
+                # Strip tz for simple subtraction if needed
+                lc_naive = lc_dt.replace(tzinfo=None) if lc_dt.tzinfo else lc_dt
+                age_days = round((now - lc_naive).total_seconds() / 86400, 1)
+                is_stale = age_days > _STALE_DAYS
+            except (ValueError, TypeError):
+                pass
+
+        confidence = EVIDENCE_CONFIDENCE.get(str(evidence_source), 0.0)
+
+        if status == "pass":
+            verified_count += 1
+        if is_stale:
+            stale_count += 1
+        if status == "fail" and ctrl.get("severity") in _HIGH_SEVERITY_SET:
+            failing_high_severity.append({
+                "control_id": ctrl_id,
+                "name": ctrl["name"],
+                "severity": ctrl.get("severity"),
+            })
+
+        controls_out.append({
+            "control_id": ctrl_id,
+            "name": ctrl["name"],
+            "short_name": ctrl.get("short_name"),
+            "category": ctrl.get("category"),
+            "severity": ctrl.get("severity"),
+            "status": status,
+            "evidence_source": evidence_source,
+            "evidence_confidence": confidence,
+            "derived_from": derived_from,
+            "last_checked": last_checked,
+            "age_days": age_days,
+            "stale": is_stale,
+            "notes": notes,
+            "finding_ids": entry.get("finding_ids", []),
+            "attestation_id": entry.get("attestation_id"),
+            "risk_accepted": entry.get("risk_accepted", False),
+        })
+
+    # Sort: failing first, then by severity
+    _sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    _status_order = {"fail": 0, "in_progress": 1, "unknown": 2, "pass": 3}
+    controls_out.sort(key=lambda c: (
+        _status_order.get(c["status"], 5),
+        _sev_order.get(c["severity"], 5),
+    ))
+
+    total_score = score_result.total_score
+    concealed_gap = total_score >= _SCORE_WARN_THRESHOLD and bool(failing_high_severity)
+
+    return {
+        "org_id": org_id,
+        "total_score": total_score,
+        "grade": score_result.grade,
+        "summary": {
+            "total_controls": len(controls_out),
+            "verified_count": verified_count,
+            "stale_count": stale_count,
+            "failing_count": score_result.summary.get("failing", 0),
+            "unknown_count": score_result.summary.get("unknown", 0),
+            "in_progress_count": score_result.summary.get("in_progress", 0),
+        },
+        "concealed_gap_warning": concealed_gap,
+        "concealed_gaps": failing_high_severity if concealed_gap else [],
+        "concealed_gap_message": (
+            f"Score is {total_score} but {len(failing_high_severity)} critical/high "
+            "control(s) are failing. These must be resolved — accepting risk or ignoring "
+            "them does not make the organisation secure."
+        ) if concealed_gap else None,
+        "evidence_breakdown": score_result.evidence_breakdown,
+        "controls": controls_out,
+        "generated_at": now.isoformat(),
+    }
+
+
 # ─── AI Copilot (public — no auth required for context building) ─────────────
 
 @router.post("/copilot")
 def copilot_query(payload: CopilotMessage):
     """
-    AI Security Copilot endpoint.
+    AI Security Copilot endpoint (unauthenticated preview).
     Returns structured context for client-side AI processing.
-    Authentication is optional here to allow unauthenticated copilot previews;
-    for production deployments with sensitive org data, add get_principal dependency.
+    For org-specific grounded responses, use POST /organizations/{org_id}/copilot.
     """
     statuses = payload.control_statuses or {}
     profile = payload.profile or {}
@@ -396,4 +533,134 @@ def copilot_query(payload: CopilotMessage):
         },
         "message": payload.message,
         "note": "Connect to your preferred LLM provider with this context to generate responses.",
+    }
+
+
+class OrgCopilotMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.post(
+    "/organizations/{org_id}/copilot",
+    summary="Grounded AI Copilot — answers are based on this org's actual findings",
+)
+def org_copilot_query(
+    org_id: str,
+    payload: OrgCopilotMessage,
+    principal: Principal = Depends(get_principal),
+):
+    """
+    Grounded Security Copilot for a specific organisation.
+
+    Unlike the public /copilot endpoint, this one:
+    - Is authenticated — only org members can query it.
+    - Pulls the org's **actual** open findings, control statuses, and evidence.
+    - Enriches each open finding with catalog remediation steps, framework
+      mappings, estimated effort, and verification methods so an LLM can give
+      engineer-specific guidance rather than generic AI text.
+    - Makes clear which claims are backed by real evidence and which are unknown,
+      so the AI cannot fabricate compliance status.
+
+    The response contains a `grounded_context` object ready to be injected into
+    an LLM system prompt.  Pass it along with `message` to your LLM provider.
+    """
+    require_org_access(principal, org_id)
+    require_permission(principal, org_id, PERM_FINDING_VIEW)
+
+    from backend.repositories.finding_repo import finding_repo as _finding_repo
+    from backend.scoring.engine import load_catalog
+
+    catalog = load_catalog()
+    catalog_by_id = {c["id"]: c for c in catalog}
+    statuses = _effective_statuses(org_id)
+    profile = _profile(org_id) or {}
+    score_data = calculate_score(statuses, business_profile=profile, catalog=catalog)
+
+    # Collect open/in-progress findings with full remediation context
+    open_findings = [
+        f for f in _finding_repo.list_by_org(org_id)
+        if f.state not in ("closed",)
+    ]
+
+    findings_context = []
+    for f in open_findings:
+        ctrl_guidance = []
+        for cid in f.control_ids:
+            ctrl = catalog_by_id.get(cid)
+            if ctrl:
+                ctrl_guidance.append({
+                    "control_id": cid,
+                    "name": ctrl["name"],
+                    "framework_mappings": ctrl.get("framework_mappings", {}),
+                    "remediation_steps": ctrl.get("remediation_steps", []),
+                    "estimated_minutes": ctrl.get("estimated_minutes"),
+                    "verification_methods": ctrl.get("verification_methods", []),
+                    "evidence_requirements": ctrl.get("evidence_requirements", []),
+                })
+        findings_context.append({
+            "finding_id": f.finding_id,
+            "title": f.title,
+            "description": f.description,
+            "severity": f.severity,
+            "state": f.state,
+            "is_overdue": f.is_overdue(),
+            "due_date": f.due_date,
+            "business_impact": f.business_impact,
+            "affected_resources": [
+                {"resource_type": r.resource_type, "identifier": r.identifier}
+                for r in (f.affected_resources or [])
+            ],
+            "definition_of_done": f.definition_of_done,
+            "verification_evidence": f.verification_evidence,
+            "control_guidance": ctrl_guidance,
+        })
+
+    # Per-control evidence summary (show what is and isn't verified)
+    evidence_summary = []
+    for ctrl in catalog:
+        entry = statuses.get(ctrl["id"], {})
+        evidence_summary.append({
+            "control_id": ctrl["id"],
+            "name": ctrl["name"],
+            "severity": ctrl.get("severity"),
+            "status": entry.get("status", "unknown"),
+            "evidence_source": entry.get("evidence_source", "none"),
+            "derived_from": entry.get("derived_from", "none"),
+            "last_checked": entry.get("last_checked"),
+        })
+
+    return {
+        "org_id": org_id,
+        "message": payload.message,
+        "grounded_context": {
+            "org_profile": {
+                "business_name": profile.get("business_name", ""),
+                "industry": profile.get("industry", ""),
+                "employee_count": profile.get("employee_count", ""),
+                "sensitive_data": profile.get("sensitive_data", []),
+                "regulatory_exposure": profile.get("regulatory_exposure", []),
+            },
+            "score": {
+                "total": score_data.total_score,
+                "grade": score_data.grade,
+                "verified_pct": round(score_data.verified_pct, 1),
+                "confidence_note": score_data.confidence_note,
+            },
+            "open_findings": findings_context,
+            "open_finding_count": len(findings_context),
+            "overdue_finding_count": sum(1 for f in open_findings if f.is_overdue()),
+            "evidence_summary": evidence_summary,
+            "instruction": (
+                "You are a cybersecurity advisor for this organisation. "
+                "Answer ONLY based on the evidence in grounded_context. "
+                "Do not invent or assume compliance status for any control unless "
+                "its evidence_source is 'direct_automated' or 'attested_third_party'. "
+                "For each open finding, provide step-by-step remediation from "
+                "control_guidance.remediation_steps, estimated effort, and state "
+                "what verification_evidence is required to close the finding."
+            ),
+        },
+        "note": "Inject grounded_context into your LLM system prompt to generate accurate, org-specific responses.",
     }

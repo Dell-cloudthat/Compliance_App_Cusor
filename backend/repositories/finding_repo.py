@@ -67,6 +67,14 @@ class FindingEvent:
 
 
 @dataclass
+class AffectedResource:
+    """One user, device, setting, or cloud resource affected by a finding."""
+    resource_type: str    # e.g. "user", "device", "setting", "cloud_resource"
+    identifier: str       # e.g. email, hostname, setting path, ARN
+    details: Optional[str] = None  # extra context
+
+
+@dataclass
 class Finding:
     finding_id: str
     org_id: str
@@ -84,12 +92,34 @@ class Finding:
     risk_accepted_until: Optional[str] = None
     risk_justification: Optional[str] = None
     risk_accepted_by: Optional[str] = None
+    # Engineering to-do fields (Priority 1)
+    affected_resources: List[AffectedResource] = field(default_factory=list)
+    due_date: Optional[str] = None           # ISO-8601 date (YYYY-MM-DD)
+    business_impact: Optional[str] = None    # plain-language impact statement
+    verification_evidence: Optional[str] = None  # what constitutes proof of completion
+    definition_of_done: Optional[str] = None     # acceptance criteria for closure
+    # Catalog-derived fields — auto-populated on creation, never edited directly
+    catalog_remediation_steps: List[str] = field(default_factory=list)
+    catalog_estimated_minutes: Optional[int] = None
+    catalog_framework_mappings: dict = field(default_factory=dict)
+    catalog_verification_methods: List[dict] = field(default_factory=list)
 
     def risk_acceptance_expired(self, now: Optional[datetime] = None) -> bool:
         if self.state != "risk_accepted" or not self.risk_accepted_until:
             return False
         until = datetime.fromisoformat(self.risk_accepted_until)
         return until <= (now or datetime.now(timezone.utc))
+
+    def is_overdue(self, now: Optional[datetime] = None) -> bool:
+        """True when a due_date has passed and the finding is not closed."""
+        if not self.due_date or self.state == "closed":
+            return False
+        cutoff = (now or datetime.now(timezone.utc)).date()
+        try:
+            due = datetime.fromisoformat(self.due_date).date()
+        except ValueError:
+            return False
+        return due < cutoff
 
 
 # Actions that count as "doing the remediation work" for separation-of-duties checks.
@@ -115,6 +145,16 @@ class InMemoryFindingRepository:
         control_ids: List[str],
         created_by_user_id: str,
         created_by_name: str,
+        affected_resources: Optional[List[AffectedResource]] = None,
+        due_date: Optional[str] = None,
+        business_impact: Optional[str] = None,
+        verification_evidence: Optional[str] = None,
+        definition_of_done: Optional[str] = None,
+        # Catalog-derived — callers pass these in; API layer populates from catalog
+        catalog_remediation_steps: Optional[List[str]] = None,
+        catalog_estimated_minutes: Optional[int] = None,
+        catalog_framework_mappings: Optional[dict] = None,
+        catalog_verification_methods: Optional[List[dict]] = None,
     ) -> Finding:
         now = datetime.now(timezone.utc).isoformat()
         finding_id = str(uuid.uuid4())
@@ -129,6 +169,15 @@ class InMemoryFindingRepository:
             created_by_user_id=created_by_user_id,
             created_at=now,
             updated_at=now,
+            affected_resources=affected_resources or [],
+            due_date=due_date,
+            business_impact=business_impact,
+            verification_evidence=verification_evidence,
+            definition_of_done=definition_of_done,
+            catalog_remediation_steps=catalog_remediation_steps or [],
+            catalog_estimated_minutes=catalog_estimated_minutes,
+            catalog_framework_mappings=catalog_framework_mappings or {},
+            catalog_verification_methods=catalog_verification_methods or [],
         )
         event = FindingEvent(
             event_id=str(uuid.uuid4()),
